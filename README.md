@@ -49,8 +49,9 @@ directory and only materialise against dates the binary can reach.
 
 ## Deployment (Dagster LXC)
 
-The LXC, the `corpus` binary, and the NFS mount are stood up per the homelab
-how-tos. This repo supplies the orchestration wiring in `deploy/`:
+The LXC and the NFS mount are stood up per the homelab how-tos; the `corpus`
+binary and its dataset configs are pulled by `redeploy.sh` (see below). This repo
+supplies the orchestration wiring in `deploy/`:
 
 - `dagster.yaml` — instance config; `QueuedRunCoordinator` with `max_concurrent_runs: 1`
   (deliberately low — phase 4). Copy to `$DAGSTER_HOME/dagster.yaml`.
@@ -60,14 +61,18 @@ how-tos. This repo supplies the orchestration wiring in `deploy/`:
   to the real clone path before installing.
 
 Deploy = `git clone` + `uv sync` on the LXC, install the units, `systemctl enable --now`.
-First-time host setup (LXC, UID/GID map, NFS mount, `corpus` binary, `uv`) is in
-the homelab `deploy-dagster-lxc.md` how-to.
+First-time host setup (LXC, UID/GID map, NFS mount, `gh` auth, `uv`) is in the
+homelab `deploy-dagster-lxc.md` how-to.
 
-- `redeploy.sh` — recurring update: pull + `uv sync` as `corpus`, publish
-  `dagster.yaml` to `DAGSTER_HOME`, restart the services. Run as root from anywhere
-  in the container (`bash /opt/eve-industry-orchestration/deploy/redeploy.sh`); it
-  pulls itself and drops to `corpus` for the repo work so the corpus-owned tree is
-  not rewritten as root. Symlink it onto PATH once for a bare `redeploy`:
+- `redeploy.sh` — recurring update: pull + `uv sync` as `corpus`, pull the
+  `CORPUS_VERSION`-pinned `corpus` binary + datasets from the private release
+  (`gh`, checksum-verified, `--version`-asserted), publish `dagster.yaml` to
+  `DAGSTER_HOME`, restart the services. Run as root from anywhere in the container
+  (`bash /opt/eve-industry-orchestration/deploy/redeploy.sh`); it pulls itself and
+  drops to `corpus` for the repo work so the corpus-owned tree is not rewritten as
+  root. Bumping corpus is editing the pin (or `CORPUS_VERSION=v0.1.5 redeploy`) and
+  re-running; the download needs `gh` authenticated as root (`gh auth login`, or
+  `GH_TOKEN`). Symlink it onto PATH once for a bare `redeploy`:
   `ln -s /opt/eve-industry-orchestration/deploy/redeploy.sh /usr/local/bin/redeploy`.
 
 ## Testing

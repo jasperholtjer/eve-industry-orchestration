@@ -116,15 +116,20 @@ materialisation is manual.
   corpus side leases `everef-download: 8`. The sensor must not stampede the queue;
   consider Dagster `tag_concurrency_limits` (referenced in the dataset YAML comment).
 
-### 4. Automate the release pull in deploy
+### 4. Automate the release pull in deploy — done
 
-Per the decision above. Today the binary is assumed present at `CORPUS_BINARY_PATH`.
+> [!NOTE]
+> `deploy/redeploy.sh` pulls the `CORPUS_VERSION`-pinned binary and its
+> version-matched dataset configs from the private corpus release via `gh`,
+> verifies the release `SHA256SUMS`, installs both into root-owned `/usr/local`,
+> and asserts `corpus --version` matches the pin. The install paths reuse the
+> same `CORPUS_BINARY_PATH` / `CORPUS_DATASETS_DIR` env vars the systemd units
+> pass to Dagster, so the running and deployed binaries cannot drift. Bumping
+> corpus is editing the pin (or `CORPUS_VERSION=v0.1.5 redeploy`) and re-running.
 
-- Add a deploy script (under `deploy/`) that downloads a pinned `corpus` release
-  asset to `/usr/local/bin/corpus`, verifies its checksum, and asserts
-  `corpus --version` matches the pin.
-- Document the version-bump procedure (edit the pin, re-run the script).
-- Fold into the existing deploy flow (`git clone` + `uv sync` + systemd units).
+Per the decision above. The pull is folded into the existing flow (`git pull` +
+`uv sync` + binary pull + systemd restart); downloading from the private repo
+needs `gh` authenticated as root (`gh auth login`, or `GH_TOKEN`).
 
 ### 5. Enrich materialisation metadata
 
