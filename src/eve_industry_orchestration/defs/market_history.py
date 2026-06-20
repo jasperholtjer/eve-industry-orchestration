@@ -71,8 +71,40 @@ def market_history_silver(
 def market_history_gold(
     context: dg.AssetExecutionContext, corpus: CorpusResource
 ) -> dg.MaterializeResult:
-    """Gold partition, built from the Silver contract on the NAS."""
-    # Blocked upstream: `corpus gold` documents the rolling-window builder as
-    # "deferred to plan 07 follow-up" (ROADMAP item 2). Keep failing loudly
-    # until the corpus side completes; do not invoke a half-built builder.
-    raise NotImplementedError("corpus gold builder deferred to plan 07 follow-up")
+    """Gold partition: build the rolling-window features, then verify the contract.
+
+    ``corpus gold build`` reads the full ``[date - max_horizon, date]`` Silver
+    window from the contract on the NAS and enforces ``coverage_min_ratio``
+    itself: an incomplete window exits non-zero and fails the run rather than
+    writing a degraded partition. The availability sensor only requests dates
+    ``corpus gold ready-dates`` already reports as buildable, so this is a
+    backstop rather than the primary gate.
+    """
+    date = context.partition_key
+    corpus.run(
+        context,
+        "gold",
+        "build",
+        "--dataset",
+        DATASET,
+        "--date",
+        date,
+        "--sink-path",
+        corpus.sink_path,
+    )
+    corpus.run(
+        context,
+        "verify",
+        "--dataset",
+        DATASET,
+        "--date",
+        date,
+        "--tier",
+        "gold",
+        "--sink-path",
+        corpus.sink_path,
+    )
+    # TODO: enrich metadata from _INDEX.json / `corpus state query`.
+    return dg.MaterializeResult(
+        metadata={"dataset": DATASET, "tier": "gold", "partition": date}
+    )

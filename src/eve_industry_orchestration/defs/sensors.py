@@ -8,8 +8,11 @@ materialisation for each newly available date.
 
 Status is keyed on the corpus run-state, never on globbing the NAS tree: the
 ``missing`` set already excludes locally ingested dates, and Dagster ``run_key``
-dedup prevents re-queuing a date that is already requested or in flight. Gold
-follows via the ``deps=`` chain once its builder is unblocked (ROADMAP item 2).
+dedup prevents re-queuing a date that is already requested or in flight.
+
+Gold has its own availability sensor (``market_history_gold_sensor``): ``deps=``
+only expresses lineage, it does not trigger downstream materialisations, so Gold
+is driven by polling ``corpus gold ready-dates`` rather than by the Silver run.
 """
 
 import dagster as dg
@@ -17,6 +20,8 @@ import dagster as dg
 from eve_industry_orchestration.defs.corpus_resource import CorpusResource
 from eve_industry_orchestration.defs.market_history import (
     DATASET,
+    gold_partitions,
+    market_history_gold,
     market_history_silver,
     silver_partitions,
 )
@@ -61,6 +66,45 @@ def market_history_availability_sensor(
             partition_key=date,
             tags={_EVEREF_TAG: "1"},
         )
+        for date in selected
+    ]
+    return dg.SensorResult(run_requests=run_requests)
+
+
+@dg.sensor(
+    target=market_history_gold,
+    minimum_interval_seconds=300,
+    default_status=dg.DefaultSensorStatus.STOPPED,
+)
+def market_history_gold_sensor(
+    context: dg.SensorEvaluationContext, corpus: CorpusResource
+) -> dg.SensorResult:
+    """Requests Gold runs for market-history dates whose Silver window is complete.
+
+    ``deps=`` only expresses lineage, so Gold needs its own availability trigger.
+    The readiness decision (target-day Silver present, rolling window at
+    ``coverage_min_ratio``, Gold not yet built) lives in ``corpus gold
+    ready-dates`` — never recomputed in Python — so this sensor stays a thin
+    cap-and-dedup loop, mirroring the Silver sensor.
+    """
+    report = corpus.gold_ready_dates(DATASET)
+    ready = report.get("ready", [])
+
+    valid = set(gold_partitions.get_partition_keys())
+    eligible = sorted(date for date in ready if date in valid)
+    selected = eligible[:MAX_PARTITIONS_PER_TICK]
+
+    deferred = len(eligible) - len(selected)
+    if deferred > 0:
+        context.log.info(
+            "gold-readiness: %d eligible, requesting %d this tick, %d deferred",
+            len(eligible),
+            len(selected),
+            deferred,
+        )
+
+    run_requests = [
+        dg.RunRequest(run_key=f"{DATASET}-gold-{date}", partition_key=date)
         for date in selected
     ]
     return dg.SensorResult(run_requests=run_requests)

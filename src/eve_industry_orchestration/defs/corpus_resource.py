@@ -111,6 +111,25 @@ class CorpusResource(dg.ConfigurableResource):
             args += ["--window-days", str(window_days)]
         return self._capture_json(*args)
 
+    def gold_ready_dates(self, dataset: str) -> dict[str, Any]:
+        """Returns the dates whose Gold partition is ready to build as a dict.
+
+        Wraps ``corpus gold ready-dates``, which reads the run-state
+        ``partitions`` table and reports dates whose target-day Silver is
+        present, whose rolling window meets ``coverage_min_ratio``, and whose
+        Gold partition is not yet built. The ``ready`` key holds that date list.
+        """
+        return self._capture_json(
+            "gold",
+            "ready-dates",
+            "--dataset",
+            dataset,
+            "--sink-path",
+            self.sink_path,
+            "--format",
+            "json",
+        )
+
     def state_query(self, sql: str) -> list[dict[str, Any]]:
         """Runs a read-only ``corpus state query`` and returns the JSON rows."""
         return self._capture_json(

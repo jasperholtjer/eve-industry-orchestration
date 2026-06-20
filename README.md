@@ -13,8 +13,8 @@ The homelab deployment (LXC, NFS mount, build order) is documented in
 
 - **`CorpusResource`** (`defs/corpus_resource.py`) — wraps the binary. `run`
   streams a subcommand into the run log (Silver/Gold materialisations);
-  `everef_missing_partitions` and `state_query` capture JSON off stdout for the
-  sensor.
+  `everef_missing_partitions`, `gold_ready_dates`, and `state_query` capture JSON
+  off stdout for the sensors.
 - **Partition config** (`defs/config.py`) — resolves Silver/Gold start dates from
   the corpus dataset YAML (`gold.served_start`, minus one rolling window for
   Silver) instead of hardcoding them. Override per tier with
@@ -23,11 +23,14 @@ The homelab deployment (LXC, NFS mount, build order) is documented in
   assets, with **distinct** partition start dates (Silver reaches back one rolling
   window before Gold). Gold depends on Silver via `deps=` (the data dependency runs
   over the NAS contract, not an IOManager).
-- **Availability sensor** (`defs/sensors.py`) — polls
-  `corpus everef missing-partitions` and requests Silver runs for newly available
-  dates. Status is keyed on corpus run-state (the SQLite `partitions` table), never
-  on globbing the NAS tree; `run_key` dedup prevents re-queuing in-flight dates.
-- **Resources** (`defs/resources.py`) — binds `corpus` to the assets and sensor
+- **Availability sensors** (`defs/sensors.py`) — two thin cap-and-dedup loops.
+  The Silver sensor polls `corpus everef missing-partitions` and requests Silver
+  runs for newly available dates; the Gold sensor polls `corpus gold ready-dates`
+  and requests Gold runs for dates whose rolling window is complete (`deps=` is
+  lineage only, so Gold needs its own trigger). Both key status on corpus
+  run-state (the SQLite `partitions` table), never on globbing the NAS tree;
+  `run_key` dedup prevents re-queuing in-flight dates.
+- **Resources** (`defs/resources.py`) — binds `corpus` to the assets and sensors
   from env vars.
 
 Adding a dataset later is a new module mirroring `market_history.py` (or a factory
@@ -78,8 +81,5 @@ starts, the sensor's `RunRequest` generation, and the resource's non-zero-exit -
 
 ## Open items
 
-- **Silver->Gold subcommand** — `market_history_gold` raises `NotImplementedError`;
-  `corpus gold` documents its rolling-window builder as deferred to plan 07.
-  Confirm the corpus-side completion, then wire the gold build/verify CLI.
 - **Materialisation metadata** — enrich `MaterializeResult` from `_INDEX.json` /
-  `corpus state query` (rows, retention_class).
+  `corpus state query` (rows, retention_class) for both Silver and Gold.

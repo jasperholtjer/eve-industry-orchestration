@@ -34,10 +34,12 @@ The full rationale lives in [ROADMAP.md](ROADMAP.md); the load-bearing rules:
   driven by the sensor polling `corpus everef missing-partitions`. Status is keyed
   on corpus run-state (the SQLite `partitions` table), **never** on globbing the
   NAS tree.
-- **Gold gate is binary-authoritative.** `corpus gold` enforces
-  `coverage_min_ratio: 1.0`; the sensor only pre-checks to avoid queuing doomed
-  runs. `market_history_gold` stays `NotImplementedError` until the corpus-side
-  rolling-window builder lands (plan 07) — do not wire it early.
+- **Gold gate is binary-authoritative.** `corpus gold` reads the full
+  `[date - max_horizon, date]` Silver window and enforces `coverage_min_ratio:
+  1.0` itself; an incomplete window exits non-zero and fails the run. The
+  `market_history_gold` asset only shells out and records the run — it never
+  pre-validates the window in Python. The sensor pre-checks only to avoid
+  queuing doomed runs.
 - **Concurrency.** `deploy/dagster.yaml` pins `max_concurrent_runs: 1`
   (deliberately polite to EVE Ref and the single-HDD NAS). Keep sensor fan-out
   capped per tick.

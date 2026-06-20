@@ -7,7 +7,35 @@ import pytest
 
 from eve_industry_orchestration.defs.sensors import (
     market_history_availability_sensor,
+    market_history_gold_sensor,
 )
+
+
+def _ingest(corpus, date: str) -> None:
+    corpus.run(
+        dg.build_asset_context(),
+        "ingest",
+        "--dataset",
+        "market-history",
+        "--date",
+        date,
+        "--sink-path",
+        corpus.sink_path,
+    )
+
+
+def _build_gold(corpus, date: str) -> None:
+    corpus.run(
+        dg.build_asset_context(),
+        "gold",
+        "build",
+        "--dataset",
+        "market-history",
+        "--date",
+        date,
+        "--sink-path",
+        corpus.sink_path,
+    )
 
 
 def test_requests_runs_for_newly_available_dates(
@@ -55,5 +83,36 @@ def test_no_missing_dates_yields_no_requests(
     context = dg.build_sensor_context(resources={"corpus": corpus})
 
     result = market_history_availability_sensor(context)
+
+    assert result.run_requests == []
+
+
+def test_gold_sensor_requests_ready_dates(corpus) -> None:
+    # A Silver partition whose window is complete (per the binary) shows up as
+    # ready until its Gold partition is built.
+    _ingest(corpus, "2024-01-15")
+    context = dg.build_sensor_context(resources={"corpus": corpus})
+
+    result = market_history_gold_sensor(context)
+
+    by_partition = {rr.partition_key: rr for rr in result.run_requests}
+    assert sorted(by_partition) == ["2024-01-15"]
+    assert by_partition["2024-01-15"].run_key == "market-history-gold-2024-01-15"
+
+
+def test_gold_sensor_excludes_already_built_dates(corpus) -> None:
+    _ingest(corpus, "2024-01-15")
+    _build_gold(corpus, "2024-01-15")
+    context = dg.build_sensor_context(resources={"corpus": corpus})
+
+    result = market_history_gold_sensor(context)
+
+    assert result.run_requests == []
+
+
+def test_gold_sensor_no_silver_yields_no_requests(corpus) -> None:
+    context = dg.build_sensor_context(resources={"corpus": corpus})
+
+    result = market_history_gold_sensor(context)
 
     assert result.run_requests == []

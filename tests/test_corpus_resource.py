@@ -64,6 +64,44 @@ def test_nonzero_exit_raises_failure(corpus) -> None:
         )
 
 
+def test_gold_builds_then_verifies(corpus) -> None:
+    context = dg.build_asset_context()
+    corpus.run(
+        context, "ingest", "--dataset", "market-history",
+        "--date", "2024-01-15", "--sink-path", corpus.sink_path,
+    )  # fmt: skip
+    corpus.run(
+        context, "gold", "build", "--dataset", "market-history",
+        "--date", "2024-01-15", "--sink-path", corpus.sink_path,
+    )  # fmt: skip
+    corpus.run(
+        context, "verify", "--dataset", "market-history", "--date", "2024-01-15",
+        "--tier", "gold", "--sink-path", corpus.sink_path,
+    )  # fmt: skip
+
+    pdir = (
+        Path(corpus.sink_path)
+        / "gold"
+        / "market-history"
+        / "year=2024"
+        / "month=01"
+        / "day=15"
+    )
+    assert (pdir / "_DONE").is_file()
+    assert (pdir / "_INDEX.json").is_file()
+    assert (pdir / "data.parquet").is_file()
+
+
+def test_gold_without_target_silver_raises_failure(corpus) -> None:
+    context = dg.build_asset_context()
+    # The builder cannot derive Gold without the target-day Silver row(s).
+    with pytest.raises(dg.Failure):
+        corpus.run(
+            context, "gold", "build", "--dataset", "market-history",
+            "--date", "2024-01-15", "--sink-path", corpus.sink_path,
+        )  # fmt: skip
+
+
 def test_state_query_returns_rows(corpus) -> None:
     context = dg.build_asset_context()
     corpus.run(
