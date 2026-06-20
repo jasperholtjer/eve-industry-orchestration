@@ -1,0 +1,19 @@
+name: market-history
+schema_version: 1
+source:
+  kind: everef
+  base_url: https://data.everef.net/market-history
+  filename_template: "{year}/market-history-{year}-{month:02d}-{day:02d}.csv.bz2"
+partition:
+  keys: [year, month, day]
+  layout: "year={year}/month={month:02d}/day={day:02d}"
+gold:
+  feature_contract: rolling_v1
+  served_start: 2021-01-01
+  rolling:
+    horizons_basic: [1, 7, 30, 90, 365]
+    horizons_vwap: [7, 30, 90, 365]
+    horizon_52w: 365
+    coverage_min_ratio: 1.0
+retention:
+  default_class: validated

@@ -1,0 +1,10 @@
+# Dagster instance config. Copy to $DAGSTER_HOME/dagster.yaml on the LXC.
+# Storage defaults to SQLite under DAGSTER_HOME (NVMe) — no DB-VM dependency.
+
+# Deliberately low backfill concurrency: polite to the upstream source
+# (data.everef.net) and gentle on the single-HDD UNAS over NFS (phase 4).
+run_coordinator:
+  module: dagster.core.run_coordinator
+  class: QueuedRunCoordinator
+  config:
+    max_concurrent_runs: 1

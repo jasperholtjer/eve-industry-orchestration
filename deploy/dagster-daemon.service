@@ -1,0 +1,20 @@
+[Unit]
+Description=Dagster daemon (eve-industry-orchestration)
+After=network-online.target mnt-eve.mount
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=corpus
+Group=988
+# TODO: confirm the deploy path the repo is cloned to on the LXC.
+WorkingDirectory=/opt/eve-industry-orchestration
+Environment=DAGSTER_HOME=/var/lib/dagster
+Environment=CORPUS_BINARY_PATH=/usr/local/bin/corpus
+Environment=CORPUS_DATASETS_DIR=/usr/local/share/corpus/datasets
+Environment=CORPUS_SINK_PATH=/mnt/eve
+ExecStart=/opt/eve-industry-orchestration/.venv/bin/dagster-daemon run -w /opt/eve-industry-orchestration/deploy/workspace.yaml
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

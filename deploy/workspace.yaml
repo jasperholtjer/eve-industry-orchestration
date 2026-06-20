@@ -1,0 +1,3 @@
+# Code location for the webserver and daemon on the LXC.
+load_from:
+  - python_module: eve_industry_orchestration.definitions
