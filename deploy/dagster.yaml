@@ -8,3 +8,8 @@ run_coordinator:
   class: QueuedRunCoordinator
   config:
     max_concurrent_runs: 1
+
+# Headless homelab box, no usage stats. Disabled to keep the daemon/webserver
+# logs free of the telemetry notice on every start.
+telemetry:
+  enabled: false
