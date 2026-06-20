@@ -57,6 +57,13 @@ how-tos. This repo supplies the orchestration wiring in `deploy/`:
   to the real clone path before installing.
 
 Deploy = `git clone` + `uv sync` on the LXC, install the units, `systemctl enable --now`.
+First-time host setup (LXC, UID/GID map, NFS mount, `corpus` binary, `uv`) is in
+the homelab `deploy-dagster-lxc.md` how-to.
+
+- `redeploy.sh` — recurring update: pull + `uv sync` as `corpus`, publish
+  `dagster.yaml` to `DAGSTER_HOME`, restart the services. Run as root inside the
+  container (`bash deploy/redeploy.sh`); it drops to `corpus` for the repo work so
+  the corpus-owned tree is not rewritten as root.
 
 ## Testing
 
