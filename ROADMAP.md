@@ -112,9 +112,10 @@ materialisation is manual.
 - Add a Dagster sensor polling `corpus everef missing-partitions --dataset
   market-history --format json` and requesting Silver runs for the newly available
   dates; Gold follows via the `deps=` chain once item 2 is unblocked.
-- Respect concurrency: `deploy/dagster.yaml` pins `max_concurrent_runs: 1`, and the
-  corpus side leases `everef-download: 8`. The sensor must not stampede the queue;
-  consider Dagster `tag_concurrency_limits` (referenced in the dataset YAML comment).
+- Respect concurrency: `deploy/dagster.yaml` pins `max_concurrent_runs: 4` with a
+  `tag_concurrency_limit` of 2 on `corpus/everef-download` (only Silver carries the
+  tag; EVE Ref endorses ~2 parallel transfers, the NAS spindle is the real limiter).
+  The sensor must also not stampede the queue, hence the per-tick cap.
 
 ### 4. Automate the release pull in deploy — done
 

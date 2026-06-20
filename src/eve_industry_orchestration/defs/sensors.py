@@ -26,11 +26,12 @@ from eve_industry_orchestration.defs.market_history import (
     silver_partitions,
 )
 
-# deploy/dagster.yaml pins max_concurrent_runs:1, so the coordinator serialises
-# execution. Still cap how many partitions enter the queue per tick (oldest
-# first) so a cold start does not enqueue the whole backlog at once; later ticks
-# drain the remainder. The tag mirrors the corpus `everef-download` lease so a
-# tag_concurrency_limit can throttle this lane independently if needed.
+# deploy/dagster.yaml runs up to max_concurrent_runs:4, with a
+# tag_concurrency_limit of 2 on the everef-download tag below. Still cap how many
+# partitions enter the queue per tick (oldest first) so a cold start does not
+# enqueue the whole backlog at once; later ticks drain the remainder. The tag
+# mirrors the corpus `everef-download` lease and is what the coordinator throttles
+# to keep at most 2 Silver downloads (the `ingest` step) hitting EVE Ref at once.
 MAX_PARTITIONS_PER_TICK = 10
 _EVEREF_TAG = "corpus/everef-download"
 

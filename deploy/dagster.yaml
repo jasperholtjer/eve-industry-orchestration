@@ -1,13 +1,22 @@
 # Dagster instance config. Copy to $DAGSTER_HOME/dagster.yaml on the LXC.
 # Storage defaults to SQLite under DAGSTER_HOME (NVMe) — no DB-VM dependency.
 
-# Deliberately low backfill concurrency: polite to the upstream source
-# (data.everef.net) and gentle on the single-HDD UNAS over NFS (phase 4).
+# Bounded concurrency. The single-HDD UNAS over NFS is the real limiter — every
+# run (Silver write + verify-read, Gold read + write) taps the same spindle, so
+# the global cap stays modest to avoid seek-thrashing. The EVE Ref lane is capped
+# separately: only Silver runs carry `corpus/everef-download` (the `ingest` step
+# fetches upstream), and EVE Ref endorses a small fan-out — its own rclone example
+# uses `--transfers 2` and the docs say bandwidth is free ("knock yourself out").
+# So 2 concurrent downloads is polite, while Gold (pure compute, no EVE Ref) fills
+# the remaining slots. Raise `max_concurrent_runs` toward 6 only if the NAS holds.
 run_coordinator:
   module: dagster.core.run_coordinator
   class: QueuedRunCoordinator
   config:
-    max_concurrent_runs: 1
+    max_concurrent_runs: 4
+    tag_concurrency_limits:
+      - key: "corpus/everef-download"
+        limit: 2
 
 # Headless homelab box, no usage stats. Disabled to keep the daemon/webserver
 # logs free of the telemetry notice on every start.

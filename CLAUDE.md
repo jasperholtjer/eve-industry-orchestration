@@ -40,9 +40,12 @@ The full rationale lives in [ROADMAP.md](ROADMAP.md); the load-bearing rules:
   `market_history_gold` asset only shells out and records the run — it never
   pre-validates the window in Python. The sensor pre-checks only to avoid
   queuing doomed runs.
-- **Concurrency.** `deploy/dagster.yaml` pins `max_concurrent_runs: 1`
-  (deliberately polite to EVE Ref and the single-HDD NAS). Keep sensor fan-out
-  capped per tick.
+- **Concurrency.** `deploy/dagster.yaml` pins `max_concurrent_runs: 4` with a
+  `tag_concurrency_limit` of 2 on `corpus/everef-download`. The single-HDD NAS is
+  the real limiter (every run taps the one spindle), so the global cap stays
+  modest; the EVE Ref lane is bounded separately because only Silver carries that
+  tag and EVE Ref itself endorses ~2 parallel transfers. Gold (no EVE Ref) fills
+  the rest. Keep sensor fan-out capped per tick.
 
 ## Testing without the Rust build
 
