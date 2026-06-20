@@ -61,9 +61,11 @@ First-time host setup (LXC, UID/GID map, NFS mount, `corpus` binary, `uv`) is in
 the homelab `deploy-dagster-lxc.md` how-to.
 
 - `redeploy.sh` — recurring update: pull + `uv sync` as `corpus`, publish
-  `dagster.yaml` to `DAGSTER_HOME`, restart the services. Run as root inside the
-  container (`bash deploy/redeploy.sh`); it drops to `corpus` for the repo work so
-  the corpus-owned tree is not rewritten as root.
+  `dagster.yaml` to `DAGSTER_HOME`, restart the services. Run as root from anywhere
+  in the container (`bash /opt/eve-industry-orchestration/deploy/redeploy.sh`); it
+  pulls itself and drops to `corpus` for the repo work so the corpus-owned tree is
+  not rewritten as root. Symlink it onto PATH once for a bare `redeploy`:
+  `ln -s /opt/eve-industry-orchestration/deploy/redeploy.sh /usr/local/bin/redeploy`.
 
 ## Testing
 
