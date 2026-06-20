@@ -71,7 +71,6 @@ pull_corpus() {
   ds_asset="corpus-datasets-${CORPUS_VERSION}.tar.gz"
 
   tmp="$(mktemp -d)"
-  trap 'rm -rf "${tmp}"' RETURN
 
   echo "    downloading ${CORPUS_VERSION} from ${CORPUS_REPO}"
   gh release download "${CORPUS_VERSION}" \
@@ -97,13 +96,16 @@ pull_corpus() {
   rm -rf "${DATASETS_DIR}"
   mv "${staging}/datasets" "${DATASETS_DIR}"
   chmod -R a+rX "${DATASETS_DIR}"
-  rm -rf "${staging}"
 
   got="$("${CORPUS_BIN}" --version)"
   if [[ "${got}" != "corpus ${CORPUS_VERSION}" ]]; then
     echo "error: ${CORPUS_BIN} reports '${got}', expected 'corpus ${CORPUS_VERSION}'" >&2
     exit 1
   fi
+
+  # Clean up on success only; a mid-function failure leaves the temp dirs for
+  # inspection (they sit under /tmp and clear on reboot).
+  rm -rf "${tmp}" "${staging}"
   echo "    corpus ${CORPUS_VERSION} installed and verified"
 }
 
