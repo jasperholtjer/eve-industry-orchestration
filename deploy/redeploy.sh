@@ -134,6 +134,7 @@ main() {
 
   echo "==> Status"
   systemctl is-active "${SERVICES[@]}"
+  echo "corpus: $("${CORPUS_BIN}" --version 2>/dev/null || echo 'not found')"
   echo "Done. UI: http://192.168.2.211:3000"
 }
 
