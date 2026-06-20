@@ -23,6 +23,12 @@
 # Downloading from a private repo needs gh authenticated as root — `gh auth
 # login` once, or export GH_TOKEN. First-time host setup (LXC, UID/GID map, NFS
 # mount, gh auth, uv) lives in homelab_docs: docs/howto/deploy-dagster-lxc.md
+#
+# Container sizing must track dagster.yaml's max_concurrent_runs: each corpus run
+# is ~1 core + ~1 GiB rolling window, so the cap of 4 needs the LXC at 4 cores +
+# 8 GiB RAM. Set on the Proxmox host (not in this container), e.g.:
+#   pct set 211 --cores 4 --memory 8192 --swap 2048
+# Bumping the cap without matching RAM thrashes swap and risks an OOM-killed daemon.
 set -euo pipefail
 
 SERVICE_USER="${SERVICE_USER:-corpus}"

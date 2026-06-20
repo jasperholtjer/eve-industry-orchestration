@@ -46,6 +46,14 @@ The full rationale lives in [ROADMAP.md](ROADMAP.md); the load-bearing rules:
   modest; the EVE Ref lane is bounded separately because only Silver carries that
   tag and EVE Ref itself endorses ~2 parallel transfers. Gold (no EVE Ref) fills
   the rest. Keep sensor fan-out capped per tick.
+  - **Container sizing tracks the cap.** Each `corpus` run is ~1 core compute and
+    holds its rolling window (~1 GiB) in memory, so `max_concurrent_runs: 4`
+    assumes the LXC has **4 cores + 8 GiB RAM** (4 working sets + daemon/webserver
+    baseline + page cache for NAS reads). Set on the Proxmox host, not here:
+    `pct set 211 --cores 4 --memory 8192 --swap 2048`. Raising the cap without
+    matching RAM thrashes swap and risks an OOM-killed daemon; raising cores
+    without RAM does the same. Authoritative host provisioning lives in
+    `homelab_docs` (`docs/howto/deploy-dagster-lxc.md`).
 
 ## Testing without the Rust build
 
