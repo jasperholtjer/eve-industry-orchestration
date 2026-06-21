@@ -140,6 +140,37 @@ pull_corpus() {
   echo "    corpus ${CORPUS_VERSION} installed and verified"
 }
 
+# Validate the repo's dagster.yaml against the installed Dagster BEFORE it is
+# published or the services restart, so an invalid instance config fails the
+# deploy with the running Dagster untouched instead of crash-looping it. This
+# loads the instance the same way the daemon/webserver do, catching cross-field
+# rules the YAML schema alone misses (e.g. `max_concurrent_runs` in
+# `run_coordinator` vs the `concurrency` block). Runs in a throwaway DAGSTER_HOME.
+validate_instance_config() {
+  local tmp rc
+  echo "==> Validating instance config"
+  tmp="$(mktemp -d)"
+  cp "${REPO_DIR}/deploy/dagster.yaml" "${tmp}/dagster.yaml"
+  set +e
+  DAGSTER_HOME="${tmp}" "${REPO_DIR}/.venv/bin/python" - <<'PY'
+import os, sys
+from dagster import DagsterInstance
+try:
+    DagsterInstance.from_config(os.environ["DAGSTER_HOME"]).dispose()
+except Exception as exc:  # surface any config error verbatim
+    print(f"    {type(exc).__name__}: {str(exc).splitlines()[0]}", file=sys.stderr)
+    sys.exit(1)
+PY
+  rc=$?
+  set -e
+  rm -rf "${tmp}"
+  if [[ "${rc}" -ne 0 ]]; then
+    echo "error: deploy/dagster.yaml is invalid; live config and services left untouched" >&2
+    exit 1
+  fi
+  echo "    dagster.yaml OK"
+}
+
 # Wrapped in a function so bash parses the whole body before executing: the
 # git pull below may update this very file, and a half-read script would break.
 main() {
@@ -158,12 +189,19 @@ main() {
   echo "==> Ensuring corpus ${CORPUS_VERSION} is installed"
   pull_corpus
 
+  # Validate before touching the live config: a bad dagster.yaml aborts here,
+  # leaving the running Dagster on its current (working) config.
+  validate_instance_config
+
   echo "==> Publishing instance config to ${DAGSTER_HOME}"
   install -d -o "${SERVICE_USER}" -g 988 "${DAGSTER_HOME}"
   install -o "${SERVICE_USER}" -g 988 -m 0644 \
     "${REPO_DIR}/deploy/dagster.yaml" "${DAGSTER_HOME}/dagster.yaml"
 
   echo "==> Restarting services"
+  # Clear any prior failed state so an earlier crash-loop's start-limit does not
+  # block this (good-config) restart.
+  systemctl reset-failed "${SERVICES[@]}" 2>/dev/null || true
   systemctl restart "${SERVICES[@]}"
 
   echo "==> Status"
