@@ -29,10 +29,13 @@
 run_coordinator:
   module: dagster.core.run_coordinator
   class: QueuedRunCoordinator
-  config:
-    max_concurrent_runs: 4
 
+# `max_concurrent_runs` lives under `concurrency.runs`, not `run_coordinator`:
+# Dagster rejects the legacy `run_coordinator.config.max_concurrent_runs` once a
+# `concurrency:` block is present (they are the same setting in two locations).
 concurrency:
+  runs:
+    max_concurrent_runs: 4
   pools:
     default_limit: 2
     granularity: "run"
