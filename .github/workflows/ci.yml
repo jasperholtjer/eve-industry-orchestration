@@ -1,0 +1,49 @@
+name: CI
+
+# Catch broken code locations and instance configs before they reach the host.
+# `redeploy.sh` validates dagster.yaml again as a last resort, but failing here
+# means a bad push never gets near a deploy.
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13" # mirror the Dagster LXC
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Lint
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Tests
+        run: uv run pytest -q
+
+      - name: Validate Dagster definitions
+        env:
+          CORPUS_DATASETS_DIR: tests/fixtures/datasets
+        run: uv run dg check defs
+
+      - name: Validate instance config (dagster.yaml)
+        # Load it the way the daemon/webserver do, so cross-field rules the YAML
+        # schema misses (e.g. max_concurrent_runs vs the concurrency block) fail
+        # the build instead of the host.
+        run: |
+          tmp="$(mktemp -d)"
+          cp deploy/dagster.yaml "$tmp/dagster.yaml"
+          DAGSTER_HOME="$tmp" uv run python -c "import os; from dagster import DagsterInstance; DagsterInstance.from_config(os.environ['DAGSTER_HOME']).dispose()"
