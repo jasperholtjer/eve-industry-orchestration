@@ -1,3 +1,4 @@
-# Shell scripts run on the Linux LXC; CRLF breaks the shebang and `\r` leaks
-# into commands. Force LF regardless of the editor's platform.
-*.sh text eol=lf
+# This repo deploys to a Linux LXC; force LF everywhere (working copy included)
+# so a Windows editor or core.autocrlf can never leak CRLF. A `\r` breaks the
+# redeploy.sh shebang and leaks into any shipped config at Linux runtime.
+* text=auto eol=lf
