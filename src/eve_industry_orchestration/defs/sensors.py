@@ -26,14 +26,11 @@ from eve_industry_orchestration.defs.market_history import (
     silver_partitions,
 )
 
-# deploy/dagster.yaml runs up to max_concurrent_runs:4, with a
-# tag_concurrency_limit of 2 on the everef-download tag below. Still cap how many
-# partitions enter the queue per tick (oldest first) so a cold start does not
-# enqueue the whole backlog at once; later ticks drain the remainder. The tag
-# mirrors the corpus `everef-download` lease and is what the coordinator throttles
-# to keep at most 2 Silver downloads (the `ingest` step) hitting EVE Ref at once.
+# Concurrency is governed by deploy/dagster.yaml (global max_concurrent_runs:4 plus
+# the `everef_download` / `gold_heavy` pools on the assets). Independently, cap how
+# many partitions enter the queue per tick (oldest first) so a cold start does not
+# enqueue the whole backlog at once; later ticks drain the remainder.
 MAX_PARTITIONS_PER_TICK = 10
-_EVEREF_TAG = "corpus/everef-download"
 
 
 @dg.sensor(
@@ -61,12 +58,10 @@ def market_history_availability_sensor(
             deferred,
         )
 
+    # No download tag here: the `everef_download` pool on the asset
+    # (market_history.py) throttles fetches across every launch path.
     run_requests = [
-        dg.RunRequest(
-            run_key=f"{DATASET}-silver-{date}",
-            partition_key=date,
-            tags={_EVEREF_TAG: "1"},
-        )
+        dg.RunRequest(run_key=f"{DATASET}-silver-{date}", partition_key=date)
         for date in selected
     ]
     return dg.SensorResult(run_requests=run_requests)
@@ -104,6 +99,9 @@ def market_history_gold_sensor(
             deferred,
         )
 
+    # No memory tag here: the `gold_heavy` pool on the asset (market_history.py)
+    # throttles every launch path — sensor, backfill, manual — so this stays a
+    # thin cap-and-dedup loop.
     run_requests = [
         dg.RunRequest(run_key=f"{DATASET}-gold-{date}", partition_key=date)
         for date in selected
