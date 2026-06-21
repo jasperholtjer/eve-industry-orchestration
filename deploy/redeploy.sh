@@ -17,9 +17,10 @@
 # `git pull` would rewrite the corpus-owned tree as root, so this drops to
 # `corpus` for the pull and sync and stays root for the rest.
 #
-# The corpus binary and its version-matched dataset configs are pinned by
-# CORPUS_VERSION and pulled from the private corpus repo's GitHub Release. To
-# bump corpus: edit the pin below (or pass CORPUS_VERSION=v0.1.6) and re-run.
+# The corpus binary and its version-matched dataset configs come from the
+# private corpus repo's GitHub Release. By default redeploy installs the LATEST
+# release; set CORPUS_VERSION=vX.Y.Z (env, or the default below) to pin an exact
+# version instead. Either way the host re-runs redeploy to move corpus.
 # Downloading from a private repo needs gh authenticated as root — `gh auth
 # login` once, or export GH_TOKEN. First-time host setup (LXC, UID/GID map, NFS
 # mount, gh auth, uv) lives in homelab_docs: docs/howto/deploy-dagster-lxc.md
@@ -38,10 +39,11 @@ REPO_DIR="${REPO_DIR:-/opt/eve-industry-orchestration}"
 DAGSTER_HOME="${DAGSTER_HOME:-/var/lib/dagster}"
 SERVICES=(dagster-daemon dagster-webserver)
 
-# Corpus binary pin. The asset names mirror the corpus release workflow; the
-# install paths reuse the same env vars the systemd units pass to Dagster, so
-# the running binary and the deployed one can never drift.
-CORPUS_VERSION="${CORPUS_VERSION:-v0.1.6}"
+# Corpus version. Empty = install the latest release (resolved via gh below); set
+# CORPUS_VERSION=vX.Y.Z to pin an exact version. The asset names mirror the corpus
+# release workflow; the install paths reuse the same env vars the systemd units
+# pass to Dagster, so the running binary and the deployed one can never drift.
+CORPUS_VERSION="${CORPUS_VERSION:-}"
 CORPUS_REPO="${CORPUS_REPO:-jasperholtjer/eve-industry-corpus}"
 CORPUS_TARGET="${CORPUS_TARGET:-x86_64-unknown-linux-musl}"
 CORPUS_BIN="${CORPUS_BINARY_PATH:-/usr/local/bin/corpus}"
@@ -53,8 +55,29 @@ run_as_user() {
   su - "${SERVICE_USER}" -c "export PATH=\"\$HOME/.local/bin:\$PATH\"; $1"
 }
 
-# Pull the pinned corpus binary + datasets from the private release and install
-# them into root-owned /usr/local. Idempotent: skips the download when the
+# Resolve the version to install. An explicit CORPUS_VERSION is a pin; an empty
+# one means "latest", looked up from the corpus repo's releases via gh. Resolved
+# once, up front, so the skip check, asset names, and `--version` assert all see a
+# concrete tag. A pinned run never needs the network here; only "latest" does.
+resolve_corpus_version() {
+  if [[ -n "${CORPUS_VERSION}" ]]; then
+    return 0
+  fi
+  if ! command -v gh >/dev/null 2>&1; then
+    echo "error: gh CLI is required to resolve the latest ${CORPUS_REPO} release" >&2
+    echo "       run 'gh auth login' as root once, or export GH_TOKEN" >&2
+    exit 1
+  fi
+  CORPUS_VERSION="$(gh release view --repo "${CORPUS_REPO}" --json tagName --jq '.tagName')"
+  if [[ -z "${CORPUS_VERSION}" ]]; then
+    echo "error: could not resolve the latest ${CORPUS_REPO} release tag" >&2
+    exit 1
+  fi
+  echo "    no pin set; resolved latest release ${CORPUS_VERSION}"
+}
+
+# Pull the corpus binary + datasets from the private release and install them
+# into root-owned /usr/local. Idempotent: skips the download when the
 # installed binary already reports the pinned version and the datasets are
 # present. Verifies the release SHA256SUMS before installing, and asserts
 # `corpus --version` after, so a bad or truncated download fails the redeploy
@@ -131,6 +154,7 @@ main() {
   echo "==> Syncing dependencies"
   run_as_user "cd '${REPO_DIR}' && uv sync --frozen"
 
+  resolve_corpus_version
   echo "==> Ensuring corpus ${CORPUS_VERSION} is installed"
   pull_corpus
 

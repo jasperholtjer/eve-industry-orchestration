@@ -66,15 +66,16 @@ Deploy = `git clone` + `uv sync` on the LXC, install the units, `systemctl enabl
 First-time host setup (LXC, UID/GID map, NFS mount, `gh` auth, `uv`) is in the
 homelab `deploy-dagster-lxc.md` how-to.
 
-- `redeploy.sh` — recurring update: pull + `uv sync` as `corpus`, pull the
-  `CORPUS_VERSION`-pinned `corpus` binary + datasets from the private release
-  (`gh`, checksum-verified, `--version`-asserted), publish `dagster.yaml` to
-  `DAGSTER_HOME`, restart the services. Run as root from anywhere in the container
+- `redeploy.sh` — recurring update: pull + `uv sync` as `corpus`, install the
+  `corpus` binary + datasets from the private release — the **latest** release by
+  default, or the `CORPUS_VERSION` pin (`gh`, checksum-verified,
+  `--version`-asserted), publish `dagster.yaml` to `DAGSTER_HOME`, restart the
+  services. Run as root from anywhere in the container
   (`bash /opt/eve-industry-orchestration/deploy/redeploy.sh`); it pulls itself and
   drops to `corpus` for the repo work so the corpus-owned tree is not rewritten as
-  root. Bumping corpus is editing the pin (or `CORPUS_VERSION=v0.1.6 redeploy`) and
-  re-running; the download needs `gh` authenticated as root (`gh auth login`, or
-  `GH_TOKEN`). Symlink it onto PATH once for a bare `redeploy`:
+  root. By default it tracks the latest corpus release; pin an exact one with
+  `CORPUS_VERSION=vX.Y.Z redeploy`. The download needs `gh` authenticated as root
+  (`gh auth login`, or `GH_TOKEN`). Symlink it onto PATH once for a bare `redeploy`:
   `ln -s /opt/eve-industry-orchestration/deploy/redeploy.sh /usr/local/bin/redeploy`.
 
 ## Testing

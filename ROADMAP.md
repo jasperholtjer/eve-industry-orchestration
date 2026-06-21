@@ -121,13 +121,14 @@ materialisation is manual.
 ### 4. Automate the release pull in deploy — done
 
 > [!NOTE]
-> `deploy/redeploy.sh` pulls the `CORPUS_VERSION`-pinned binary and its
-> version-matched dataset configs from the private corpus release via `gh`,
-> verifies the release `SHA256SUMS`, installs both into root-owned `/usr/local`,
-> and asserts `corpus --version` matches the pin. The install paths reuse the
-> same `CORPUS_BINARY_PATH` / `CORPUS_DATASETS_DIR` env vars the systemd units
-> pass to Dagster, so the running and deployed binaries cannot drift. Bumping
-> corpus is editing the pin (or `CORPUS_VERSION=v0.1.6 redeploy`) and re-running.
+> `deploy/redeploy.sh` installs the corpus binary and its version-matched dataset
+> configs from the private corpus release via `gh` — the **latest** release by
+> default, or the `CORPUS_VERSION` pin — verifies the release `SHA256SUMS`,
+> installs both into root-owned `/usr/local`, and asserts `corpus --version`
+> matches the resolved tag. The install paths reuse the same `CORPUS_BINARY_PATH`
+> / `CORPUS_DATASETS_DIR` env vars the systemd units pass to Dagster, so the
+> running and deployed binaries cannot drift. Moving corpus is re-running redeploy
+> (latest) or pinning with `CORPUS_VERSION=vX.Y.Z redeploy`.
 
 Per the decision above. The pull is folded into the existing flow (`git pull` +
 `uv sync` + binary pull + systemd restart); downloading from the private repo
