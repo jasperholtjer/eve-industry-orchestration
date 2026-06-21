@@ -19,16 +19,18 @@
 #
 # The corpus binary and its version-matched dataset configs are pinned by
 # CORPUS_VERSION and pulled from the private corpus repo's GitHub Release. To
-# bump corpus: edit the pin below (or pass CORPUS_VERSION=v0.1.5) and re-run.
+# bump corpus: edit the pin below (or pass CORPUS_VERSION=v0.1.6) and re-run.
 # Downloading from a private repo needs gh authenticated as root — `gh auth
 # login` once, or export GH_TOKEN. First-time host setup (LXC, UID/GID map, NFS
 # mount, gh auth, uv) lives in homelab_docs: docs/howto/deploy-dagster-lxc.md
 #
-# Container sizing must track dagster.yaml's max_concurrent_runs: each corpus run
-# is ~1 core + ~1 GiB rolling window, so the cap of 4 needs the LXC at 4 cores +
-# 8 GiB RAM. Set on the Proxmox host (not in this container), e.g.:
-#   pct set 211 --cores 4 --memory 8192 --swap 2048
-# Bumping the cap without matching RAM thrashes swap and risks an OOM-killed daemon.
+# Container sizing tracks the gold_heavy pool, not max_concurrent_runs: a Gold
+# build streams its rolling window (corpus >= v0.1.6) and peaks ~3-4 GiB, so peak
+# Gold RAM ~= gold_heavy limit x ~4 GiB. At the default pool limit 2 budget ~8 GiB
+# for Gold alone; size the LXC >= 12 GiB (or drop the pool to 1 at 8 GiB). Set on
+# the Proxmox host (not in this container), e.g.:
+#   pct set 211 --cores 4 --memory 12288 --swap 2048
+# Raising the pool without matching RAM thrashes swap and risks an OOM-killed daemon.
 set -euo pipefail
 
 SERVICE_USER="${SERVICE_USER:-corpus}"
@@ -39,7 +41,7 @@ SERVICES=(dagster-daemon dagster-webserver)
 # Corpus binary pin. The asset names mirror the corpus release workflow; the
 # install paths reuse the same env vars the systemd units pass to Dagster, so
 # the running binary and the deployed one can never drift.
-CORPUS_VERSION="${CORPUS_VERSION:-v0.1.4}"
+CORPUS_VERSION="${CORPUS_VERSION:-v0.1.6}"
 CORPUS_REPO="${CORPUS_REPO:-jasperholtjer/eve-industry-corpus}"
 CORPUS_TARGET="${CORPUS_TARGET:-x86_64-unknown-linux-musl}"
 CORPUS_BIN="${CORPUS_BINARY_PATH:-/usr/local/bin/corpus}"

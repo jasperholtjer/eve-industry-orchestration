@@ -53,8 +53,10 @@ The LXC and the NFS mount are stood up per the homelab how-tos; the `corpus`
 binary and its dataset configs are pulled by `redeploy.sh` (see below). This repo
 supplies the orchestration wiring in `deploy/`:
 
-- `dagster.yaml` — instance config; `QueuedRunCoordinator` with `max_concurrent_runs: 1`
-  (deliberately low — phase 4). Copy to `$DAGSTER_HOME/dagster.yaml`.
+- `dagster.yaml` — instance config; `QueuedRunCoordinator` (`max_concurrent_runs: 4`,
+  the NAS-spindle I/O cap) plus concurrency pools (`gold_heavy`, `everef_download`,
+  `default_limit: 2`) that bound Gold memory and EVE Ref fetches across every launch
+  path. Copy to `$DAGSTER_HOME/dagster.yaml`.
 - `workspace.yaml` — code location (`eve_industry_orchestration.definitions`).
 - `dagster-webserver.service` / `dagster-daemon.service` — systemd units running as
   `corpus`, with `CORPUS_*` env and `DAGSTER_HOME` set. Adjust the `WorkingDirectory`
@@ -70,7 +72,7 @@ homelab `deploy-dagster-lxc.md` how-to.
   `DAGSTER_HOME`, restart the services. Run as root from anywhere in the container
   (`bash /opt/eve-industry-orchestration/deploy/redeploy.sh`); it pulls itself and
   drops to `corpus` for the repo work so the corpus-owned tree is not rewritten as
-  root. Bumping corpus is editing the pin (or `CORPUS_VERSION=v0.1.5 redeploy`) and
+  root. Bumping corpus is editing the pin (or `CORPUS_VERSION=v0.1.6 redeploy`) and
   re-running; the download needs `gh` authenticated as root (`gh auth login`, or
   `GH_TOKEN`). Symlink it onto PATH once for a bare `redeploy`:
   `ln -s /opt/eve-industry-orchestration/deploy/redeploy.sh /usr/local/bin/redeploy`.

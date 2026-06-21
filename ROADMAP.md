@@ -112,9 +112,10 @@ materialisation is manual.
 - Add a Dagster sensor polling `corpus everef missing-partitions --dataset
   market-history --format json` and requesting Silver runs for the newly available
   dates; Gold follows via the `deps=` chain once item 2 is unblocked.
-- Respect concurrency: `deploy/dagster.yaml` pins `max_concurrent_runs: 4` with a
-  `tag_concurrency_limit` of 2 on `corpus/everef-download` (only Silver carries the
-  tag; EVE Ref endorses ~2 parallel transfers, the NAS spindle is the real limiter).
+- Respect concurrency: `deploy/dagster.yaml` pins `max_concurrent_runs: 4` (the NAS
+  spindle is the real limiter) plus concurrency pools — `everef_download` (EVE Ref
+  endorses ~2 parallel transfers) and `gold_heavy` (Gold memory), both at
+  `default_limit: 2` — keyed on the assets' `pool=` so they bound every launch path.
   The sensor must also not stampede the queue, hence the per-tick cap.
 
 ### 4. Automate the release pull in deploy — done
@@ -126,7 +127,7 @@ materialisation is manual.
 > and asserts `corpus --version` matches the pin. The install paths reuse the
 > same `CORPUS_BINARY_PATH` / `CORPUS_DATASETS_DIR` env vars the systemd units
 > pass to Dagster, so the running and deployed binaries cannot drift. Bumping
-> corpus is editing the pin (or `CORPUS_VERSION=v0.1.5 redeploy`) and re-running.
+> corpus is editing the pin (or `CORPUS_VERSION=v0.1.6 redeploy`) and re-running.
 
 Per the decision above. The pull is folded into the existing flow (`git pull` +
 `uv sync` + binary pull + systemd restart); downloading from the private repo

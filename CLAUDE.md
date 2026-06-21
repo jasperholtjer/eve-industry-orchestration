@@ -40,20 +40,24 @@ The full rationale lives in [ROADMAP.md](ROADMAP.md); the load-bearing rules:
   `market_history_gold` asset only shells out and records the run — it never
   pre-validates the window in Python. The sensor pre-checks only to avoid
   queuing doomed runs.
-- **Concurrency.** `deploy/dagster.yaml` pins `max_concurrent_runs: 4` with a
-  `tag_concurrency_limit` of 2 on `corpus/everef-download`. The single-HDD NAS is
-  the real limiter (every run taps the one spindle), so the global cap stays
-  modest; the EVE Ref lane is bounded separately because only Silver carries that
-  tag and EVE Ref itself endorses ~2 parallel transfers. Gold (no EVE Ref) fills
-  the rest. Keep sensor fan-out capped per tick.
-  - **Container sizing tracks the cap.** Each `corpus` run is ~1 core compute and
-    holds its rolling window (~1 GiB) in memory, so `max_concurrent_runs: 4`
-    assumes the LXC has **4 cores + 8 GiB RAM** (4 working sets + daemon/webserver
-    baseline + page cache for NAS reads). Set on the Proxmox host, not here:
-    `pct set 211 --cores 4 --memory 8192 --swap 2048`. Raising the cap without
-    matching RAM thrashes swap and risks an OOM-killed daemon; raising cores
-    without RAM does the same. Authoritative host provisioning lives in
-    `homelab_docs` (`docs/howto/deploy-dagster-lxc.md`).
+- **Concurrency.** Two layers in `deploy/dagster.yaml`. `max_concurrent_runs: 4`
+  is the global I/O cap — the single-HDD NAS spindle is the real limiter, every
+  run taps it. Per-class limits are concurrency **pools** keyed on the assets'
+  `pool=`, not run tags: `everef_download` (Silver fetch politeness; EVE Ref
+  endorses ~2 parallel transfers) and `gold_heavy` (Gold memory), both at
+  `default_limit: 2`. A pool gates **every** launch path — sensor, UI backfill,
+  manual — unlike a sensor-set run tag, and a pooled run is bounded by
+  `min(global, pool)`. Lightweight datasets omit `pool=` and obey only the global
+  cap. Keep sensor fan-out capped per tick.
+  - **Gold memory governs the `gold_heavy` pool.** A Gold build streams its
+    `[date - max_horizon, date]` Silver window via a k-way merge (corpus
+    ≥ v0.1.6) and peaks ~3–4 GiB in the `corpus` subprocess. Peak Gold RAM ≈
+    `gold_heavy limit × ~4 GiB`, so set the limit to `floor((RAM_GiB − ~4
+    headroom) / 4)` — at the default 2, budget ~8 GiB for Gold alone, so the LXC
+    wants **≥ 12 GiB RAM** (or drop the pool to 1 at 8 GiB). Measure the real peak
+    with `/usr/bin/time -v` before raising. Set RAM/cores on the Proxmox host, not
+    here: `pct set 211 --cores 4 --memory 12288 --swap 2048`. Authoritative host
+    provisioning lives in `homelab_docs` (`docs/howto/deploy-dagster-lxc.md`).
 
 ## Testing without the Rust build
 
