@@ -16,6 +16,25 @@ import dagster as dg
 _FAILURE_TAIL_LINES = 20
 
 
+def _parse_status_line(line: str) -> dict[str, Any] | None:
+    """Parses a ``corpus ingest`` status object off one log line, else ``None``.
+
+    Human progress goes to stderr and the status JSON to stdout, but ``run``
+    merges both streams; scanning per line for a ``{"status": ...}`` object picks
+    the status out of the interleaved output without coupling to line order.
+    """
+    line = line.strip()
+    if not line.startswith("{") or '"status"' not in line:
+        return None
+    try:
+        obj = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    if isinstance(obj, dict) and "status" in obj:
+        return obj
+    return None
+
+
 class CorpusResource(dg.ConfigurableResource):
     """Thin wrapper around the static ``corpus`` binary.
 
@@ -36,11 +55,19 @@ class CorpusResource(dg.ConfigurableResource):
     def _env(self) -> dict[str, str]:
         return {**os.environ, "CORPUS_DATASETS_DIR": self.datasets_dir}
 
-    def run(self, context: dg.AssetExecutionContext, *args: str) -> None:
+    def run(
+        self, context: dg.AssetExecutionContext, *args: str
+    ) -> dict[str, Any] | None:
         """Runs one ``corpus`` subcommand, streaming output to the run log.
 
         Raises ``dg.Failure`` when the subcommand exits non-zero so the
         partition is marked failed rather than silently materialised.
+
+        Returns the machine-readable status object ``corpus ingest`` prints on
+        stdout (``{"status": "written"|"skipped", ...}``, ADR-0028) when present,
+        else ``None`` (subcommands without a status line). A ``skipped`` status
+        is a genuinely-absent upstream day — exit 0, no partition written — which
+        the caller turns into a left-Missing partition, not a failure.
         """
         cmd = [self.binary_path, *args]
         context.log.info("corpus: %s", " ".join(cmd))
@@ -56,10 +83,14 @@ class CorpusResource(dg.ConfigurableResource):
         if stream is None:  # pragma: no cover - PIPE always yields a stream
             raise dg.Failure(description="corpus produced no stdout stream")
         tail: deque[str] = deque(maxlen=_FAILURE_TAIL_LINES)
+        status: dict[str, Any] | None = None
         for line in stream:
             stripped = line.rstrip()
             context.log.info(stripped)
             tail.append(stripped)
+            parsed = _parse_status_line(stripped)
+            if parsed is not None:
+                status = parsed
         returncode = process.wait()
 
         if returncode != 0:
@@ -68,6 +99,7 @@ class CorpusResource(dg.ConfigurableResource):
             if detail:
                 description = f"{description}\n{detail}"
             raise dg.Failure(description=description)
+        return status
 
     def _capture(self, *args: str) -> str:
         """Runs a ``corpus`` subcommand and returns its stdout.

@@ -21,6 +21,8 @@ resolves ``gold/<--dataset>/...``, so Gold verify passes the *derivative* name a
 ``--dataset``. Silver verify still uses the dataset name.
 """
 
+from collections.abc import Iterator
+
 import dagster as dg
 
 from eve_industry_orchestration.defs.config import resolve_partition_starts
@@ -50,13 +52,23 @@ _GOLD_POOL = "gold_heavy"
     group_name="system_jumps",
     kinds={"corpus"},
     pool=_SILVER_POOL,
+    # An interior upstream-gap day (EVE Ref published nothing, ADR-0028) skips:
+    # corpus exits 0 with status "skipped" and writes no partition, so the
+    # asset must be allowed to complete without materialising — the partition
+    # stays Missing rather than failing or materialising empty.
+    output_required=False,
 )
 def system_jumps_silver(
     context: dg.AssetExecutionContext, corpus: CorpusResource
-) -> dg.MaterializeResult:
-    """Silver partition: ingest one day's hourly snapshots, then verify."""
+) -> Iterator[dg.MaterializeResult | dg.AssetObservation]:
+    """Silver partition: ingest one day's hourly snapshots, then verify.
+
+    A genuinely-absent upstream day (corpus reports ``status: skipped``) is left
+    Missing: the verify (which would 404 on the absent partition) is skipped and
+    an ``AssetObservation`` records why, instead of a misleading materialisation.
+    """
     date = context.partition_key
-    corpus.run(
+    status = corpus.run(
         context,
         "ingest",
         "--dataset",
@@ -66,6 +78,19 @@ def system_jumps_silver(
         "--sink-path",
         corpus.sink_path,
     )
+    if status is not None and status.get("status") == "skipped":
+        context.log.info(
+            "system-jumps %s: upstream absent, leaving partition missing", date
+        )
+        yield dg.AssetObservation(
+            asset_key=context.asset_key,
+            partition=date,
+            metadata={
+                "skip_reason": "upstream_absent",
+                "detail": str(status.get("reason", "")),
+            },
+        )
+        return
     corpus.run(
         context,
         "verify",
@@ -78,7 +103,7 @@ def system_jumps_silver(
         "--sink-path",
         corpus.sink_path,
     )
-    return dg.MaterializeResult(
+    yield dg.MaterializeResult(
         metadata={"dataset": DATASET, "tier": "silver", "partition": date}
     )
 

@@ -11,6 +11,7 @@ from eve_industry_orchestration.defs.sensors import (
 )
 from eve_industry_orchestration.defs.system_jumps import (
     system_jumps_recent_gold,
+    system_jumps_silver,
 )
 
 DATASET = "system-jumps"
@@ -28,6 +29,49 @@ def _ingest(corpus, date: str) -> None:
         "--sink-path",
         corpus.sink_path,
     )
+
+
+# --- Silver ingest skip on absent upstream day (ADR-0028) -----------------
+
+
+def test_silver_skips_absent_upstream_day(
+    corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Upstream has 2024-01-15 only; 2024-01-20 is a gap → corpus reports
+    # "skipped", so the partition is left Missing (no materialisation) with an
+    # observation recording why — not a failure, not an empty materialisation.
+    monkeypatch.setenv("FAKE_EVEREF_DATES", "2024-01-15")
+
+    result = dg.materialize(
+        [system_jumps_silver],
+        partition_key="2024-01-20",
+        resources={"corpus": corpus},
+    )
+
+    assert result.success
+    # No materialisation event → the partition is left Missing, not materialised.
+    assert result.get_asset_materialization_events() == []
+    # An observation records the skip reason instead.
+    observations = result.get_asset_observation_events()
+    assert len(observations) == 1
+    metadata = observations[0].event_specific_data.asset_observation.metadata
+    assert metadata["skip_reason"].value == "upstream_absent"
+
+
+def test_silver_materialises_present_upstream_day(
+    corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("FAKE_EVEREF_DATES", "2024-01-15")
+
+    result = dg.materialize(
+        [system_jumps_silver],
+        partition_key="2024-01-15",
+        resources={"corpus": corpus},
+    )
+
+    assert result.success
+    materialisations = result.get_asset_materialization_events()
+    assert len(materialisations) == 1
 
 
 # --- Silver availability sensor -------------------------------------------

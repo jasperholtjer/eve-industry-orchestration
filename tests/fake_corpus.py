@@ -110,6 +110,27 @@ def _do_ingest(args: list[str], sink: str) -> int:
         print("ingest: --dataset and --date required", file=sys.stderr)
         return 2
 
+    # Mirror ADR-0028: a day absent upstream skips cleanly — no partition, a
+    # "skipped" status object on stdout, exit 0. Upstream availability comes from
+    # FAKE_EVEREF_DATES; when it is unset the fake assumes every day is present
+    # (keeps the always-write behaviour the other tests rely on).
+    upstream_raw = os.environ.get("FAKE_EVEREF_DATES", "")
+    upstream = {d.strip() for d in upstream_raw.split(",") if d.strip()}
+    if upstream and date not in upstream:
+        print(
+            json.dumps(
+                {
+                    "status": "skipped",
+                    "dataset": dataset,
+                    "date": date,
+                    "partition_key": f"date={date}",
+                    "reason": f"per-date folder not found ({date})",
+                }
+            )
+        )
+        print(f"upstream absent for {date}", file=sys.stderr)
+        return 0
+
     pdir = _partition_dir(sink, "silver", dataset, date)
     pdir.mkdir(parents=True, exist_ok=True)
     (pdir / "data.parquet").write_bytes(b"PAR1-fake")
@@ -131,6 +152,18 @@ def _do_ingest(args: list[str], sink: str) -> int:
         _save_state(sink, state)
 
     print(f"wrote 1 rows -> {pdir}", file=sys.stderr)
+    print(
+        json.dumps(
+            {
+                "status": "written",
+                "dataset": dataset,
+                "date": date,
+                "partition_key": f"date={date}",
+                "rows": 1,
+                "parquet_sha256": "fake",
+            }
+        )
+    )
     return 0
 
 
