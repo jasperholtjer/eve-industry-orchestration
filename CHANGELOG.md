@@ -26,3 +26,6 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   upstream coverage floor, ADR-0027) from the dataset YAML when present, so the
   matrix never reaches before upstream data exists; `system-jumps` Silver now starts
   `2021-07-01` instead of the doomed derived `2021-01-01`.
+- `CorpusResource.run` attaches the corpus subprocess's output tail to the raised
+  `dg.Failure`, so a failed asset surfaces the real error in the Failure instead of
+  only the command line.

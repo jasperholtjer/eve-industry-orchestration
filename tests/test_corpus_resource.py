@@ -49,7 +49,7 @@ def test_run_writes_contract_then_verifies(corpus) -> None:
 def test_nonzero_exit_raises_failure(corpus) -> None:
     context = dg.build_asset_context()
     # verify on a never-ingested partition exits 1 (mirrors the real binary).
-    with pytest.raises(dg.Failure):
+    with pytest.raises(dg.Failure) as excinfo:
         corpus.run(
             context,
             "verify",
@@ -62,6 +62,11 @@ def test_nonzero_exit_raises_failure(corpus) -> None:
             "--sink-path",
             corpus.sink_path,
         )
+    # The Failure surfaces the corpus output tail, not just the command line, so
+    # the real reason is diagnosable straight from the Dagster Failure.
+    description = excinfo.value.description or ""
+    assert "corpus exited 1" in description
+    assert "absent" in description
 
 
 def test_gold_builds_then_verifies(corpus) -> None:

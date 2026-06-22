@@ -5,9 +5,15 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+from collections import deque
 from typing import Any
 
 import dagster as dg
+
+# Lines of the corpus subprocess's tail to attach to a Failure, so the real
+# error (e.g. `Error: parse / Caused by: schema mismatch ...`) surfaces in the
+# Dagster Failure instead of only the command line.
+_FAILURE_TAIL_LINES = 20
 
 
 class CorpusResource(dg.ConfigurableResource):
@@ -49,12 +55,19 @@ class CorpusResource(dg.ConfigurableResource):
         stream = process.stdout
         if stream is None:  # pragma: no cover - PIPE always yields a stream
             raise dg.Failure(description="corpus produced no stdout stream")
+        tail: deque[str] = deque(maxlen=_FAILURE_TAIL_LINES)
         for line in stream:
-            context.log.info(line.rstrip())
+            stripped = line.rstrip()
+            context.log.info(stripped)
+            tail.append(stripped)
         returncode = process.wait()
 
         if returncode != 0:
-            raise dg.Failure(description=f"corpus exited {returncode}: {' '.join(cmd)}")
+            description = f"corpus exited {returncode}: {' '.join(cmd)}"
+            detail = "\n".join(tail).strip()
+            if detail:
+                description = f"{description}\n{detail}"
+            raise dg.Failure(description=description)
 
     def _capture(self, *args: str) -> str:
         """Runs a ``corpus`` subcommand and returns its stdout.
