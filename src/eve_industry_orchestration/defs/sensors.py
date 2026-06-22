@@ -36,7 +36,7 @@ MAX_PARTITIONS_PER_TICK = 10
 
 @dg.sensor(
     target=market_history_silver,
-    minimum_interval_seconds=300,
+    minimum_interval_seconds=3600,
     default_status=dg.DefaultSensorStatus.STOPPED,
 )
 def market_history_availability_sensor(
@@ -70,7 +70,7 @@ def market_history_availability_sensor(
 
 @dg.sensor(
     target=market_history_gold,
-    minimum_interval_seconds=300,
+    minimum_interval_seconds=3600,
     default_status=dg.DefaultSensorStatus.STOPPED,
 )
 def market_history_gold_sensor(
@@ -112,7 +112,7 @@ def market_history_gold_sensor(
 
 @dg.sensor(
     target=sj.system_jumps_silver,
-    minimum_interval_seconds=300,
+    minimum_interval_seconds=3600,
     default_status=dg.DefaultSensorStatus.STOPPED,
 )
 def system_jumps_availability_sensor(
@@ -144,7 +144,7 @@ def system_jumps_availability_sensor(
 
 @dg.sensor(
     target=sj.system_jumps_history_gold,
-    minimum_interval_seconds=300,
+    minimum_interval_seconds=3600,
     default_status=dg.DefaultSensorStatus.STOPPED,
 )
 def system_jumps_history_gold_sensor(
