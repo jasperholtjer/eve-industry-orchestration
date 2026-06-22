@@ -70,8 +70,11 @@ def resolve_partition_starts(
 
     Gold start is the named derivative's ``served_start``; Silver start is the
     earliest preload across the dataset's windowed derivatives (Silver is
-    shared). With no ``derivative`` a single-derivative dataset resolves
-    automatically; a multi-derivative dataset requires the selector.
+    shared), clamped up to ``silver.served_start`` when the dataset declares a
+    Silver coverage floor (ADR-0027), so the matrix never reaches before the
+    served upstream coverage starts. With no ``derivative`` a single-derivative
+    dataset
+    resolves automatically; a multi-derivative dataset requires the selector.
 
     Either tier can be overridden via ``CORPUS_<DATASET>_<TIER>_START``; a
     per-derivative Gold override ``CORPUS_<DATASET>_<DERIVATIVE>_GOLD_START``
@@ -98,7 +101,9 @@ def resolve_partition_starts(
     gold_start = _gold_override(dataset, selected.name) or selected.served_start
 
     silver_override = os.environ.get(_env_key(dataset, "SILVER"))
-    silver_start = silver_override or _silver_start(dataset, derivatives)
+    floor = _silver_served_start(cfg)
+    derived = _silver_start(dataset, derivatives)
+    silver_start = silver_override or (max(derived, floor) if floor else derived)
 
     return PartitionStarts(silver=silver_start, gold=gold_start)
 
@@ -141,6 +146,23 @@ def _silver_start(dataset: str, derivatives: list[_Derivative]) -> str:
             f"dataset {dataset} has no windowed gold derivative to anchor Silver"
         )
     return min(preloads)
+
+
+def _silver_served_start(cfg: dict[str, Any]) -> str | None:
+    """Reads the optional ``silver.served_start`` upstream coverage floor.
+
+    The earliest date the dataset's Silver contract serves (ADR-0027) — the
+    start of the contiguous upstream era feeding the Gold contract — owned by the
+    corpus dataset YAML. ``None`` when absent (no lower bound). Distinct from a
+    Gold derivative's ``served_start`` (the earliest legal Gold target).
+    """
+    silver = cfg.get("silver")
+    if not isinstance(silver, dict):
+        return None
+    value = silver.get("served_start")
+    if value is None:
+        return None
+    return _as_date_string(value)
 
 
 def _subtract_days(date_str: str, days: int) -> str:

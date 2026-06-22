@@ -50,27 +50,40 @@ def test_history_gold_start_is_per_derivative_served_start() -> None:
     starts = resolve_partition_starts(
         SYSTEM_JUMPS, HISTORY, datasets_dir=str(DATASETS_DIR)
     )
-    assert starts.gold == "2021-01-01"
+    assert starts.gold == "2022-01-01"
 
 
-def test_silver_start_is_earliest_windowed_preload() -> None:
-    # flat-multi-horizon max horizon is 365d; 2021-01-01 − 365d = 2020-01-02
-    # (2020 leap year). The recency-weighted derivative has no served_start and
-    # imposes no reach-back, so Silver is driven by the history derivative.
+def test_silver_start_clamps_to_upstream_coverage_floor() -> None:
+    # The derived preload is 2022-01-01 − 365d = 2021-01-01, but the dataset
+    # declares silver.served_start: 2021-07-01 (ADR-0027) — the start of EVE
+    # Ref's dense hourly era. Silver clamps up to the floor: max(2021-01-01,
+    # 2021-07-01) = 2021-07-01.
     starts = resolve_partition_starts(
         SYSTEM_JUMPS, HISTORY, datasets_dir=str(DATASETS_DIR)
     )
-    assert starts.silver == "2020-01-02"
+    assert starts.silver == "2021-07-01"
 
 
 def test_recency_weighted_has_no_gold_start() -> None:
     # The "latest" derivative is non-partitioned; it carries no served_start, so
-    # its Gold start resolves to None while Silver stays shared.
+    # its Gold start resolves to None while Silver stays shared (floor-clamped).
     starts = resolve_partition_starts(
         SYSTEM_JUMPS, RECENT, datasets_dir=str(DATASETS_DIR)
     )
     assert starts.gold is None
-    assert starts.silver == "2020-01-02"
+    assert starts.silver == "2021-07-01"
+
+
+def test_silver_env_override_wins_over_coverage_floor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # An explicit operator override beats the silver.served_start clamp, even
+    # below the floor — the override is the deliberate escape hatch.
+    monkeypatch.setenv("CORPUS_SYSTEM_JUMPS_SILVER_START", "2021-03-01")
+    starts = resolve_partition_starts(
+        SYSTEM_JUMPS, HISTORY, datasets_dir=str(DATASETS_DIR)
+    )
+    assert starts.silver == "2021-03-01"
 
 
 def test_ambiguous_derivative_raises() -> None:

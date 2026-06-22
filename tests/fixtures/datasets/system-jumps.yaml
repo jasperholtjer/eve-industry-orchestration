@@ -28,6 +28,9 @@ silver:
   parquet_codec: zstd
   parquet_codec_level: 19
   sort_keys: [snapshot_at, system_id]
+  # Silver coverage floor (ADR-0027): EVE Ref's dense hourly era begins
+  # 2021-07-01. Clamps the Silver matrix; the binary rejects an earlier ingest.
+  served_start: 2021-07-01
 # ADR-0025 — two Gold derivatives from the one hourly Silver source, each
 # its own named Hive-partitioned Gold tree (gold/<name>/...). The shape
 # invariants (closed=left/right, daily_rollup, aggregators, EWMA wall-clock
@@ -41,9 +44,10 @@ gold:
     # Authoritative per-partition row order, validated by `corpus gold build`
     # against the builder's emit order (system_id, date).
     sort_keys: [system_id, date]
-    # Spans the tar era; coverage_min_ratio < 1.0 tolerates the 2019–2020
-    # gap and partial days.
-    served_start: 2021-01-01
+    # Earliest legal Gold target; the pre-2022 tar era is too sparse to serve a
+    # trustworthy contract, so coverage_min_ratio < 1.0 tolerates the partial
+    # early-window look-back (Silver only reaches back to 2021-07-01).
+    served_start: 2022-01-01
     flat:
       daily_rollup: sum
       horizons: [7, 30, 90, 365]

@@ -22,3 +22,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   New per-derivative override `CORPUS_<DATASET>_<DERIVATIVE>_GOLD_START`.
 - `CorpusResource.gold_ready_dates` accepts an optional `derivative` and passes
   `--derivative` through to the binary.
+- `defs/config.py` clamps the Silver partition start to `silver.served_start` (the
+  upstream coverage floor, ADR-0027) from the dataset YAML when present, so the
+  matrix never reaches before upstream data exists; `system-jumps` Silver now starts
+  `2021-07-01` instead of the doomed derived `2021-01-01`.

@@ -51,7 +51,7 @@ _DERIVATIVES: dict[str, list[str]] = {
 }
 # Per-derivative served_start, surfaced in `gold ready-dates` JSON.
 _SERVED_START: dict[str, str | None] = {
-    "system-traffic-history": "2021-01-01",
+    "system-traffic-history": "2022-01-01",
     "system-traffic-recent": None,
 }
 

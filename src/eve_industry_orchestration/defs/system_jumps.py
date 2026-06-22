@@ -30,10 +30,13 @@ DATASET = "system-jumps"
 HISTORY_DERIVATIVE = "system-traffic-history"
 RECENT_DERIVATIVE = "system-traffic-recent"
 
-# Silver is shared by both derivatives; its start is the earliest preload
-# (system-traffic-history's 365d window before 2021-01-01 → 2020-01-02). Gold
-# starts at the history derivative's served_start (2021-01-01). The recent
-# derivative has no served_start and is non-partitioned, so it needs no start.
+# Silver is shared by both derivatives. Its derived start is the earliest preload
+# (system-traffic-history's 365d window before its served_start 2022-01-01 →
+# 2021-01-01), but EVE Ref's dense hourly era begins 2021-07-01 (2020/early-2021
+# has no archive), so the dataset YAML's silver.served_start (ADR-0027) clamps
+# Silver up to 2021-07-01. Gold starts at
+# the history derivative's served_start (2022-01-01). The recent derivative has
+# no served_start and is non-partitioned, so it needs no start.
 _history_starts = resolve_partition_starts(DATASET, HISTORY_DERIVATIVE)
 silver_partitions = dg.DailyPartitionsDefinition(start_date=_history_starts.silver)
 history_gold_partitions = dg.DailyPartitionsDefinition(start_date=_history_starts.gold)

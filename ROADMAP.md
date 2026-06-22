@@ -65,6 +65,17 @@ Verified against `crates/corpus-cli/src/main.rs`. `--sink-path` is a global flag
 > dataset YAML (`gold.served_start`, minus the max rolling horizon for Silver),
 > overridable via `CORPUS_<DATASET>_<TIER>_START`.
 
+> [!NOTE]
+> Follow-up (ADR-0027): the derived Silver preload assumed upstream data exists for
+> the whole look-back window. `system-jumps` broke that — its derived preload
+> `2021-01-01` (`2022-01-01 − 365d`) falls in a stretch with no upstream archive
+> (the dense hourly era only begins `2021-07-01`), so a backfill of
+> `2021-01-01…06-30` failed in `corpus ingest`. The dataset YAML
+> now declares `silver.served_start` (the upstream coverage floor); `config.py`
+> clamps Silver to `max(derived_preload, silver.served_start)` and the binary
+> rejects an earlier ingest. `coverage_min_ratio: 0.5` tolerates the resulting
+> partial first Gold window by design.
+
 `market_history.py` uses `DailyPartitionsDefinition(start_date="2024-01-01")` for
 both Silver and Gold — a placeholder that contradicts the config source of truth.
 
