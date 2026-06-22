@@ -119,17 +119,14 @@ Adding a dataset is mechanical once the shapes are mapped. Do all that apply.
 
 ### 1. `defs/config.py` — partition starts from the polymorphic `gold` list
 
-This is the one piece that is **not** copy-paste and the most common source of
-breakage. The current resolver predates ADR-0025: it reads `gold` as a **dict**
-(`cfg.get("gold")` + `isinstance(gold, dict)`), reads a single top-level
-`gold.served_start`, and derives the Silver preload from `gold.rolling.*`
-horizons. Since ADR-0025 `gold` is a **list of named derivatives**, `served_start`
-lives **per derivative**, and a dataset may have **no `rolling` block at all**
-(horizons under `flat`, or none for `ewma`).
+`config.py` already resolves partition starts **per `(dataset, derivative)`** from
+the ADR-0025 `gold` **list** (a single-derivative dataset is a one-element list).
+A new dataset of an existing shape needs **no resolver change** — only test
+coverage. The resolver is config-driven and dataset-agnostic; never pin a dataset's
+dates here. Understand the resolution it performs (and extend it only for a
+genuinely new shape):
 
-Generalise resolution to **per `(dataset, derivative)`**:
-
-- Find the derivative by name in the `gold:` list (not `gold.served_start`).
+- Find the derivative by name in the `gold:` list.
 - Gold start = that derivative's `served_start` (a `recency-weighted` derivative
   may have **none** — for the scheduled "latest" model it has no partition matrix,
   so it needs no Gold start).
@@ -139,14 +136,22 @@ Generalise resolution to **per `(dataset, derivative)`**:
   - `recency-weighted` → the EWMA warmup (a few half-lives); only relevant if a
     `recency-weighted` derivative ever gets a partition matrix — for the schedule
     model the Silver start is driven by the *other* derivative(s).
-- Keep the `CORPUS_<DATASET>_<TIER>_START` env overrides; extend the key scheme to
-  disambiguate per derivative if a dataset has more than one windowed Gold start
-  (e.g. `CORPUS_<DATASET>_<DERIVATIVE>_GOLD_START`).
+- **Coverage floor (ADR-0027).** The derived preload can reach before the dataset's
+  upstream data exists. When the YAML declares `silver.served_start`, the resolver
+  clamps Silver up to it: `max(derived_preload, silver.served_start)`. Omitted ⇒ no
+  floor (the historical default). This is config-owned — if a new dataset's window
+  reaches before its dense upstream coverage, the fix is the YAML field, not a
+  constant in Python.
+- `CORPUS_<DATASET>_<TIER>_START` env overrides still win outright, including over
+  the floor; the per-derivative `CORPUS_<DATASET>_<DERIVATIVE>_GOLD_START` key
+  disambiguates a dataset with more than one windowed Gold start.
 
 Silver is shared across all derivatives of a dataset (one Silver tree feeds them
-all), so its start is the **earliest** preload across the windowed derivatives.
+all), so its start is the **earliest** preload across the windowed derivatives,
+then floor-clamped.
 
-Update `tests/test_config.py` to cover the list shape and each present shape.
+When you do touch the resolver (a genuinely new shape), update
+`tests/test_config.py` to cover it and the floor clamp.
 
 ### 2. `defs/<dataset>.py` — the assets
 
@@ -250,7 +255,8 @@ Keep methods derivative-agnostic for single-derivative datasets (no flag).
   `parquet + _INDEX.json + _DONE` contract appears — the binary owns the write,
   the asset only shells out.
 - Confirm the resolved partition starts match the corpus YAML (`served_start`
-  per derivative minus the look-back), not a hardcoded date.
+  per derivative minus the look-back, then clamped up to any `silver.served_start`
+  coverage floor), not a hardcoded date.
 
 ## CLI surface (verify against the corpus binary, not docs)
 
@@ -274,8 +280,10 @@ roadmap. Current surface:
   asset + one Gold asset + one Gold sensor. The verbatim template.
 - **system-jumps** — two derivatives ⇒ the multi-derivative path:
   `system-traffic-history` (`flat-multi-horizon`, daily Gold asset +
-  `ready-dates --derivative system-traffic-history` sensor, served `2021-01-01`,
-  Silver preload 365d back) and `system-traffic-recent` (`recency-weighted`,
-  scheduled non-partitioned rematerialise — **not** a sensor). This is the case
+  `ready-dates --derivative system-traffic-history` sensor, Gold served
+  `2022-01-01`, Silver preload 365d back but floor-clamped to
+  `silver.served_start: 2021-07-01` per ADR-0027) and `system-traffic-recent`
+  (`recency-weighted`, scheduled non-partitioned rematerialise — **not** a
+  sensor). This is the case
   that forces every multi-derivative consideration above; see the implementation
   brief under `.tmp/prompts/` (gitignored, local) if present.
