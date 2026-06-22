@@ -8,12 +8,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 - `system-jumps` orchestration (`defs/system_jumps.py`): a daily-partitioned
-  Silver asset plus the two ADR-0025 Gold derivatives — `system-traffic-history`
-  (`flat-multi-horizon`, daily Gold asset + `ready-dates` sensor) and
-  `system-traffic-recent` (`recency-weighted`, non-partitioned asset on an hourly
-  schedule).
-- `system_jumps_availability_sensor`, `system_jumps_traffic_history_gold_sensor`,
-  and `system_jumps_traffic_recent_schedule`.
+  `system_jumps_silver` asset plus the two ADR-0025 Gold derivatives —
+  `system_jumps_history_gold` (`flat-multi-horizon`, daily Gold asset +
+  `ready-dates` sensor) and `system_jumps_recent_gold` (`recency-weighted`,
+  non-partitioned asset on an hourly schedule).
+- `system_jumps_availability_sensor`, `system_jumps_history_gold_sensor`, and
+  `system_jumps_recent_schedule`.
 
 ### Changed
 - `defs/config.py` resolves partition starts per `(dataset, derivative)` from the

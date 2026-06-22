@@ -36,9 +36,7 @@ RECENT_DERIVATIVE = "system-traffic-recent"
 # derivative has no served_start and is non-partitioned, so it needs no start.
 _history_starts = resolve_partition_starts(DATASET, HISTORY_DERIVATIVE)
 silver_partitions = dg.DailyPartitionsDefinition(start_date=_history_starts.silver)
-traffic_history_partitions = dg.DailyPartitionsDefinition(
-    start_date=_history_starts.gold
-)
+history_gold_partitions = dg.DailyPartitionsDefinition(start_date=_history_starts.gold)
 
 _SILVER_POOL = "everef_download"
 _GOLD_POOL = "gold_heavy"
@@ -83,13 +81,13 @@ def system_jumps_silver(
 
 
 @dg.asset(
-    partitions_def=traffic_history_partitions,
+    partitions_def=history_gold_partitions,
     deps=[system_jumps_silver],
     group_name="system_jumps",
     kinds={"corpus"},
     pool=_GOLD_POOL,
 )
-def system_jumps_traffic_history_gold(
+def system_jumps_history_gold(
     context: dg.AssetExecutionContext, corpus: CorpusResource
 ) -> dg.MaterializeResult:
     """Gold partition for the flat-multi-horizon derivative, then verify.
@@ -136,19 +134,22 @@ def system_jumps_traffic_history_gold(
 
 
 @dg.asset(
+    deps=[system_jumps_silver],
     group_name="system_jumps",
     kinds={"corpus"},
 )
-def system_jumps_traffic_recent(
+def system_jumps_recent_gold(
     context: dg.AssetExecutionContext, corpus: CorpusResource
 ) -> dg.MaterializeResult:
     """Non-partitioned EWMA "navigate-now" heat for the latest buildable date.
 
     Resolves the latest date itself (``corpus gold ready-dates`` → ``max(ready)``)
-    and builds only that date. No ``deps=`` partition chain and no ``gold_heavy``
-    pool: the EWMA build spans only the short warmup, so it is lightweight, and
-    keeping it out of the heavy pool stops the hourly schedule from starving the
-    365d ``system-traffic-history`` backfills.
+    and builds only that date. ``deps=`` carries lineage only (the EWMA reads the
+    shared Silver tree); a non-partitioned asset cannot chain partitions, so the
+    schedule — not Silver — drives it. No ``gold_heavy`` pool: the EWMA build spans
+    only the short warmup, so it is lightweight, and keeping it out of the heavy
+    pool stops the hourly schedule from starving the 365d
+    ``system_jumps_history_gold`` backfills.
     """
     report = corpus.gold_ready_dates(DATASET, derivative=RECENT_DERIVATIVE)
     ready = report.get("ready", [])

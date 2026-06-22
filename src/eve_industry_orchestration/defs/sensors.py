@@ -143,11 +143,11 @@ def system_jumps_availability_sensor(
 
 
 @dg.sensor(
-    target=sj.system_jumps_traffic_history_gold,
+    target=sj.system_jumps_history_gold,
     minimum_interval_seconds=300,
     default_status=dg.DefaultSensorStatus.STOPPED,
 )
-def system_jumps_traffic_history_gold_sensor(
+def system_jumps_history_gold_sensor(
     context: dg.SensorEvaluationContext, corpus: CorpusResource
 ) -> dg.SensorResult:
     """Requests history-Gold runs for system-jumps dates whose window is complete.
@@ -160,7 +160,7 @@ def system_jumps_traffic_history_gold_sensor(
     report = corpus.gold_ready_dates(sj.DATASET, derivative=sj.HISTORY_DERIVATIVE)
     ready = report.get("ready", [])
 
-    valid = set(sj.traffic_history_partitions.get_partition_keys())
+    valid = set(sj.history_gold_partitions.get_partition_keys())
     eligible = sorted(date for date in ready if date in valid)
     selected = eligible[:MAX_PARTITIONS_PER_TICK]
 
@@ -186,9 +186,9 @@ def system_jumps_traffic_history_gold_sensor(
 # sensor: there is no per-date matrix to diff, only "rebuild the latest". The
 # asset omits the `gold_heavy` pool, so this cadence cannot starve the windowed
 # history backfills under `max_concurrent_runs`.
-system_jumps_traffic_recent_schedule = dg.ScheduleDefinition(
-    name="system_jumps_traffic_recent_schedule",
-    target=sj.system_jumps_traffic_recent,
+system_jumps_recent_schedule = dg.ScheduleDefinition(
+    name="system_jumps_recent_schedule",
+    target=sj.system_jumps_recent_gold,
     cron_schedule="0 * * * *",
     default_status=dg.DefaultScheduleStatus.STOPPED,
 )

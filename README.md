@@ -37,7 +37,7 @@ The homelab deployment (LXC, NFS mount, build order) is documented in
   cap-and-dedup loops. A Silver sensor per dataset polls
   `corpus everef missing-partitions`; a Gold sensor per windowed derivative polls
   `corpus gold ready-dates [--derivative <d>]`. The `recency-weighted` "recent"
-  asset has no sensor — `system_jumps_traffic_recent_schedule` rematerialises it
+  asset has no sensor — `system_jumps_recent_schedule` rematerialises it
   hourly. All key status on corpus run-state, never on globbing the NAS tree;
   `run_key` dedup prevents re-queuing in-flight dates.
 - **Resources** (`defs/resources.py`) — binds `corpus` to the assets and sensors

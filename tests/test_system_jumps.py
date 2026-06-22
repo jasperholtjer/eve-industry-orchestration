@@ -7,10 +7,10 @@ import pytest
 
 from eve_industry_orchestration.defs.sensors import (
     system_jumps_availability_sensor,
-    system_jumps_traffic_history_gold_sensor,
+    system_jumps_history_gold_sensor,
 )
 from eve_industry_orchestration.defs.system_jumps import (
-    system_jumps_traffic_recent,
+    system_jumps_recent_gold,
 )
 
 DATASET = "system-jumps"
@@ -53,7 +53,7 @@ def test_history_gold_sensor_requests_ready_dates(corpus) -> None:
     _ingest(corpus, "2024-01-15")
     context = dg.build_sensor_context(resources={"corpus": corpus})
 
-    result = system_jumps_traffic_history_gold_sensor(context)
+    result = system_jumps_history_gold_sensor(context)
 
     by_partition = {rr.partition_key: rr for rr in result.run_requests}
     assert sorted(by_partition) == ["2024-01-15"]
@@ -66,7 +66,7 @@ def test_history_gold_sensor_requests_ready_dates(corpus) -> None:
 def test_history_gold_sensor_no_silver_yields_no_requests(corpus) -> None:
     context = dg.build_sensor_context(resources={"corpus": corpus})
 
-    result = system_jumps_traffic_history_gold_sensor(context)
+    result = system_jumps_history_gold_sensor(context)
 
     assert result.run_requests == []
 
@@ -79,7 +79,7 @@ def test_recent_asset_builds_latest_ready_date(corpus) -> None:
     _ingest(corpus, "2024-01-16")
     context = dg.build_asset_context()
 
-    result = system_jumps_traffic_recent(context, corpus)
+    result = system_jumps_recent_gold(context, corpus)
 
     assert result.metadata["built"] is True
     assert result.metadata["partition"] == "2024-01-16"
@@ -88,7 +88,7 @@ def test_recent_asset_builds_latest_ready_date(corpus) -> None:
 def test_recent_asset_noop_without_ready(corpus) -> None:
     context = dg.build_asset_context()
 
-    result = system_jumps_traffic_recent(context, corpus)
+    result = system_jumps_recent_gold(context, corpus)
 
     assert result.metadata["built"] is False
 
