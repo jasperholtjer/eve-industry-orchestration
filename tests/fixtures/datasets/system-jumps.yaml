@@ -1,0 +1,62 @@
+name: system-jumps
+schema_version: 1
+source:
+  kind: everef
+  # EVE Ref publishes ~hourly snapshots under per-date subdirectories
+  # (folder era, from 2022-12-16) and a per-year tar of plain-JSON members
+  # for the older era. A partition is one DAY: the day's ~24 hourly files
+  # are merged. Both fields below are consumed by `corpus ingest`:
+  # `folder_era_start` picks the fetch path per date, `tar_filename_template`
+  # names the per-year tar (`{year}` substituted).
+  layout: hourly-folder-tar
+  base_url: https://data.everef.net/system-jumps/history
+  folder_era_start: 2022-12-16
+  tar_filename_template: "system-jumps-{year}.tar.bz2"
+bronze:
+  # EVE Ref snapshots are idempotently re-downloadable; Bronze is a
+  # download-avoidance cache, not the source of truth. 30d covers most
+  # parser-bug discovery windows without holding raw bytes indefinitely.
+  retention_days: 30
+silver:
+  # Authoritative Silver encoding + on-disk order, consumed by
+  # `corpus ingest`: codec + level drive the parquet writer; sort_keys is
+  # validated against the parser's natural key (mismatch fails the run).
+  # zstd-19 is pinned by the committed golden hashes (tests/golden.rs).
+  # Source-faithful (ADR-0007): hourly rows, day-partitioned — daily
+  # rollups are derivable at Gold, but the hourly data is not recoverable
+  # if pre-aggregated here.
+  parquet_codec: zstd
+  parquet_codec_level: 19
+  sort_keys: [snapshot_at, system_id]
+# ADR-0025 — two Gold derivatives from the one hourly Silver source, each
+# its own named Hive-partitioned Gold tree (gold/<name>/...). The shape
+# invariants (closed=left/right, daily_rollup, aggregators, EWMA wall-clock
+# decay) live in code; the YAML carries only the per-dataset parameters.
+gold:
+  # Long-horizon activity / danger proxy. Daily rollup (sum of the day's
+  # hourly ship_jumps) then flat 7/30/90/365d × {mean,median,p95,max},
+  # closed="left" (forecasting, leakage-free).
+  - name: system-traffic-history
+    shape: flat-multi-horizon
+    # Authoritative per-partition row order, validated by `corpus gold build`
+    # against the builder's emit order (system_id, date).
+    sort_keys: [system_id, date]
+    # Spans the tar era; coverage_min_ratio < 1.0 tolerates the 2019–2020
+    # gap and partial days.
+    served_start: 2021-01-01
+    flat:
+      daily_rollup: sum
+      horizons: [7, 30, 90, 365]
+      # std (sample, ddof=1) is the dispersion feature; the builder also emits
+      # an n_hours base column for partial-day weighting (ADR-0026).
+      aggregators: [mean, median, p95, max, std]
+      coverage_min_ratio: 0.5
+  # Navigate-now heat. EWMA over the hourly series, short half-life so the
+  # most recent hours dominate; closed="right" (inclusive of the latest
+  # snapshot), wall-clock decay. No coverage gate (no fixed look-back).
+  - name: system-traffic-recent
+    shape: recency-weighted
+    sort_keys: [system_id, snapshot_at]
+    ewma:
+      value_col: ship_jumps
+      half_life_hours: 6

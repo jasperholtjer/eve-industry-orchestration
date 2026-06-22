@@ -13,10 +13,16 @@ Verified against `crates/corpus-cli/src/main.rs`. `--sink-path` is a global flag
 `<sink-path>/gold` (Gold primary is NVMe, mirrored to the NAS).
 
 - `corpus ingest --dataset <name> --date <YYYY-MM-DD>` — one day to Silver.
-- `corpus gold --dataset <name> --date <YYYY-MM-DD> [--silver-path] [--gold-path]`
-  — Silver -> Gold for one date. **Not** `build --tier gold` (the placeholder in
-  `market_history.py` guessed wrong).
-- `corpus verify --dataset <name> [--date <d>] --tier <silver|gold> [--full]`.
+- `corpus gold build --dataset <name> [--derivative <d>] --date <YYYY-MM-DD>
+  [--silver-path] [--gold-path]` — Silver -> Gold for one (dataset, derivative,
+  date). `--derivative` is optional for a single-derivative dataset and required
+  for a multi-derivative one (ADR-0025).
+- `corpus gold ready-dates --dataset <name> [--derivative <d>] --format json` —
+  dates whose Gold partition is buildable (target Silver present, coverage gate
+  passed, Gold not yet built).
+- `corpus verify --dataset <name> [--date <d>] --tier <silver|gold> [--full]` —
+  for Gold, `--dataset` is the **derivative** name (each derivative is its own
+  Gold tree, `gold/<derivative>/...`).
 - `corpus state query --sql <sql> --format json` — read-only, JSON for sensors.
 - `corpus everef missing-partitions --dataset <name> --window-days <n> --format json`
   — diff EVE Ref availability against the local `partitions` table.

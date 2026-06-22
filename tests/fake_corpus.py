@@ -41,21 +41,51 @@ def _pop_flag(args: list[str], name: str) -> bool:
     return True
 
 
+# Known Gold derivatives per dataset (ADR-0025). A single-derivative dataset
+# resolves its lone derivative when `--derivative` is omitted; a multi-derivative
+# dataset is ambiguous without the selector, mirroring the real binary. The
+# derivative name is the Gold-tree path component and the Gold state key.
+_DERIVATIVES: dict[str, list[str]] = {
+    "market-history": ["market-history"],
+    "system-jumps": ["system-traffic-history", "system-traffic-recent"],
+}
+# Per-derivative served_start, surfaced in `gold ready-dates` JSON.
+_SERVED_START: dict[str, str | None] = {
+    "system-traffic-history": "2021-01-01",
+    "system-traffic-recent": None,
+}
+
+
+def _resolve_derivative(dataset: str, derivative: str | None) -> str | None:
+    """Returns the resolved derivative, or ``None`` when ambiguous."""
+    derivatives = _DERIVATIVES.get(dataset, [dataset])
+    if derivative is not None:
+        return derivative
+    if len(derivatives) == 1:
+        return derivatives[0]
+    return None
+
+
 def _state_file(sink: str) -> Path:
     return Path(sink) / "state" / "fake-state.json"
 
 
-def _load_state(sink: str) -> dict[str, list[str]]:
+def _load_state(sink: str) -> dict:
     path = _state_file(sink)
     if not path.is_file():
-        return {"silver": [], "gold": []}
+        return {"silver": [], "gold": {}}
     state = json.loads(path.read_text(encoding="utf-8"))
     state.setdefault("silver", [])
-    state.setdefault("gold", [])
+    # Gold is keyed per derivative (each its own tree); tolerate the older flat
+    # list shape by folding it under a dataset-named key on read.
+    gold = state.get("gold", {})
+    if isinstance(gold, list):
+        gold = {"market-history": gold}
+    state["gold"] = gold
     return state
 
 
-def _save_state(sink: str, state: dict[str, list[str]]) -> None:
+def _save_state(sink: str, state: dict) -> None:
     path = _state_file(sink)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(state), encoding="utf-8")
@@ -116,22 +146,50 @@ def _do_gold(args: list[str], sink: str) -> int:
 
 def _do_gold_ready_dates(args: list[str], sink: str) -> int:
     dataset = _pop_opt(args, "--dataset")
+    derivative_arg = _pop_opt(args, "--derivative")
     _pop_opt(args, "--format")
+    if dataset is None:
+        print("gold ready-dates: --dataset required", file=sys.stderr)
+        return 2
+    derivative = _resolve_derivative(dataset, derivative_arg)
+    if derivative is None:
+        print(
+            f"gold ready-dates: dataset {dataset} declares multiple derivatives; "
+            "pass --derivative",
+            file=sys.stderr,
+        )
+        return 2
+
     state = _load_state(sink)
-    # Real binary gates on the 365-day window; the fake models only the
+    # Real binary gates on the look-back window; the fake models only the
     # state-level "Silver present, Gold not yet built" diff, which is enough to
     # exercise the sensor (window coverage is unit-tested on the Rust side).
-    built = set(state["gold"])
+    built = set(state["gold"].get(derivative, []))
     ready = sorted(d for d in state["silver"] if d not in built)
-    print(json.dumps({"dataset": dataset, "ready": ready}))
+    payload = {
+        "dataset": dataset,
+        "derivative": derivative,
+        "served_start": _SERVED_START.get(derivative),
+        "ready": ready,
+    }
+    print(json.dumps(payload))
     return 0
 
 
 def _do_gold_build(args: list[str], sink: str) -> int:
     dataset = _pop_opt(args, "--dataset")
+    derivative_arg = _pop_opt(args, "--derivative")
     date = _pop_opt(args, "--date")
     if dataset is None or date is None:
         print("gold build: --dataset and --date required", file=sys.stderr)
+        return 2
+    derivative = _resolve_derivative(dataset, derivative_arg)
+    if derivative is None:
+        print(
+            f"gold build: dataset {dataset} declares multiple derivatives; "
+            "pass --derivative",
+            file=sys.stderr,
+        )
         return 2
 
     # The real binary bails when the target-day Silver partition is absent; it
@@ -143,13 +201,15 @@ def _do_gold_build(args: list[str], sink: str) -> int:
         )
         return 1
 
-    pdir = _partition_dir(sink, "gold", dataset, date)
+    # Gold writes to its own derivative-named tree (gold/<derivative>/...).
+    pdir = _partition_dir(sink, "gold", derivative, date)
     pdir.mkdir(parents=True, exist_ok=True)
     (pdir / "data.parquet").write_bytes(b"PAR1-fake-gold")
     year, month, day = (int(p) for p in date.split("-"))
     index = {
         "schema_version": 1,
         "dataset": dataset,
+        "derivative": derivative,
         "partition": {"year": year, "month": month, "day": day},
         "row_count": 1,
         "tier": "gold",
@@ -158,8 +218,9 @@ def _do_gold_build(args: list[str], sink: str) -> int:
     (pdir / "_INDEX.json").write_text(json.dumps(index), encoding="utf-8")
     (pdir / "_DONE").write_text("", encoding="utf-8")
 
-    if date not in state["gold"]:
-        state["gold"].append(date)
+    built = state["gold"].setdefault(derivative, [])
+    if date not in built:
+        built.append(date)
         _save_state(sink, state)
 
     print(f"wrote 1 gold rows -> {pdir}", file=sys.stderr)

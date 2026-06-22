@@ -111,15 +111,22 @@ class CorpusResource(dg.ConfigurableResource):
             args += ["--window-days", str(window_days)]
         return self._capture_json(*args)
 
-    def gold_ready_dates(self, dataset: str) -> dict[str, Any]:
+    def gold_ready_dates(
+        self, dataset: str, *, derivative: str | None = None
+    ) -> dict[str, Any]:
         """Returns the dates whose Gold partition is ready to build as a dict.
 
         Wraps ``corpus gold ready-dates``, which reads the run-state
         ``partitions`` table and reports dates whose target-day Silver is
-        present, whose rolling window meets ``coverage_min_ratio``, and whose
-        Gold partition is not yet built. The ``ready`` key holds that date list.
+        present, whose look-back window meets ``coverage_min_ratio`` (windowed
+        shapes only), and whose Gold partition is not yet built. The ``ready``
+        key holds that date list (alongside ``derivative`` / ``served_start``).
+
+        Pass ``derivative`` for a multi-derivative dataset (ADR-0025); a
+        single-derivative dataset (market-history) resolves it automatically and
+        leaves the flag off.
         """
-        return self._capture_json(
+        args = [
             "gold",
             "ready-dates",
             "--dataset",
@@ -128,7 +135,10 @@ class CorpusResource(dg.ConfigurableResource):
             self.sink_path,
             "--format",
             "json",
-        )
+        ]
+        if derivative is not None:
+            args += ["--derivative", derivative]
+        return self._capture_json(*args)
 
     def state_query(self, sql: str) -> list[dict[str, Any]]:
         """Runs a read-only ``corpus state query`` and returns the JSON rows."""

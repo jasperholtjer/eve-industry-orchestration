@@ -37,3 +37,59 @@ def test_env_overrides_both_tiers(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_missing_config_raises(tmp_path) -> None:
     with pytest.raises(PartitionConfigError):
         resolve_partition_starts(DATASET, datasets_dir=str(tmp_path))
+
+
+# --- system-jumps: ADR-0025 multi-derivative list shape -------------------
+
+SYSTEM_JUMPS = "system-jumps"
+HISTORY = "system-traffic-history"
+RECENT = "system-traffic-recent"
+
+
+def test_history_gold_start_is_per_derivative_served_start() -> None:
+    starts = resolve_partition_starts(
+        SYSTEM_JUMPS, HISTORY, datasets_dir=str(DATASETS_DIR)
+    )
+    assert starts.gold == "2021-01-01"
+
+
+def test_silver_start_is_earliest_windowed_preload() -> None:
+    # flat-multi-horizon max horizon is 365d; 2021-01-01 − 365d = 2020-01-02
+    # (2020 leap year). The recency-weighted derivative has no served_start and
+    # imposes no reach-back, so Silver is driven by the history derivative.
+    starts = resolve_partition_starts(
+        SYSTEM_JUMPS, HISTORY, datasets_dir=str(DATASETS_DIR)
+    )
+    assert starts.silver == "2020-01-02"
+
+
+def test_recency_weighted_has_no_gold_start() -> None:
+    # The "latest" derivative is non-partitioned; it carries no served_start, so
+    # its Gold start resolves to None while Silver stays shared.
+    starts = resolve_partition_starts(
+        SYSTEM_JUMPS, RECENT, datasets_dir=str(DATASETS_DIR)
+    )
+    assert starts.gold is None
+    assert starts.silver == "2020-01-02"
+
+
+def test_ambiguous_derivative_raises() -> None:
+    with pytest.raises(PartitionConfigError):
+        resolve_partition_starts(SYSTEM_JUMPS, datasets_dir=str(DATASETS_DIR))
+
+
+def test_unknown_derivative_raises() -> None:
+    with pytest.raises(PartitionConfigError):
+        resolve_partition_starts(
+            SYSTEM_JUMPS, "no-such-derivative", datasets_dir=str(DATASETS_DIR)
+        )
+
+
+def test_per_derivative_gold_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(
+        "CORPUS_SYSTEM_JUMPS_SYSTEM_TRAFFIC_HISTORY_GOLD_START", "2023-03-01"
+    )
+    starts = resolve_partition_starts(
+        SYSTEM_JUMPS, HISTORY, datasets_dir=str(DATASETS_DIR)
+    )
+    assert starts.gold == "2023-03-01"

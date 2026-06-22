@@ -26,6 +26,12 @@
 #    `dagster instance concurrency set <pool> <limit>`. A future pool wanting a
 #    different limit takes such an override; lightweight datasets omit `pool=`
 #    entirely and stay bounded only by the global cap of 4.
+#
+# The hourly `system_jumps_traffic_recent_schedule` is deliberately NOT in the
+# `gold_heavy` pool: the EWMA "recent" build spans only the short warmup, so it is
+# lightweight and bounded by the global cap alone. At most one such run is in
+# flight per hour, so it cannot starve the windowed `system-traffic-history`
+# backfills that do hold `gold_heavy`.
 run_coordinator:
   module: dagster.core.run_coordinator
   class: QueuedRunCoordinator

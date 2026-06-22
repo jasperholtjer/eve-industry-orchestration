@@ -16,25 +16,37 @@ The homelab deployment (LXC, NFS mount, build order) is documented in
   `everef_missing_partitions`, `gold_ready_dates`, and `state_query` capture JSON
   off stdout for the sensors.
 - **Partition config** (`defs/config.py`) — resolves Silver/Gold start dates from
-  the corpus dataset YAML (`gold.served_start`, minus one rolling window for
-  Silver) instead of hardcoding them. Override per tier with
-  `CORPUS_<DATASET>_<TIER>_START`.
-- **Dataset assets** (`defs/market_history.py`) — daily-partitioned Silver and Gold
-  assets, with **distinct** partition start dates (Silver reaches back one rolling
-  window before Gold). Gold depends on Silver via `deps=` (the data dependency runs
-  over the NAS contract, not an IOManager).
-- **Availability sensors** (`defs/sensors.py`) — two thin cap-and-dedup loops.
-  The Silver sensor polls `corpus everef missing-partitions` and requests Silver
-  runs for newly available dates; the Gold sensor polls `corpus gold ready-dates`
-  and requests Gold runs for dates whose rolling window is complete (`deps=` is
-  lineage only, so Gold needs its own trigger). Both key status on corpus
-  run-state (the SQLite `partitions` table), never on globbing the NAS tree;
+  the corpus dataset YAML per `(dataset, derivative)`, instead of hardcoding them.
+  Gold start is the derivative's `served_start`; Silver reaches back the look-back
+  window (largest `rolling` horizon, `max(flat.horizons)`, or the EWMA warmup) and
+  is shared across a dataset's derivatives (earliest preload wins). Reads the
+  ADR-0025 `gold` list of named derivatives (market-history is a one-element list,
+  system-jumps has two). Override per tier with
+  `CORPUS_<DATASET>_<TIER>_START`, or per derivative with
+  `CORPUS_<DATASET>_<DERIVATIVE>_GOLD_START`.
+- **Dataset assets** (`defs/market_history.py`, `defs/system_jumps.py`) —
+  daily-partitioned Silver and Gold assets, with **distinct** partition start
+  dates (Silver reaches back one window before Gold). Gold depends on Silver via
+  `deps=` (lineage only). A multi-derivative dataset (ADR-0025) gets one Gold asset
+  per derivative, each passing `--derivative`: a `flat-multi-horizon` /​ `rolling`
+  derivative is a daily-partitioned asset + `ready-dates` sensor, while a
+  `recency-weighted` derivative is a single **non-partitioned** asset a schedule
+  rematerialises against the latest buildable date. Gold verify keys on the
+  derivative name (its own `gold/<derivative>/...` tree).
+- **Availability sensors** (`defs/sensors.py`) and **schedules** — thin
+  cap-and-dedup loops. A Silver sensor per dataset polls
+  `corpus everef missing-partitions`; a Gold sensor per windowed derivative polls
+  `corpus gold ready-dates [--derivative <d>]`. The `recency-weighted` "recent"
+  asset has no sensor — `system_jumps_traffic_recent_schedule` rematerialises it
+  hourly. All key status on corpus run-state, never on globbing the NAS tree;
   `run_key` dedup prevents re-queuing in-flight dates.
 - **Resources** (`defs/resources.py`) — binds `corpus` to the assets and sensors
   from env vars.
 
-Adding a dataset later is a new module mirroring `market_history.py` (or a factory
-once the second dataset lands).
+Adding a dataset is a new module mirroring `market_history.py` (single `rolling`
+derivative) or `system_jumps.py` (multi-derivative, ADR-0025); see the
+`add-dataset-to-orchestration` skill. Factor the asset bodies into a shared
+factory once a third dataset shows what actually varies.
 
 ## Local development
 
