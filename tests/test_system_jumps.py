@@ -10,6 +10,7 @@ from eve_industry_orchestration.defs.sensors import (
     system_jumps_history_gold_sensor,
 )
 from eve_industry_orchestration.defs.system_jumps import (
+    system_jumps_history_gold,
     system_jumps_recent_gold,
     system_jumps_silver,
 )
@@ -105,6 +106,29 @@ def test_history_gold_sensor_requests_ready_dates(corpus) -> None:
     assert (
         by_partition["2024-01-15"].run_key == "system-traffic-history-gold-2024-01-15"
     )
+
+
+def test_history_gold_skips_upstream_gap_day(
+    corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 2024-01-20 is a gap: a Silver ingest records it skipped, so the Gold build
+    # for that target day skips too — partition left Missing with an observation,
+    # not failed (ADR-0029).
+    monkeypatch.setenv("FAKE_EVEREF_DATES", "2024-01-15")
+    _ingest(corpus, "2024-01-20")  # records the upstream gap
+
+    result = dg.materialize(
+        [system_jumps_history_gold],
+        partition_key="2024-01-20",
+        resources={"corpus": corpus},
+    )
+
+    assert result.success
+    assert result.get_asset_materialization_events() == []
+    observations = result.get_asset_observation_events()
+    assert len(observations) == 1
+    metadata = observations[0].event_specific_data.asset_observation.metadata
+    assert metadata["skip_reason"].value == "upstream_gap"
 
 
 def test_history_gold_sensor_no_silver_yields_no_requests(corpus) -> None:

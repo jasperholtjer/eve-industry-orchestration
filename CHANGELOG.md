@@ -29,9 +29,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `CorpusResource.run` attaches the corpus subprocess's output tail to the raised
   `dg.Failure`, so a failed asset surfaces the real error in the Failure instead of
   only the command line.
-- `CorpusResource.run` parses and returns the `corpus ingest` stdout status object
-  (`written` / `skipped`, ADR-0028); `system_jumps_silver` is now
-  `output_required=False` and, on a genuinely-absent upstream day (interior EVE Ref
-  gap), leaves the partition Missing — skipping the verify and emitting an
-  `AssetObservation` (`skip_reason=upstream_absent`) instead of failing or
-  materialising an empty day.
+- `CorpusResource.run` parses and returns the `corpus ingest` / `gold build` stdout
+  status object (`written` / `skipped`, ADR-0028/0029); `system_jumps_silver` and
+  `system_jumps_history_gold` are now `output_required=False` and, on a genuinely-
+  absent upstream day (interior EVE Ref gap — Silver) or a target day whose Silver is
+  that gap (Gold), leave the partition Missing — skipping the verify and emitting an
+  `AssetObservation` (`skip_reason=upstream_absent` / `upstream_gap`) instead of
+  failing or materialising an empty day.

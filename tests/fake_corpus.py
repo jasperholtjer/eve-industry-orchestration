@@ -73,9 +73,12 @@ def _state_file(sink: str) -> Path:
 def _load_state(sink: str) -> dict:
     path = _state_file(sink)
     if not path.is_file():
-        return {"silver": [], "gold": {}}
+        return {"silver": [], "gold": {}, "skipped": []}
     state = json.loads(path.read_text(encoding="utf-8"))
     state.setdefault("silver", [])
+    # Days recorded as a genuine upstream gap by a skipped ingest (ADR-0028);
+    # `gold build` skips a target day in this set rather than failing (ADR-0029).
+    state.setdefault("skipped", [])
     # Gold is keyed per derivative (each its own tree); tolerate the older flat
     # list shape by folding it under a dataset-named key on read.
     gold = state.get("gold", {})
@@ -117,6 +120,10 @@ def _do_ingest(args: list[str], sink: str) -> int:
     upstream_raw = os.environ.get("FAKE_EVEREF_DATES", "")
     upstream = {d.strip() for d in upstream_raw.split(",") if d.strip()}
     if upstream and date not in upstream:
+        state = _load_state(sink)
+        if date not in state["skipped"]:
+            state["skipped"].append(date)
+            _save_state(sink, state)
         print(
             json.dumps(
                 {
@@ -225,10 +232,26 @@ def _do_gold_build(args: list[str], sink: str) -> int:
         )
         return 2
 
-    # The real binary bails when the target-day Silver partition is absent; it
-    # cannot derive Gold without the target row(s).
+    # The real binary bails when the target-day Silver partition is absent — but
+    # a target day recorded as an upstream gap (ADR-0029) skips cleanly instead,
+    # so a Gold backfill glides over gaps. An un-ingested target still fails.
     state = _load_state(sink)
     if date not in state["silver"]:
+        if date in state["skipped"]:
+            print(
+                json.dumps(
+                    {
+                        "status": "skipped",
+                        "dataset": dataset,
+                        "derivative": derivative,
+                        "date": date,
+                        "partition_key": f"date={date}",
+                        "reason": f"target silver day {date} is an upstream gap",
+                    }
+                )
+            )
+            print(f"gold build: {date} is an upstream gap; skipping", file=sys.stderr)
+            return 0
         print(
             f"gold build: target silver partition for {date} is absent", file=sys.stderr
         )
@@ -257,6 +280,19 @@ def _do_gold_build(args: list[str], sink: str) -> int:
         _save_state(sink, state)
 
     print(f"wrote 1 gold rows -> {pdir}", file=sys.stderr)
+    print(
+        json.dumps(
+            {
+                "status": "written",
+                "dataset": dataset,
+                "derivative": derivative,
+                "date": date,
+                "partition_key": f"date={date}",
+                "rows": 1,
+                "parquet_sha256": "fake",
+            }
+        )
+    )
     return 0
 
 

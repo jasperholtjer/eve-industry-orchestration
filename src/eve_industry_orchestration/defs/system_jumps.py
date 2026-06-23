@@ -114,19 +114,27 @@ def system_jumps_silver(
     group_name="system_jumps",
     kinds={"corpus"},
     pool=_GOLD_POOL,
+    # A target day whose Silver is an upstream gap can never build a Gold row
+    # (ADR-0029); corpus reports "skipped", so the asset must complete without
+    # materialising — the partition stays Missing rather than failing.
+    output_required=False,
 )
 def system_jumps_history_gold(
     context: dg.AssetExecutionContext, corpus: CorpusResource
-) -> dg.MaterializeResult:
+) -> Iterator[dg.MaterializeResult | dg.AssetObservation]:
     """Gold partition for the flat-multi-horizon derivative, then verify.
 
     ``deps=`` is lineage only; the readiness sensor drives this. ``corpus gold
     build`` reads the full ``[date - 365d, date]`` Silver window and enforces
     ``coverage_min_ratio`` itself — an incomplete window exits non-zero. Verify
     keys on the derivative name (its Gold tree), not the dataset.
+
+    A target day that is a recorded upstream gap (``status: skipped``, ADR-0029)
+    is left Missing: the verify (which would 404 on the absent Gold partition) is
+    skipped and an ``AssetObservation`` records why, mirroring the Silver asset.
     """
     date = context.partition_key
-    corpus.run(
+    status = corpus.run(
         context,
         "gold",
         "build",
@@ -139,6 +147,21 @@ def system_jumps_history_gold(
         "--sink-path",
         corpus.sink_path,
     )
+    if status is not None and status.get("status") == "skipped":
+        context.log.info(
+            "system-traffic-history %s: target silver is an upstream gap, "
+            "leaving partition missing",
+            date,
+        )
+        yield dg.AssetObservation(
+            asset_key=context.asset_key,
+            partition=date,
+            metadata={
+                "skip_reason": "upstream_gap",
+                "detail": str(status.get("reason", "")),
+            },
+        )
+        return
     corpus.run(
         context,
         "verify",
@@ -151,7 +174,7 @@ def system_jumps_history_gold(
         "--sink-path",
         corpus.sink_path,
     )
-    return dg.MaterializeResult(
+    yield dg.MaterializeResult(
         metadata={
             "dataset": DATASET,
             "derivative": HISTORY_DERIVATIVE,
