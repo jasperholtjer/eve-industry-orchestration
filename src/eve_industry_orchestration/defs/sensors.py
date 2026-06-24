@@ -17,6 +17,7 @@ is driven by polling ``corpus gold ready-dates`` rather than by the Silver run.
 
 import dagster as dg
 
+from eve_industry_orchestration.defs import market_orders as mo
 from eve_industry_orchestration.defs import sde
 from eve_industry_orchestration.defs import system_jumps as sj
 from eve_industry_orchestration.defs.corpus_resource import CorpusResource
@@ -178,6 +179,79 @@ def system_jumps_history_gold_sensor(
         dg.RunRequest(
             run_key=f"{sj.HISTORY_DERIVATIVE}-gold-{date}", partition_key=date
         )
+        for date in selected
+    ]
+    return dg.SensorResult(run_requests=run_requests)
+
+
+# --- market-orders (orderbook-aggregate, ADR-0033) ------------------------
+
+
+@dg.sensor(
+    target=mo.market_orders_silver,
+    minimum_interval_seconds=3600,
+    default_status=dg.DefaultSensorStatus.STOPPED,
+)
+def market_orders_availability_sensor(
+    context: dg.SensorEvaluationContext, corpus: CorpusResource
+) -> dg.SensorResult:
+    """Requests Silver runs for market-orders dates newly available upstream."""
+    report = corpus.everef_missing_partitions(mo.DATASET)
+    missing = report.get("missing", [])
+
+    valid = set(mo.silver_partitions.get_partition_keys())
+    eligible = sorted(date for date in missing if date in valid)
+    selected = eligible[:MAX_PARTITIONS_PER_TICK]
+
+    deferred = len(eligible) - len(selected)
+    if deferred > 0:
+        context.log.info(
+            "availability: %d eligible, requesting %d this tick, %d deferred",
+            len(eligible),
+            len(selected),
+            deferred,
+        )
+
+    run_requests = [
+        dg.RunRequest(run_key=f"{mo.DATASET}-silver-{date}", partition_key=date)
+        for date in selected
+    ]
+    return dg.SensorResult(run_requests=run_requests)
+
+
+@dg.sensor(
+    target=mo.market_orders_gold,
+    minimum_interval_seconds=3600,
+    default_status=dg.DefaultSensorStatus.STOPPED,
+)
+def market_orders_gold_sensor(
+    context: dg.SensorEvaluationContext, corpus: CorpusResource
+) -> dg.SensorResult:
+    """Requests orderbook-sweep Gold runs for dates whose Silver is present.
+
+    Polls ``corpus gold ready-dates --derivative orderbook-sweep`` (the binary
+    owns the readiness decision: target-day Silver present, prior-day look-back
+    available, Gold not yet built) and stays a thin cap-and-dedup loop. The
+    ``run_key`` is keyed on the derivative, like its Gold tree.
+    """
+    report = corpus.gold_ready_dates(mo.DATASET, derivative=mo.GOLD_DERIVATIVE)
+    ready = report.get("ready", [])
+
+    valid = set(mo.gold_partitions.get_partition_keys())
+    eligible = sorted(date for date in ready if date in valid)
+    selected = eligible[:MAX_PARTITIONS_PER_TICK]
+
+    deferred = len(eligible) - len(selected)
+    if deferred > 0:
+        context.log.info(
+            "gold-readiness: %d eligible, requesting %d this tick, %d deferred",
+            len(eligible),
+            len(selected),
+            deferred,
+        )
+
+    run_requests = [
+        dg.RunRequest(run_key=f"{mo.GOLD_DERIVATIVE}-gold-{date}", partition_key=date)
         for date in selected
     ]
     return dg.SensorResult(run_requests=run_requests)

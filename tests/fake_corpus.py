@@ -50,12 +50,14 @@ def _pop_flag(args: list[str], name: str) -> bool:
 _DERIVATIVES: dict[str, list[str]] = {
     "market-history": ["market-history"],
     "system-jumps": ["system-traffic-history", "system-traffic-recent"],
+    "market-orders": ["orderbook-sweep"],
     "sde": ["sde-changelog", "sde-snapshot"],
 }
 # Per-derivative served_start, surfaced in `gold ready-dates` JSON.
 _SERVED_START: dict[str, str | None] = {
     "system-traffic-history": "2022-01-01",
     "system-traffic-recent": None,
+    "orderbook-sweep": "2021-07-09",
 }
 
 

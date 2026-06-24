@@ -106,3 +106,31 @@ def test_per_derivative_gold_override(monkeypatch: pytest.MonkeyPatch) -> None:
         SYSTEM_JUMPS, HISTORY, datasets_dir=str(DATASETS_DIR)
     )
     assert starts.gold == "2023-03-01"
+
+
+# --- market-orders: orderbook-aggregate shape (ADR-0033) ------------------
+
+MARKET_ORDERS = "market-orders"
+ORDERBOOK = "orderbook-sweep"
+
+
+def test_orderbook_gold_start_is_served_start() -> None:
+    starts = resolve_partition_starts(
+        MARKET_ORDERS, ORDERBOOK, datasets_dir=str(DATASETS_DIR)
+    )
+    assert starts.gold == "2021-07-09"
+
+
+def test_orderbook_silver_clamps_one_day_lookback_to_floor() -> None:
+    # The orderbook delta engine looks back one day (2021-07-09 − 1d =
+    # 2021-07-08), but silver.served_start is 2021-07-09 (ADR-0027/0033), so
+    # Silver clamps up: max(2021-07-08, 2021-07-09) = 2021-07-09.
+    starts = resolve_partition_starts(
+        MARKET_ORDERS, ORDERBOOK, datasets_dir=str(DATASETS_DIR)
+    )
+    assert starts.silver == "2021-07-09"
+
+
+def test_orderbook_single_derivative_resolves_without_selector() -> None:
+    starts = resolve_partition_starts(MARKET_ORDERS, datasets_dir=str(DATASETS_DIR))
+    assert (starts.silver, starts.gold) == ("2021-07-09", "2021-07-09")

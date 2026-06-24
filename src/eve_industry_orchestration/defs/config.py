@@ -35,6 +35,12 @@ _DATE_FORMAT = "%Y-%m-%d"
 # needs a few half-lives of priming, so the Silver reach-back is short.
 _EWMA_WARMUP_HALF_LIVES = 10
 
+# ``orderbook-aggregate`` (ADR-0033) pairs each snapshot with the immediately
+# preceding one; the only cross-partition need is the prior day's tail snapshot,
+# so the planner loads one day of look-back (``shape_window`` → ``lookback_days:
+# 1``). The Silver preload is therefore exactly one day before the Gold start.
+_ORDERBOOK_LOOKBACK_DAYS = 1
+
 
 class PartitionConfigError(RuntimeError):
     """Raised when the dataset config cannot yield partition start dates."""
@@ -296,6 +302,8 @@ def _lookback_for_shape(name: str, shape: str, entry: dict[str, Any]) -> int | N
         return _flat_lookback(name, entry.get("flat"))
     if shape == "recency-weighted":
         return _ewma_lookback(name, entry.get("ewma"))
+    if shape == "orderbook-aggregate":
+        return _ORDERBOOK_LOOKBACK_DAYS
     raise PartitionConfigError(f"gold derivative {name!r} has unknown shape {shape!r}")
 
 
