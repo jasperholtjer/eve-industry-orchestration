@@ -1,8 +1,8 @@
 name: sde
 schema_version: 1
 # Reduced SDE fixture for the orchestration tests: a representative entity subset
-# and both Gold derivatives. Build-versioned (ADR-0030/0031) — no served_start /
-# look-back window applies.
+# and both Gold derivatives. Build-versioned (ADR-0032) — no served_start /
+# look-back window applies; unified per-build Silver.
 source:
   kind: everef
   layout: build-versioned
@@ -14,6 +14,7 @@ silver:
   parquet_codec: zstd
   parquet_codec_level: 19
   served_start: 2025-09-18
+  sort_keys: [entity, _key]
   entities:
     - { name: types, member: types.jsonl }
     - { name: groups, member: groups.jsonl }
@@ -21,7 +22,7 @@ silver:
 gold:
   - name: sde-changelog
     shape: entity-changelog
-    sort_keys: [_key]
+    sort_keys: [entity, _key]
     changelog:
       entities: all
       changed_fields: false

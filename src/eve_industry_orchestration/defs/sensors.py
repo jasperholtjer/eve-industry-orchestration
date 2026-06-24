@@ -243,25 +243,26 @@ def sde_build_discovery_sensor(
 
 
 @dg.sensor(
-    target=[sde.sde_changelog_gold, sde.sde_snapshot_gold],
+    target=sde.sde_changelog_gold,
     minimum_interval_seconds=3600,
     default_status=dg.DefaultSensorStatus.STOPPED,
 )
 def sde_gold_sensor(
     context: dg.SensorEvaluationContext, corpus: CorpusResource
 ) -> dg.SensorResult:
-    """Requests both Gold derivatives for builds whose Silver is committed.
+    """Requests the unified changelog for builds whose Silver is committed.
 
     There is no ``ready-dates`` for SDE (no coverage window); readiness is keyed
-    on corpus run-state (ADR-0031) — a build whose Silver entity partitions are
-    committed. The binary owns the per-entity predecessor lookup and the baseline
-    skip, so this stays a thin cap-and-dedup loop: one changelog and one snapshot
-    run per build, ``run_key``-deduped. A baseline build's changelog run is
-    requested once and writes nothing (the binary skips it).
+    on corpus run-state (ADR-0032) — a build whose unified Silver partition
+    (``dataset = sde``) is committed. The binary owns the predecessor lookup and
+    the baseline skip, so this stays a thin cap-and-dedup loop: one changelog run
+    per build, ``run_key``-deduped. A baseline build's run is requested once and
+    writes nothing (the binary skips it). The snapshot is not driven here — it is
+    a non-partitioned, latest-only asset on :data:`sde_snapshot_schedule`.
     """
     rows = corpus.state_query(
         "SELECT DISTINCT partition_key FROM partitions "
-        "WHERE tier = 'silver' AND dataset LIKE 'sde/%'"
+        "WHERE tier = 'silver' AND dataset = 'sde'"
     )
     committed = sorted(
         {
@@ -288,23 +289,13 @@ def sde_gold_sensor(
             deferred,
         )
 
-    run_requests = []
-    for build in selected:
-        key = str(build)
-        run_requests.append(
-            dg.RunRequest(
-                run_key=f"{sde.CHANGELOG_DERIVATIVE}-{build}",
-                partition_key=key,
-                asset_selection=sde.changelog_asset_keys,
-            )
+    run_requests = [
+        dg.RunRequest(
+            run_key=f"{sde.CHANGELOG_DERIVATIVE}-{build}",
+            partition_key=str(build),
         )
-        run_requests.append(
-            dg.RunRequest(
-                run_key=f"{sde.SNAPSHOT_DERIVATIVE}-{build}",
-                partition_key=key,
-                asset_selection=sde.snapshot_asset_keys,
-            )
-        )
+        for build in selected
+    ]
     return dg.SensorResult(run_requests=run_requests)
 
 
@@ -316,5 +307,19 @@ system_jumps_recent_schedule = dg.ScheduleDefinition(
     name="system_jumps_recent_schedule",
     target=sj.system_jumps_recent_gold,
     cron_schedule="0 * * * *",
+    default_status=dg.DefaultScheduleStatus.STOPPED,
+)
+
+
+# Daily rebuild of the latest-only SDE snapshot (ADR-0032). A schedule, not a
+# sensor: the snapshot is non-partitioned ("rebuild the latest"), like the
+# system-jumps recent asset. SDE only changes on a game patch (every few days),
+# so a daily cadence keeps the served catalogue fresh without churn; the
+# build-discovery + gold sensors already pick up new builds for Silver and the
+# changelog within the hour. The asset self-skips when no Silver is committed.
+sde_snapshot_schedule = dg.ScheduleDefinition(
+    name="sde_snapshot_schedule",
+    target=sde.sde_snapshot_gold,
+    cron_schedule="0 2 * * *",
     default_status=dg.DefaultScheduleStatus.STOPPED,
 )

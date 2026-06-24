@@ -177,6 +177,18 @@ def _write_partition(
     (pdir / "_DONE").write_text("", encoding="utf-8")
 
 
+def _write_flat(sink: str, tier: str, tree: str) -> None:
+    """Writes a flat, non-partitioned ``<tier>/<tree>/`` partition (ADR-0032)."""
+    pdir = Path(sink) / tier / tree
+    pdir.mkdir(parents=True, exist_ok=True)
+    (pdir / "data.parquet").write_bytes(b"PAR1-fake-gold")
+    (pdir / "_INDEX.json").write_text(
+        json.dumps({"schema_version": 1, "dataset": tree, "tier": tier}),
+        encoding="utf-8",
+    )
+    (pdir / "_DONE").write_text("", encoding="utf-8")
+
+
 def _do_sde_ingest(args: list[str], sink: str) -> int:
     available = _sde_builds_env()
     build = _resolve_build(args, available)
@@ -187,10 +199,9 @@ def _do_sde_ingest(args: list[str], sink: str) -> int:
         print(f"ingest: build {build} not found upstream", file=sys.stderr)
         return 1
     release_date = available[build]
-    entities = _sde_entities()
 
-    for entity in entities:
-        _write_partition(sink, "silver", f"sde/{entity}", release_date, b"PAR1-fake")
+    # ADR-0032: one atomic unified Silver partition per build under `silver/sde/`.
+    _write_partition(sink, "silver", "sde", release_date, b"PAR1-fake")
 
     state = _load_state(sink)
     state["sde_silver"][str(build)] = release_date
@@ -204,7 +215,7 @@ def _do_sde_ingest(args: list[str], sink: str) -> int:
                 "build_id": build,
                 "release_date": release_date,
                 "partition_key": f"build={build}",
-                "entities": len(entities),
+                "rows": 1,
             }
         )
     )
@@ -222,51 +233,83 @@ def _do_sde_gold_build(args: list[str], sink: str, derivative: str) -> int:
         print(f"gold build: build {build} has no committed Silver", file=sys.stderr)
         return 1
     release_date = committed[build]
-    entities = _sde_entities()
 
-    # Changelog skips the baseline build (no committed predecessor < target),
-    # mirroring ADR-0031; snapshot always writes every entity.
+    if derivative == "sde-changelog":
+        return _do_sde_changelog(args, sink, state, committed, build, release_date)
+    return _do_sde_snapshot(sink, state, build, release_date)
+
+
+def _do_sde_changelog(
+    args: list[str],
+    sink: str,
+    state: dict,
+    committed: dict[int, str],
+    build: int,
+    release_date: str,
+) -> int:
+    # The baseline build (no committed predecessor < target) writes no changelog
+    # partition and reports status "skipped" (ADR-0032).
     has_predecessor = any(b < build for b in committed)
-    if derivative == "sde-changelog" and not has_predecessor:
+    if not has_predecessor:
         print(
             json.dumps(
                 {
-                    "status": "written",
-                    "dataset": "sde",
-                    "derivative": derivative,
+                    "status": "skipped",
+                    "dataset": "sde-changelog",
+                    "derivative": "sde-changelog",
                     "build_id": build,
                     "release_date": release_date,
                     "partition_key": f"build={build}",
-                    "entities_written": 0,
-                    "entities_skipped": len(entities),
+                    "reason": f"build {build} is baseline (no predecessor)",
                 }
             )
         )
         print(f"gold build: build {build} is baseline; no changelog", file=sys.stderr)
         return 0
 
-    suffix = "-changelog" if derivative == "sde-changelog" else ""
-    for entity in entities:
-        _write_partition(
-            sink, "gold", f"sde-{entity}{suffix}", release_date, b"PAR1-fake-gold"
-        )
-
-    state["sde_gold"].setdefault(derivative, [])
-    if build not in state["sde_gold"][derivative]:
-        state["sde_gold"][derivative].append(build)
+    # ADR-0032: one unified changelog tree `gold/sde-changelog/`.
+    _write_partition(sink, "gold", "sde-changelog", release_date, b"PAR1-fake-gold")
+    state["sde_gold"].setdefault("sde-changelog", [])
+    if build not in state["sde_gold"]["sde-changelog"]:
+        state["sde_gold"]["sde-changelog"].append(build)
         _save_state(sink, state)
 
     print(
         json.dumps(
             {
                 "status": "written",
-                "dataset": "sde",
-                "derivative": derivative,
+                "dataset": "sde-changelog",
+                "derivative": "sde-changelog",
                 "build_id": build,
                 "release_date": release_date,
                 "partition_key": f"build={build}",
+            }
+        )
+    )
+    return 0
+
+
+def _do_sde_snapshot(sink: str, state: dict, build: int, release_date: str) -> int:
+    # ADR-0032: latest-only, per-entity, flat non-partitioned `gold/sde-<entity>/`.
+    entities = _sde_entities()
+    for entity in entities:
+        _write_flat(sink, "gold", f"sde-{entity}")
+
+    state["sde_gold"].setdefault("sde-snapshot", [])
+    if build not in state["sde_gold"]["sde-snapshot"]:
+        state["sde_gold"]["sde-snapshot"].append(build)
+        _save_state(sink, state)
+
+    print(
+        json.dumps(
+            {
+                "status": "written",
+                "dataset": "sde-snapshot",
+                "derivative": "sde-snapshot",
+                "build_id": build,
+                "release_date": release_date,
+                "partition_key": "latest",
                 "entities_written": len(entities),
-                "entities_skipped": 0,
             }
         )
     )
@@ -552,8 +595,9 @@ def _do_state(args: list[str], sink: str) -> int:
     sql = _pop_opt(args, "--sql") or ""
     _pop_opt(args, "--format")
     state = _load_state(sink)
-    # The SDE Gold sensor queries committed Silver builds (dataset LIKE 'sde/%').
-    if "sde/" in sql:
+    # The SDE Gold sensor + snapshot asset query committed Silver builds
+    # (dataset = 'sde', ADR-0032).
+    if "dataset = 'sde'" in sql:
         rows = [
             {"dataset": "sde", "tier": "silver", "partition_key": f"build={build}"}
             for build in sorted(int(b) for b in state["sde_silver"])

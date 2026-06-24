@@ -33,21 +33,24 @@ The homelab deployment (LXC, NFS mount, build order) is documented in
   `recency-weighted` derivative is a single **non-partitioned** asset a schedule
   rematerialises against the latest buildable date. Gold verify keys on the
   derivative name (its own `gold/<derivative>/...` tree).
-- **Build-versioned assets** (`defs/sde.py`, ADR-0030/0031) — the SDE static
+- **Build-versioned assets** (`defs/sde.py`, ADR-0032) — the SDE static
   reference is not a daily time-series: a partition is a game *build*, so it uses a
   `DynamicPartitionsDefinition` keyed on build number (no `served_start` /
-  look-back). Each tier is a `@multi_asset` that makes one `corpus … --build <n>`
-  call and emits one node per `silver.entities` entry. The `entity-changelog`
-  derivative leaves baseline builds (no predecessor) Missing; `entity-snapshot`
-  always writes.
+  look-back). Silver is one build-partitioned `@asset` (one atomic unified
+  `corpus ingest --build <n>` per build); `sde-changelog` is one build-partitioned
+  `@asset` that leaves baseline builds (no predecessor) Missing
+  (`output_required=False`). `sde-snapshot` is the latest-only catalogue: a
+  **non-partitioned** `@asset` a schedule rematerialises against `--latest`
+  (mirrors the `recency-weighted` recent asset), not part of the partition matrix.
 - **Availability sensors** (`defs/sensors.py`) and **schedules** — thin
   cap-and-dedup loops. A Silver sensor per dataset polls
   `corpus everef missing-partitions`; a Gold sensor per windowed derivative polls
   `corpus gold ready-dates [--derivative <d>]`. The `recency-weighted` "recent"
   asset has no sensor — `system_jumps_recent_schedule` rematerialises it
   hourly. SDE instead has `sde_build_discovery_sensor` (registers build partitions
-  from `corpus everef list`) and `sde_gold_sensor` (both Gold derivatives for
-  builds with committed Silver). All key status on corpus run-state, never on
+  from `corpus everef list`), `sde_gold_sensor` (the changelog for builds with
+  committed Silver), and `sde_snapshot_schedule` (daily rematerialise of the
+  non-partitioned latest snapshot). All key status on corpus run-state, never on
   globbing the NAS tree; `run_key` dedup prevents re-queuing in-flight work.
 - **Resources** (`defs/resources.py`) — binds `corpus` to the assets and sensors
   from env vars.

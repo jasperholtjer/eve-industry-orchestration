@@ -1,4 +1,4 @@
-"""Tests for the build-versioned SDE assets and sensors (ADR-0030/0031)."""
+"""Tests for the build-versioned unified SDE assets and sensors (ADR-0032)."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ import pytest
 from eve_industry_orchestration.defs import sde
 from eve_industry_orchestration.defs.config import sde_entities, sde_gold_derivatives
 from eve_industry_orchestration.defs.sde import (
-    ENTITIES,
     sde_changelog_gold,
     sde_silver,
     sde_snapshot_gold,
@@ -56,10 +55,10 @@ def test_sde_gold_derivatives_from_config() -> None:
     ]
 
 
-# --- Silver multi_asset ----------------------------------------------------
+# --- Silver asset (one atomic partition per build) -------------------------
 
 
-def test_silver_materialises_every_entity_for_a_build(
+def test_silver_materialises_one_partition_for_a_build(
     corpus, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("FAKE_SDE_BUILDS", BUILDS)
@@ -76,13 +75,13 @@ def test_silver_materialises_every_entity_for_a_build(
     materialised = {
         e.asset_key.to_user_string() for e in result.get_asset_materialization_events()
     }
-    assert materialised == {f"sde_silver_{e}" for e in ENTITIES}
+    assert materialised == {"sde_silver"}
 
 
-# --- snapshot Gold (always written) ----------------------------------------
+# --- snapshot Gold (latest-only, non-partitioned) --------------------------
 
 
-def test_snapshot_materialises_every_entity(
+def test_snapshot_materialises_against_latest(
     corpus, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("FAKE_SDE_BUILDS", BUILDS)
@@ -91,13 +90,31 @@ def test_snapshot_materialises_every_entity(
 
     result = dg.materialize(
         [sde_snapshot_gold],
-        partition_key="100",
         instance=instance,
         resources={"corpus": corpus},
     )
 
     assert result.success
-    assert len(result.get_asset_materialization_events()) == len(ENTITIES)
+    events = result.get_asset_materialization_events()
+    assert len(events) == 1
+    assert events[0].asset_key.to_user_string() == "sde_snapshot"
+
+
+def test_snapshot_skips_when_no_silver_committed(corpus) -> None:
+    # The schedule may fire on a cold corpus: no committed Silver → built False,
+    # but the asset still materialises (a clean skip, not a failure).
+    instance = dg.DagsterInstance.ephemeral()
+
+    result = dg.materialize(
+        [sde_snapshot_gold],
+        instance=instance,
+        resources={"corpus": corpus},
+    )
+
+    assert result.success
+    events = result.get_asset_materialization_events()
+    assert len(events) == 1
+    assert events[0].materialization.metadata["built"].value is False
 
 
 # --- changelog Gold (baseline skip) ----------------------------------------
@@ -107,7 +124,7 @@ def test_changelog_baseline_build_writes_nothing(
     corpus, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # The first build has no committed predecessor Silver → no changelog
-    # partition; every entity output is left Missing (ADR-0031).
+    # partition; the output is left Missing (ADR-0032).
     monkeypatch.setenv("FAKE_SDE_BUILDS", BUILDS)
     instance = _instance_with_builds(100)
     _ingest_build(corpus, 100)
@@ -123,7 +140,7 @@ def test_changelog_baseline_build_writes_nothing(
     assert result.get_asset_materialization_events() == []
 
 
-def test_changelog_with_predecessor_materialises_every_entity(
+def test_changelog_with_predecessor_materialises_one_partition(
     corpus, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("FAKE_SDE_BUILDS", BUILDS)
@@ -139,7 +156,9 @@ def test_changelog_with_predecessor_materialises_every_entity(
     )
 
     assert result.success
-    assert len(result.get_asset_materialization_events()) == len(ENTITIES)
+    events = result.get_asset_materialization_events()
+    assert len(events) == 1
+    assert events[0].asset_key.to_user_string() == "sde_changelog"
 
 
 # --- build-discovery sensor ------------------------------------------------
@@ -179,9 +198,11 @@ def test_build_discovery_sensor_skips_known_builds(
 # --- Gold readiness sensor -------------------------------------------------
 
 
-def test_gold_sensor_requests_both_derivatives_for_committed_builds(
+def test_gold_sensor_requests_changelog_for_committed_builds(
     corpus, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # The snapshot is non-partitioned + schedule-driven (ADR-0032), so the gold
+    # sensor only requests the build-partitioned changelog.
     monkeypatch.setenv("FAKE_SDE_BUILDS", BUILDS)
     _ingest_build(corpus, 100)
     _ingest_build(corpus, 200)
@@ -191,12 +212,7 @@ def test_gold_sensor_requests_both_derivatives_for_committed_builds(
     result = sde_gold_sensor(context)
 
     run_keys = sorted(rr.run_key for rr in result.run_requests)
-    assert run_keys == [
-        "sde-changelog-100",
-        "sde-changelog-200",
-        "sde-snapshot-100",
-        "sde-snapshot-200",
-    ]
+    assert run_keys == ["sde-changelog-100", "sde-changelog-200"]
 
 
 def test_gold_sensor_no_silver_yields_no_requests(corpus) -> None:
