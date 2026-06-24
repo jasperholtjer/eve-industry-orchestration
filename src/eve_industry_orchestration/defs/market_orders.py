@@ -35,6 +35,11 @@ GOLD_DERIVATIVE = "orderbook-sweep"
 # preload is one day before the Gold start but clamps back up to the
 # silver.served_start floor (ADR-0027/0033) — both tiers land on 2021-07-09.
 _starts = resolve_partition_starts(DATASET, GOLD_DERIVATIVE)
+if _starts.gold is None:  # orderbook-sweep declares a served_start; narrow for typing
+    raise ValueError(
+        f"{DATASET}/{GOLD_DERIVATIVE} resolved no Gold served_start; "
+        "the orderbook-aggregate derivative must declare one"
+    )
 silver_partitions = dg.DailyPartitionsDefinition(start_date=_starts.silver)
 gold_partitions = dg.DailyPartitionsDefinition(start_date=_starts.gold)
 
