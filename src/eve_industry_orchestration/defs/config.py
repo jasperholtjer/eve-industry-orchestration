@@ -53,6 +53,69 @@ class PartitionStarts:
 
 
 @dataclass(frozen=True)
+class SdeGoldDerivative:
+    """One SDE Gold derivative (ADR-0030/0031).
+
+    SDE is build-versioned, not a daily time-series, so it has no
+    ``served_start`` / look-back window — :class:`PartitionStarts` does not apply.
+    Each derivative fans out over the dataset's entities into its own canonical
+    Gold tree, so orchestration needs only the derivative ``name`` and ``shape``.
+    """
+
+    name: str
+    shape: str
+
+
+def sde_entities(dataset: str, datasets_dir: str | None = None) -> list[str]:
+    """Returns the configured SDE Silver entity names, in config order.
+
+    The build-versioned ingest fans out over ``silver.entities`` (ADR-0031);
+    orchestration mirrors that fan-out as one asset per entity, so the names come
+    from the dataset YAML, never hardcoded.
+    """
+    cfg = _load_config(dataset, datasets_dir)
+    silver = cfg.get("silver")
+    if not isinstance(silver, dict):
+        raise PartitionConfigError(f"dataset {dataset} has no `silver` block")
+    entities = silver.get("entities")
+    if not isinstance(entities, list) or not entities:
+        raise PartitionConfigError(f"dataset {dataset} has no `silver.entities`")
+    names = [e.get("name") for e in entities if isinstance(e, dict)]
+    if not all(isinstance(n, str) for n in names) or len(names) != len(entities):
+        raise PartitionConfigError(
+            f"dataset {dataset} has a `silver.entities` entry without a `name`"
+        )
+    return names  # type: ignore[return-value]
+
+
+def sde_gold_derivatives(
+    dataset: str, datasets_dir: str | None = None
+) -> list[SdeGoldDerivative]:
+    """Returns the SDE Gold derivatives (name + shape) from the dataset YAML.
+
+    Reads the ``gold`` list directly: the SDE shapes (``entity-changelog`` /
+    ``entity-snapshot``) carry no look-back window, so this bypasses the
+    time-series :func:`_derivatives` resolver (which would reject them).
+    """
+    cfg = _load_config(dataset, datasets_dir)
+    gold = cfg.get("gold")
+    if not isinstance(gold, list) or not gold:
+        raise PartitionConfigError(f"dataset {dataset} has no `gold` list (ADR-0025)")
+    out: list[SdeGoldDerivative] = []
+    for entry in gold:
+        if not isinstance(entry, dict):
+            raise PartitionConfigError(f"gold derivative is not a mapping: {entry!r}")
+        name = entry.get("name")
+        shape = entry.get("shape")
+        if not isinstance(name, str) or not isinstance(shape, str):
+            raise PartitionConfigError(
+                f"gold derivative needs `name` and `shape`: {entry!r}"
+            )
+        out.append(SdeGoldDerivative(name=name, shape=shape))
+    return out
+
+
+@dataclass(frozen=True)
 class _Derivative:
     """One Gold derivative resolved from the dataset config."""
 

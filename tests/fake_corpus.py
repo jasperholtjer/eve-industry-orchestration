@@ -23,6 +23,8 @@ import os
 import sys
 from pathlib import Path
 
+import yaml
+
 
 def _pop_opt(args: list[str], name: str) -> str | None:
     """Removes ``--name value`` from ``args`` in place and returns the value."""
@@ -48,6 +50,7 @@ def _pop_flag(args: list[str], name: str) -> bool:
 _DERIVATIVES: dict[str, list[str]] = {
     "market-history": ["market-history"],
     "system-jumps": ["system-traffic-history", "system-traffic-recent"],
+    "sde": ["sde-changelog", "sde-snapshot"],
 }
 # Per-derivative served_start, surfaced in `gold ready-dates` JSON.
 _SERVED_START: dict[str, str | None] = {
@@ -73,12 +76,22 @@ def _state_file(sink: str) -> Path:
 def _load_state(sink: str) -> dict:
     path = _state_file(sink)
     if not path.is_file():
-        return {"silver": [], "gold": {}, "skipped": []}
+        return {
+            "silver": [],
+            "gold": {},
+            "skipped": [],
+            "sde_silver": {},
+            "sde_gold": {},
+        }
     state = json.loads(path.read_text(encoding="utf-8"))
     state.setdefault("silver", [])
     # Days recorded as a genuine upstream gap by a skipped ingest (ADR-0028);
     # `gold build` skips a target day in this set rather than failing (ADR-0029).
     state.setdefault("skipped", [])
+    # SDE build-versioned state (ADR-0031): committed Silver builds keyed
+    # build -> release_date, and Gold built builds per derivative.
+    state.setdefault("sde_silver", {})
+    state.setdefault("sde_gold", {})
     # Gold is keyed per derivative (each its own tree); tolerate the older flat
     # list shape by folding it under a dataset-named key on read.
     gold = state.get("gold", {})
@@ -106,7 +119,181 @@ def _partition_dir(sink: str, tier: str, dataset: str, date: str) -> Path:
     )
 
 
+# --- SDE build-versioned path (ADR-0030/0031) -----------------------------
+
+
+def _sde_entities() -> list[str]:
+    """Reads the SDE entity names from the fixture ``sde.yaml`` config.
+
+    Mirrors the real binary fanning out over ``silver.entities``; keeps the fake
+    aligned with what :func:`config.sde_entities` feeds the asset specs.
+    """
+    datasets_dir = os.environ.get("CORPUS_DATASETS_DIR")
+    if not datasets_dir:
+        return []
+    cfg = yaml.safe_load((Path(datasets_dir) / "sde.yaml").read_text(encoding="utf-8"))
+    return [e["name"] for e in cfg["silver"]["entities"]]
+
+
+def _sde_builds_env() -> dict[int, str]:
+    """Upstream SDE builds, injected via ``FAKE_SDE_BUILDS`` (``build:date,...``)."""
+    raw = os.environ.get("FAKE_SDE_BUILDS", "")
+    builds: dict[int, str] = {}
+    for pair in raw.split(","):
+        pair = pair.strip()
+        if not pair:
+            continue
+        build_str, date = pair.split(":")
+        builds[int(build_str)] = date
+    return builds
+
+
+def _resolve_build(args: list[str], available: dict[int, str]) -> int | None:
+    build = _pop_opt(args, "--build")
+    latest = _pop_flag(args, "--latest")
+    if build is not None:
+        return int(build)
+    if latest:
+        return max(available) if available else None
+    return None
+
+
+def _write_partition(
+    sink: str, tier: str, tree: str, date: str, payload: bytes
+) -> None:
+    pdir = _partition_dir(sink, tier, tree, date)
+    pdir.mkdir(parents=True, exist_ok=True)
+    (pdir / "data.parquet").write_bytes(payload)
+    year, month, day = (int(p) for p in date.split("-"))
+    index = {
+        "schema_version": 1,
+        "dataset": tree,
+        "partition": {"year": year, "month": month, "day": day},
+        "row_count": 1,
+        "tier": tier,
+        "retention_class": "validated",
+    }
+    (pdir / "_INDEX.json").write_text(json.dumps(index), encoding="utf-8")
+    (pdir / "_DONE").write_text("", encoding="utf-8")
+
+
+def _do_sde_ingest(args: list[str], sink: str) -> int:
+    available = _sde_builds_env()
+    build = _resolve_build(args, available)
+    if build is None:
+        print("ingest: --build/--latest required for sde", file=sys.stderr)
+        return 2
+    if build not in available:
+        print(f"ingest: build {build} not found upstream", file=sys.stderr)
+        return 1
+    release_date = available[build]
+    entities = _sde_entities()
+
+    for entity in entities:
+        _write_partition(sink, "silver", f"sde/{entity}", release_date, b"PAR1-fake")
+
+    state = _load_state(sink)
+    state["sde_silver"][str(build)] = release_date
+    _save_state(sink, state)
+
+    print(
+        json.dumps(
+            {
+                "status": "written",
+                "dataset": "sde",
+                "build_id": build,
+                "release_date": release_date,
+                "partition_key": f"build={build}",
+                "entities": len(entities),
+            }
+        )
+    )
+    return 0
+
+
+def _do_sde_gold_build(args: list[str], sink: str, derivative: str) -> int:
+    state = _load_state(sink)
+    committed = {int(b): d for b, d in state["sde_silver"].items()}
+    build = _resolve_build(args, committed)
+    if build is None:
+        print("gold build: --build/--latest required for sde", file=sys.stderr)
+        return 2
+    if build not in committed:
+        print(f"gold build: build {build} has no committed Silver", file=sys.stderr)
+        return 1
+    release_date = committed[build]
+    entities = _sde_entities()
+
+    # Changelog skips the baseline build (no committed predecessor < target),
+    # mirroring ADR-0031; snapshot always writes every entity.
+    has_predecessor = any(b < build for b in committed)
+    if derivative == "sde-changelog" and not has_predecessor:
+        print(
+            json.dumps(
+                {
+                    "status": "written",
+                    "dataset": "sde",
+                    "derivative": derivative,
+                    "build_id": build,
+                    "release_date": release_date,
+                    "partition_key": f"build={build}",
+                    "entities_written": 0,
+                    "entities_skipped": len(entities),
+                }
+            )
+        )
+        print(f"gold build: build {build} is baseline; no changelog", file=sys.stderr)
+        return 0
+
+    suffix = "-changelog" if derivative == "sde-changelog" else ""
+    for entity in entities:
+        _write_partition(
+            sink, "gold", f"sde-{entity}{suffix}", release_date, b"PAR1-fake-gold"
+        )
+
+    state["sde_gold"].setdefault(derivative, [])
+    if build not in state["sde_gold"][derivative]:
+        state["sde_gold"][derivative].append(build)
+        _save_state(sink, state)
+
+    print(
+        json.dumps(
+            {
+                "status": "written",
+                "dataset": "sde",
+                "derivative": derivative,
+                "build_id": build,
+                "release_date": release_date,
+                "partition_key": f"build={build}",
+                "entities_written": len(entities),
+                "entities_skipped": 0,
+            }
+        )
+    )
+    return 0
+
+
+def _do_everef_list(args: list[str], sink: str) -> int:
+    _pop_opt(args, "--dataset")
+    _pop_opt(args, "--year")
+    _pop_opt(args, "--format")
+    builds = _sde_builds_env()
+    payload = [
+        {
+            "build": build,
+            "release_date": date,
+            "url": f"https://data.everef.net/ccp/sde/{build}.zip",
+            "size": 1,
+        }
+        for build, date in sorted(builds.items())
+    ]
+    print(json.dumps(payload))
+    return 0
+
+
 def _do_ingest(args: list[str], sink: str) -> int:
+    if "--build" in args or "--latest" in args:
+        return _do_sde_ingest(args, sink)
     dataset = _pop_opt(args, "--dataset")
     date = _pop_opt(args, "--date")
     if dataset is None or date is None:
@@ -217,6 +404,19 @@ def _do_gold_ready_dates(args: list[str], sink: str) -> int:
 
 
 def _do_gold_build(args: list[str], sink: str) -> int:
+    if "--build" in args or "--latest" in args:
+        dataset = _pop_opt(args, "--dataset")
+        derivative_arg = _pop_opt(args, "--derivative")
+        derivative = _resolve_derivative(dataset or "sde", derivative_arg)
+        if derivative is None:
+            print(
+                f"gold build: dataset {dataset} declares multiple derivatives; "
+                "pass --derivative",
+                file=sys.stderr,
+            )
+            return 2
+        return _do_sde_gold_build(args, sink, derivative)
+
     dataset = _pop_opt(args, "--dataset")
     derivative_arg = _pop_opt(args, "--derivative")
     date = _pop_opt(args, "--date")
@@ -315,6 +515,8 @@ def _do_verify(args: list[str], sink: str) -> int:
 
 def _do_everef(args: list[str], sink: str) -> int:
     subcommand = args[1] if len(args) > 1 else ""
+    if subcommand == "list":
+        return _do_everef_list(args, sink)
     if subcommand != "missing-partitions":
         print(f"everef: unsupported subcommand {subcommand!r}", file=sys.stderr)
         return 2
@@ -347,12 +549,20 @@ def _do_state(args: list[str], sink: str) -> int:
         print(f"state: unsupported subcommand {subcommand!r}", file=sys.stderr)
         return 2
 
-    _pop_opt(args, "--sql")
+    sql = _pop_opt(args, "--sql") or ""
     _pop_opt(args, "--format")
-    dataset = "market-history"
+    state = _load_state(sink)
+    # The SDE Gold sensor queries committed Silver builds (dataset LIKE 'sde/%').
+    if "sde/" in sql:
+        rows = [
+            {"dataset": "sde", "tier": "silver", "partition_key": f"build={build}"}
+            for build in sorted(int(b) for b in state["sde_silver"])
+        ]
+        print(json.dumps(rows))
+        return 0
     rows = [
-        {"dataset": dataset, "tier": "silver", "partition_key": f"date={date}"}
-        for date in sorted(_load_state(sink)["silver"])
+        {"dataset": "market-history", "tier": "silver", "partition_key": f"date={date}"}
+        for date in sorted(state["silver"])
     ]
     print(json.dumps(rows))
     return 0

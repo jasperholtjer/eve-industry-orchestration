@@ -185,6 +185,25 @@ class CorpusResource(dg.ConfigurableResource):
             args += ["--derivative", derivative]
         return self._capture_json(*args)
 
+    def everef_list_builds(self, dataset: str) -> list[dict[str, Any]]:
+        """Returns discovered upstream builds for a build-versioned dataset.
+
+        Wraps ``corpus everef list`` (ADR-0031), which lists upstream archives
+        rather than days for the ``build-versioned`` layout (SDE). Each row holds
+        ``build`` (the partition identity), ``release_date`` (the Hive path), and
+        ``url`` / ``size``. Drives the SDE build-discovery sensor.
+        """
+        return self._capture_json(
+            "everef",
+            "list",
+            "--dataset",
+            dataset,
+            "--sink-path",
+            self.sink_path,
+            "--format",
+            "json",
+        )
+
     def state_query(self, sql: str) -> list[dict[str, Any]]:
         """Runs a read-only ``corpus state query`` and returns the JSON rows."""
         return self._capture_json(

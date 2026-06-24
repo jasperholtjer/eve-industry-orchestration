@@ -1,0 +1,32 @@
+name: sde
+schema_version: 1
+# Reduced SDE fixture for the orchestration tests: a representative entity subset
+# and both Gold derivatives. Build-versioned (ADR-0030/0031) — no served_start /
+# look-back window applies.
+source:
+  kind: everef
+  layout: build-versioned
+  base_url: https://data.everef.net/ccp/sde
+  index_url: https://data.everef.net/ccp/sde/index.json
+  jsonl_era_start: 2025-09-18
+  archive_template: "eve-online-static-data-{build}-jsonl.zip"
+silver:
+  parquet_codec: zstd
+  parquet_codec_level: 19
+  served_start: 2025-09-18
+  entities:
+    - { name: types, member: types.jsonl }
+    - { name: groups, member: groups.jsonl }
+    - { name: mapRegions, member: mapRegions.jsonl }
+gold:
+  - name: sde-changelog
+    shape: entity-changelog
+    sort_keys: [_key]
+    changelog:
+      entities: all
+      changed_fields: false
+  - name: sde-snapshot
+    shape: entity-snapshot
+    sort_keys: [_key]
+    snapshot:
+      entities: all

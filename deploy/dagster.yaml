@@ -27,6 +27,13 @@
 #    different limit takes such an override; lightweight datasets omit `pool=`
 #    entirely and stay bounded only by the global cap of 4.
 #
+# The `sde` dataset (build-versioned, ADR-0031) puts `sde_silver` in
+# `everef_download` (it fetches one ~94 MB archive per build) but keeps both Gold
+# derivatives OUT of `gold_heavy`: `sde_changelog_gold` / `sde_snapshot_gold` are
+# row diffs / blob passthroughs over a single build's Silver, not a windowed scan,
+# so they are light. SDE builds are rare (game patches), so neither pool is under
+# pressure from it.
+#
 # The hourly `system_jumps_recent_schedule` is deliberately NOT in the
 # `gold_heavy` pool: the EWMA "recent" build spans only the short warmup, so it is
 # lightweight and bounded by the global cap alone. At most one such run is in

@@ -17,6 +17,7 @@ is driven by polling ``corpus gold ready-dates`` rather than by the Silver run.
 
 import dagster as dg
 
+from eve_industry_orchestration.defs import sde
 from eve_industry_orchestration.defs import system_jumps as sj
 from eve_industry_orchestration.defs.corpus_resource import CorpusResource
 from eve_industry_orchestration.defs.market_history import (
@@ -179,6 +180,131 @@ def system_jumps_history_gold_sensor(
         )
         for date in selected
     ]
+    return dg.SensorResult(run_requests=run_requests)
+
+
+# --- sde (build-versioned, ADR-0031) --------------------------------------
+
+
+def _parse_build_key(partition_key: str) -> int | None:
+    """Parses ``build=<n>`` (the SDE run-state partition key) to ``n``."""
+    suffix = partition_key.removeprefix("build=")
+    if suffix == partition_key:
+        return None
+    try:
+        return int(suffix)
+    except ValueError:
+        return None
+
+
+@dg.sensor(
+    target=sde.sde_silver,
+    minimum_interval_seconds=3600,
+    default_status=dg.DefaultSensorStatus.STOPPED,
+)
+def sde_build_discovery_sensor(
+    context: dg.SensorEvaluationContext, corpus: CorpusResource
+) -> dg.SensorResult:
+    """Discovers SDE builds, registers each as a dynamic partition, ingests it.
+
+    SDE is build-versioned: ``corpus everef list`` lists builds (not days), so the
+    partition matrix is dynamic and grows here. New build numbers are added to
+    ``sde_builds`` and a Silver run requested per build, oldest first, capped per
+    tick. ``run_key`` dedup keeps an already-requested build from re-queuing.
+    """
+    builds = corpus.everef_list_builds(sde.DATASET)
+    discovered = sorted({int(b["build"]) for b in builds})
+
+    existing = set(
+        sde.build_partitions.get_partition_keys(
+            dynamic_partitions_store=context.instance
+        )
+    )
+    new_builds = [b for b in discovered if str(b) not in existing]
+    selected = new_builds[:MAX_PARTITIONS_PER_TICK]
+
+    deferred = len(new_builds) - len(selected)
+    if deferred > 0:
+        context.log.info(
+            "sde-discovery: %d new builds, requesting %d this tick, %d deferred",
+            len(new_builds),
+            len(selected),
+            deferred,
+        )
+
+    keys = [str(b) for b in selected]
+    run_requests = [
+        dg.RunRequest(run_key=f"sde-silver-{b}", partition_key=b) for b in keys
+    ]
+    return dg.SensorResult(
+        run_requests=run_requests,
+        dynamic_partitions_requests=[sde.build_partitions.build_add_request(keys)],
+    )
+
+
+@dg.sensor(
+    target=[sde.sde_changelog_gold, sde.sde_snapshot_gold],
+    minimum_interval_seconds=3600,
+    default_status=dg.DefaultSensorStatus.STOPPED,
+)
+def sde_gold_sensor(
+    context: dg.SensorEvaluationContext, corpus: CorpusResource
+) -> dg.SensorResult:
+    """Requests both Gold derivatives for builds whose Silver is committed.
+
+    There is no ``ready-dates`` for SDE (no coverage window); readiness is keyed
+    on corpus run-state (ADR-0031) — a build whose Silver entity partitions are
+    committed. The binary owns the per-entity predecessor lookup and the baseline
+    skip, so this stays a thin cap-and-dedup loop: one changelog and one snapshot
+    run per build, ``run_key``-deduped. A baseline build's changelog run is
+    requested once and writes nothing (the binary skips it).
+    """
+    rows = corpus.state_query(
+        "SELECT DISTINCT partition_key FROM partitions "
+        "WHERE tier = 'silver' AND dataset LIKE 'sde/%'"
+    )
+    committed = sorted(
+        {
+            build
+            for row in rows
+            if (build := _parse_build_key(row["partition_key"])) is not None
+        }
+    )
+
+    valid = set(
+        sde.build_partitions.get_partition_keys(
+            dynamic_partitions_store=context.instance
+        )
+    )
+    eligible = [b for b in committed if str(b) in valid]
+    selected = eligible[:MAX_PARTITIONS_PER_TICK]
+
+    deferred = len(eligible) - len(selected)
+    if deferred > 0:
+        context.log.info(
+            "sde-gold: %d builds with committed Silver, requesting %d, %d deferred",
+            len(eligible),
+            len(selected),
+            deferred,
+        )
+
+    run_requests = []
+    for build in selected:
+        key = str(build)
+        run_requests.append(
+            dg.RunRequest(
+                run_key=f"{sde.CHANGELOG_DERIVATIVE}-{build}",
+                partition_key=key,
+                asset_selection=sde.changelog_asset_keys,
+            )
+        )
+        run_requests.append(
+            dg.RunRequest(
+                run_key=f"{sde.SNAPSHOT_DERIVATIVE}-{build}",
+                partition_key=key,
+                asset_selection=sde.snapshot_asset_keys,
+            )
+        )
     return dg.SensorResult(run_requests=run_requests)
 
 

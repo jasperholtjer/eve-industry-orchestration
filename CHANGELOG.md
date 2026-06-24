@@ -14,8 +14,23 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   non-partitioned asset on an hourly schedule).
 - `system_jumps_availability_sensor`, `system_jumps_history_gold_sensor`, and
   `system_jumps_recent_schedule`.
+- `sde` orchestration (`defs/sde.py`): the first build-versioned dataset
+  (ADR-0030/0031). A `DynamicPartitionsDefinition` keyed on build number drives
+  three `@multi_asset`s — `sde_silver` and the two Gold derivatives
+  `sde_changelog_gold` (`entity-changelog`, baseline builds left Missing) and
+  `sde_snapshot_gold` (`entity-snapshot`) — each fanning out over the configured
+  `silver.entities` via one `corpus` call per build.
+- `sde_build_discovery_sensor` (registers builds from `corpus everef list` and
+  requests Silver) and `sde_gold_sensor` (requests both Gold derivatives for
+  builds whose Silver is committed, keyed on corpus run-state).
 
 ### Changed
+- `defs/config.py` adds `sde_entities` and `sde_gold_derivatives`, reading the SDE
+  entity fan-out and Gold derivatives from the dataset YAML (the build-versioned
+  SDE has no `served_start` / look-back, so `resolve_partition_starts` does not
+  apply to it).
+- `CorpusResource.everef_list_builds` wraps `corpus everef list` for
+  build-versioned discovery.
 - `defs/config.py` resolves partition starts per `(dataset, derivative)` from the
   ADR-0025 `gold` list (a single-derivative dataset is a one-element list). Silver
   start is the earliest look-back preload across a dataset's windowed derivatives.
