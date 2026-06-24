@@ -73,3 +73,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   that gap (Gold), leave the partition Missing — skipping the verify and emitting an
   `AssetObservation` (`skip_reason=upstream_absent` / `upstream_gap`) instead of
   failing or materialising an empty day.
+
+### Fixed
+- `CorpusResource.run` kills the corpus subprocess when the streaming loop is
+  interrupted (run cancelled / daemon restart), so it is no longer orphaned holding
+  the run-state SQLite lock; safe under the `_DONE`-last contract (a half-written
+  partition reads as absent).

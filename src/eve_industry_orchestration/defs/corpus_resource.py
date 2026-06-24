@@ -84,14 +84,25 @@ class CorpusResource(dg.ConfigurableResource):
             raise dg.Failure(description="corpus produced no stdout stream")
         tail: deque[str] = deque(maxlen=_FAILURE_TAIL_LINES)
         status: dict[str, Any] | None = None
-        for line in stream:
-            stripped = line.rstrip()
-            context.log.info(stripped)
-            tail.append(stripped)
-            parsed = _parse_status_line(stripped)
-            if parsed is not None:
-                status = parsed
-        returncode = process.wait()
+        try:
+            for line in stream:
+                stripped = line.rstrip()
+                context.log.info(stripped)
+                tail.append(stripped)
+                parsed = _parse_status_line(stripped)
+                if parsed is not None:
+                    status = parsed
+            returncode = process.wait()
+        finally:
+            # On a Dagster interrupt (run cancelled / daemon restart) the loop
+            # raises mid-stream; without this the corpus subprocess is orphaned,
+            # holding the run-state SQLite lock and possibly writing a partial
+            # partition. Killing it is safe under the contract: `_DONE` is
+            # written last, so a half-written partition has no `_DONE` and reads
+            # as absent (ADR-0009). A no-op once corpus has already exited.
+            if process.poll() is None:
+                process.kill()
+                process.wait()
 
         if returncode != 0:
             description = f"corpus exited {returncode}: {' '.join(cmd)}"

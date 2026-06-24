@@ -107,6 +107,45 @@ def test_gold_without_target_silver_raises_failure(corpus) -> None:
         )  # fmt: skip
 
 
+def test_interrupt_mid_stream_kills_subprocess(corpus, monkeypatch) -> None:
+    from eve_industry_orchestration.defs import corpus_resource
+
+    killed = {"kill": False, "wait": 0}
+
+    class _FakeStream:
+        def __iter__(self):
+            yield "first line\n"
+            # Mirror Dagster converting a SIGINT/SIGTERM into this error while
+            # the run loop is consuming the corpus stream.
+            raise dg.DagsterExecutionInterruptedError
+
+    class _FakeProcess:
+        stdout = _FakeStream()
+
+        def poll(self):
+            # Still running when the loop is interrupted, then dead after kill.
+            return None if not killed["kill"] else -9
+
+        def kill(self):
+            killed["kill"] = True
+
+        def wait(self):
+            killed["wait"] += 1
+            return -9
+
+    monkeypatch.setattr(
+        corpus_resource.subprocess, "Popen", lambda *a, **k: _FakeProcess()
+    )
+    context = dg.build_asset_context()
+    with pytest.raises(dg.DagsterExecutionInterruptedError):
+        corpus.run(
+            context, "ingest", "--dataset", "market-history",
+            "--date", "2024-01-15", "--sink-path", corpus.sink_path,
+        )  # fmt: skip
+    assert killed["kill"] is True
+    assert killed["wait"] >= 1
+
+
 def test_state_query_returns_rows(corpus) -> None:
     context = dg.build_asset_context()
     corpus.run(
