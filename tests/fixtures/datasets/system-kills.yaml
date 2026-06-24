@@ -1,0 +1,83 @@
+name: system-kills
+schema_version: 1
+source:
+  kind: everef
+  # Same packaging as system-jumps: ~hourly snapshots under per-date
+  # subdirectories (folder era, from 2022-12-16) and a per-year tar of plain
+  # JSON members for the older era. A partition is one DAY: the day's ~24
+  # hourly files are merged. `folder_era_start` picks the fetch path per date,
+  # `tar_filename_template` names the per-year tar (`{year}` substituted).
+  layout: hourly-folder-tar
+  base_url: https://data.everef.net/system-kills/history
+  folder_era_start: 2022-12-16
+  tar_filename_template: "system-kills-{year}.tar.bz2"
+bronze:
+  retention_days: 30
+silver:
+  # zstd-19 is pinned by the committed golden hashes (tests/golden.rs).
+  # Source-faithful (ADR-0007): hourly rows, day-partitioned, all three EVE Ref
+  # measures (ship_kills / npc_kills / pod_kills) preserved verbatim.
+  parquet_codec: zstd
+  parquet_codec_level: 19
+  sort_keys: [snapshot_at, system_id]
+  # Coverage floor (ADR-0027): EVE Ref's dense hourly era begins 2021-07-01;
+  # the sparse 2017–2019 tar era predates every Gold window and 2020/early-2021
+  # has no archive. Same boundary as system-jumps (identical packaging history).
+  served_start: 2021-07-01
+# ADR-0037 — six single-measure Gold derivatives from the one hourly Silver
+# source: a flat_v1 history and an ewma_v1 recent tree per measure, each its own
+# named Hive-partitioned Gold tree (gold/<name>/...). value_col selects the
+# measure; the shape invariants (closed=left/right, daily_rollup, aggregators,
+# EWMA wall-clock decay) live in code.
+gold:
+  # --- ship_kills (PvP danger) ---
+  - name: system-kills-ship-history
+    shape: kills-flat
+    sort_keys: [system_id, date]
+    served_start: 2022-01-01
+    kills-flat:
+      value_col: ship_kills
+      daily_rollup: sum
+      horizons: [7, 30, 90, 365]
+      aggregators: [mean, median, p95, max, std]
+      coverage_min_ratio: 0.5
+  - name: system-kills-ship-recent
+    shape: kills-recent
+    sort_keys: [system_id, snapshot_at]
+    kills-recent:
+      value_col: ship_kills
+      half_life_hours: 6
+  # --- npc_kills (PvE activity) ---
+  - name: system-kills-npc-history
+    shape: kills-flat
+    sort_keys: [system_id, date]
+    served_start: 2022-01-01
+    kills-flat:
+      value_col: npc_kills
+      daily_rollup: sum
+      horizons: [7, 30, 90, 365]
+      aggregators: [mean, median, p95, max, std]
+      coverage_min_ratio: 0.5
+  - name: system-kills-npc-recent
+    shape: kills-recent
+    sort_keys: [system_id, snapshot_at]
+    kills-recent:
+      value_col: npc_kills
+      half_life_hours: 6
+  # --- pod_kills (capsule losses) ---
+  - name: system-kills-pod-history
+    shape: kills-flat
+    sort_keys: [system_id, date]
+    served_start: 2022-01-01
+    kills-flat:
+      value_col: pod_kills
+      daily_rollup: sum
+      horizons: [7, 30, 90, 365]
+      aggregators: [mean, median, p95, max, std]
+      coverage_min_ratio: 0.5
+  - name: system-kills-pod-recent
+    shape: kills-recent
+    sort_keys: [system_id, snapshot_at]
+    kills-recent:
+      value_col: pod_kills
+      half_life_hours: 6

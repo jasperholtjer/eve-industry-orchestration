@@ -20,6 +20,7 @@ import dagster as dg
 from eve_industry_orchestration.defs import market_orders as mo
 from eve_industry_orchestration.defs import sde
 from eve_industry_orchestration.defs import system_jumps as sj
+from eve_industry_orchestration.defs import system_kills as sk
 from eve_industry_orchestration.defs.corpus_resource import CorpusResource
 from eve_industry_orchestration.defs.market_history import (
     DATASET,
@@ -219,42 +220,148 @@ def market_orders_availability_sensor(
     return dg.SensorResult(run_requests=run_requests)
 
 
-@dg.sensor(
-    target=mo.market_orders_gold,
-    minimum_interval_seconds=3600,
-    default_status=dg.DefaultSensorStatus.STOPPED,
-)
-def market_orders_gold_sensor(
-    context: dg.SensorEvaluationContext, corpus: CorpusResource
-) -> dg.SensorResult:
-    """Requests orderbook-sweep Gold runs for dates whose Silver is present.
+def _build_orderbook_gold_sensor(
+    derivative: str, asset: dg.AssetsDefinition
+) -> dg.SensorDefinition:
+    """Builds a Gold readiness sensor for one market-orders derivative.
 
-    Polls ``corpus gold ready-dates --derivative orderbook-sweep`` (the binary
-    owns the readiness decision: target-day Silver present, prior-day look-back
+    Polls ``corpus gold ready-dates --derivative <derivative>`` (the binary owns
+    the readiness decision: target-day Silver present, prior-day look-back
     available, Gold not yet built) and stays a thin cap-and-dedup loop. The
     ``run_key`` is keyed on the derivative, like its Gold tree.
     """
-    report = corpus.gold_ready_dates(mo.DATASET, derivative=mo.GOLD_DERIVATIVE)
-    ready = report.get("ready", [])
 
-    valid = set(mo.gold_partitions.get_partition_keys())
-    eligible = sorted(date for date in ready if date in valid)
+    @dg.sensor(
+        name=f"{derivative.replace('-', '_')}_gold_sensor",
+        target=asset,
+        minimum_interval_seconds=3600,
+        default_status=dg.DefaultSensorStatus.STOPPED,
+    )
+    def _sensor(
+        context: dg.SensorEvaluationContext, corpus: CorpusResource
+    ) -> dg.SensorResult:
+        report = corpus.gold_ready_dates(mo.DATASET, derivative=derivative)
+        ready = report.get("ready", [])
+
+        valid = set(mo.gold_partitions.get_partition_keys())
+        eligible = sorted(date for date in ready if date in valid)
+        selected = eligible[:MAX_PARTITIONS_PER_TICK]
+
+        deferred = len(eligible) - len(selected)
+        if deferred > 0:
+            context.log.info(
+                "gold-readiness: %d eligible, requesting %d this tick, %d deferred",
+                len(eligible),
+                len(selected),
+                deferred,
+            )
+
+        run_requests = [
+            dg.RunRequest(run_key=f"{derivative}-gold-{date}", partition_key=date)
+            for date in selected
+        ]
+        return dg.SensorResult(run_requests=run_requests)
+
+    return _sensor
+
+
+market_orders_snapshot_gold_sensor = _build_orderbook_gold_sensor(
+    mo.SNAPSHOT_DERIVATIVE, mo.market_orders_snapshot_gold
+)
+market_orders_changes_gold_sensor = _build_orderbook_gold_sensor(
+    mo.CHANGES_DERIVATIVE, mo.market_orders_changes_gold
+)
+
+
+# --- system-kills (per-measure Gold, ADR-0037) ----------------------------
+
+
+@dg.sensor(
+    target=sk.system_kills_silver,
+    minimum_interval_seconds=3600,
+    default_status=dg.DefaultSensorStatus.STOPPED,
+)
+def system_kills_availability_sensor(
+    context: dg.SensorEvaluationContext, corpus: CorpusResource
+) -> dg.SensorResult:
+    """Requests Silver runs for system-kills dates newly available upstream."""
+    report = corpus.everef_missing_partitions(sk.DATASET)
+    missing = report.get("missing", [])
+
+    valid = set(sk.silver_partitions.get_partition_keys())
+    eligible = sorted(date for date in missing if date in valid)
     selected = eligible[:MAX_PARTITIONS_PER_TICK]
 
     deferred = len(eligible) - len(selected)
     if deferred > 0:
         context.log.info(
-            "gold-readiness: %d eligible, requesting %d this tick, %d deferred",
+            "availability: %d eligible, requesting %d this tick, %d deferred",
             len(eligible),
             len(selected),
             deferred,
         )
 
     run_requests = [
-        dg.RunRequest(run_key=f"{mo.GOLD_DERIVATIVE}-gold-{date}", partition_key=date)
+        dg.RunRequest(run_key=f"{sk.DATASET}-silver-{date}", partition_key=date)
         for date in selected
     ]
     return dg.SensorResult(run_requests=run_requests)
+
+
+def _build_kills_history_gold_sensor(
+    derivative: str, asset: dg.AssetsDefinition
+) -> dg.SensorDefinition:
+    """Builds a history-Gold readiness sensor for one system-kills measure.
+
+    Polls ``corpus gold ready-dates --derivative <derivative>`` (the binary owns
+    the coverage decision) and stays a thin cap-and-dedup loop, mirroring the
+    system-jumps history Gold sensor. The ``-recent`` derivatives have no
+    sensor — schedules drive their non-partitioned assets.
+    """
+
+    @dg.sensor(
+        name=f"{derivative.replace('-', '_')}_gold_sensor",
+        target=asset,
+        minimum_interval_seconds=3600,
+        default_status=dg.DefaultSensorStatus.STOPPED,
+    )
+    def _sensor(
+        context: dg.SensorEvaluationContext, corpus: CorpusResource
+    ) -> dg.SensorResult:
+        report = corpus.gold_ready_dates(sk.DATASET, derivative=derivative)
+        ready = report.get("ready", [])
+
+        valid = set(sk.history_gold_partitions.get_partition_keys())
+        eligible = sorted(date for date in ready if date in valid)
+        selected = eligible[:MAX_PARTITIONS_PER_TICK]
+
+        deferred = len(eligible) - len(selected)
+        if deferred > 0:
+            context.log.info(
+                "gold-readiness: %d eligible, requesting %d this tick, %d deferred",
+                len(eligible),
+                len(selected),
+                deferred,
+            )
+
+        run_requests = [
+            dg.RunRequest(run_key=f"{derivative}-gold-{date}", partition_key=date)
+            for date in selected
+        ]
+        return dg.SensorResult(run_requests=run_requests)
+
+    return _sensor
+
+
+system_kills_ship_history_gold_sensor = _build_kills_history_gold_sensor(
+    sk.HISTORY_DERIVATIVES[0], sk.system_kills_ship_history_gold
+)
+system_kills_npc_history_gold_sensor = _build_kills_history_gold_sensor(
+    sk.HISTORY_DERIVATIVES[1], sk.system_kills_npc_history_gold
+)
+system_kills_pod_history_gold_sensor = _build_kills_history_gold_sensor(
+    sk.HISTORY_DERIVATIVES[2], sk.system_kills_pod_history_gold
+)
 
 
 # --- sde (build-versioned, ADR-0031) --------------------------------------
@@ -382,6 +489,33 @@ system_jumps_recent_schedule = dg.ScheduleDefinition(
     target=sj.system_jumps_recent_gold,
     cron_schedule="0 * * * *",
     default_status=dg.DefaultScheduleStatus.STOPPED,
+)
+
+
+# Hourly navigate-now refresh of each per-measure EWMA "danger-now" heat
+# (ship/npc/pod), mirroring system_jumps_recent_schedule. Schedules, not sensors:
+# there is no per-date matrix to diff, only "rebuild the latest". The assets omit
+# the `gold_heavy` pool, so this cadence cannot starve the windowed history
+# backfills under `max_concurrent_runs`.
+def _build_kills_recent_schedule(
+    derivative: str, asset: dg.AssetsDefinition
+) -> dg.ScheduleDefinition:
+    return dg.ScheduleDefinition(
+        name=f"{derivative.replace('-', '_')}_schedule",
+        target=asset,
+        cron_schedule="0 * * * *",
+        default_status=dg.DefaultScheduleStatus.STOPPED,
+    )
+
+
+system_kills_ship_recent_schedule = _build_kills_recent_schedule(
+    sk.RECENT_DERIVATIVES[0], sk.system_kills_ship_recent_gold
+)
+system_kills_npc_recent_schedule = _build_kills_recent_schedule(
+    sk.RECENT_DERIVATIVES[1], sk.system_kills_npc_recent_gold
+)
+system_kills_pod_recent_schedule = _build_kills_recent_schedule(
+    sk.RECENT_DERIVATIVES[2], sk.system_kills_pod_recent_gold
 )
 
 

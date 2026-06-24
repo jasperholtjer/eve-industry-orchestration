@@ -25,18 +25,23 @@ The homelab deployment (LXC, NFS mount, build order) is documented in
   `CORPUS_<DATASET>_<TIER>_START`, or per derivative with
   `CORPUS_<DATASET>_<DERIVATIVE>_GOLD_START`.
 - **Dataset assets** (`defs/market_history.py`, `defs/system_jumps.py`,
-  `defs/market_orders.py`) — daily-partitioned Silver and Gold assets, with
-  **distinct** partition start dates (Silver reaches back one window before Gold).
-  Gold depends on Silver via `deps=` (lineage only). A multi-derivative dataset
-  (ADR-0025) gets one Gold asset per derivative, each passing `--derivative`: a
-  `flat-multi-horizon` /​ `rolling` /​ `orderbook-aggregate` derivative is a
-  daily-partitioned asset + `ready-dates` sensor, while a `recency-weighted`
-  derivative is a single **non-partitioned** asset a schedule rematerialises
-  against the latest buildable date. `market-orders` is the single-derivative
-  `orderbook-aggregate` case (ADR-0033): a one-day look-back, and a derivative name
-  (`orderbook-sweep`) that differs from the dataset, so every Gold call passes
-  `--derivative`. Gold verify keys on the derivative name (its own
-  `gold/<derivative>/...` tree).
+  `defs/market_orders.py`, `defs/system_kills.py`) — daily-partitioned Silver and
+  Gold assets, with **distinct** partition start dates (Silver reaches back one
+  window before Gold). Gold depends on Silver via `deps=` (lineage only). A
+  multi-derivative dataset (ADR-0025) gets one Gold asset per derivative, each
+  passing `--derivative`: a `flat-multi-horizon` /​ `rolling` /​
+  `orderbook-aggregate` /​ `orderbook-delta` /​ `kills-flat` derivative is a
+  daily-partitioned asset + `ready-dates` sensor, while a `recency-weighted` /​
+  `kills-recent` derivative is a single **non-partitioned** asset a schedule
+  rematerialises against the latest buildable date. `market-orders` (ADR-0036)
+  splits its Gold into two daily-partitioned derivatives — `orderbook-snapshot`
+  (per-snapshot aggregate) and `orderbook-changes` (cross-snapshot activity
+  delta), both a one-day look-back. `system-kills` (ADR-0037) fans its three
+  measures into six derivatives — `system-kills-{ship,npc,pod}-history`
+  (`kills-flat`, daily-partitioned + sensor) and `system-kills-{ship,npc,pod}-recent`
+  (`kills-recent` EWMA, non-partitioned + hourly schedule). Every derivative name
+  differs from the dataset, so each Gold call passes `--derivative`; Gold verify
+  keys on the derivative name (its own `gold/<derivative>/...` tree).
 - **Build-versioned assets** (`defs/sde.py`, ADR-0032) — the SDE static
   reference is not a daily time-series: a partition is a game *build*, so it uses a
   `DynamicPartitionsDefinition` keyed on build number (no `served_start` /
@@ -49,8 +54,9 @@ The homelab deployment (LXC, NFS mount, build order) is documented in
 - **Availability sensors** (`defs/sensors.py`) and **schedules** — thin
   cap-and-dedup loops. A Silver sensor per dataset polls
   `corpus everef missing-partitions`; a Gold sensor per windowed derivative polls
-  `corpus gold ready-dates [--derivative <d>]`. The `recency-weighted` "recent"
-  asset has no sensor — `system_jumps_recent_schedule` rematerialises it
+  `corpus gold ready-dates [--derivative <d>]`. The `recency-weighted` /
+  `kills-recent` "recent" assets have no sensor — `system_jumps_recent_schedule`
+  and the three `system_kills_{ship,npc,pod}_recent_schedule` rematerialise them
   hourly. SDE instead has `sde_build_discovery_sensor` (registers build partitions
   from `corpus everef list`), `sde_gold_sensor` (the changelog for builds with
   committed Silver), and `sde_snapshot_schedule` (daily rematerialise of the

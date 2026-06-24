@@ -7,12 +7,23 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
-- `market-orders` orchestration (`defs/market_orders.py`, ADR-0033): a
+- `market-orders` orchestration (`defs/market_orders.py`, ADR-0036): a
   daily-partitioned `market_orders_silver` asset (full k-space orderbook, upstream
-  gaps left Missing) plus `market_orders_gold` — the single `orderbook-sweep`
-  (`orderbook-aggregate`) derivative, a daily Gold asset whose verify keys on the
-  derivative tree and whose `--derivative` is passed explicitly.
-- `market_orders_availability_sensor` and `market_orders_gold_sensor`.
+  gaps left Missing) plus the two split Gold derivatives —
+  `market_orders_snapshot_gold` (`orderbook-snapshot`/`orderbook-aggregate`) and
+  `market_orders_changes_gold` (`orderbook-changes`/`orderbook-delta`) — daily Gold
+  assets whose verify keys on the derivative tree and whose `--derivative` is
+  passed explicitly.
+- `market_orders_availability_sensor`, `orderbook_snapshot_gold_sensor`, and
+  `orderbook_changes_gold_sensor`.
+- `system-kills` orchestration (`defs/system_kills.py`, ADR-0037): a
+  daily-partitioned `system_kills_silver` asset plus six per-measure Gold
+  derivatives — `system_kills_{ship,npc,pod}_history_gold` (`kills-flat`, daily Gold
+  assets + `ready-dates` sensors) and `system_kills_{ship,npc,pod}_recent_gold`
+  (`kills-recent` EWMA, non-partitioned assets on hourly schedules).
+- `system_kills_availability_sensor`, the three
+  `system_kills_{ship,npc,pod}_history_gold_sensor`, and the three
+  `system_kills_{ship,npc,pod}_recent_schedule`.
 - `system-jumps` orchestration (`defs/system_jumps.py`): a daily-partitioned
   `system_jumps_silver` asset plus the two ADR-0025 Gold derivatives —
   `system_jumps_history_gold` (`flat-multi-horizon`, daily Gold asset +
@@ -31,9 +42,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   builds whose Silver is committed, keyed on corpus run-state).
 
 ### Changed
-- `defs/config.py` resolves the `orderbook-aggregate` shape (ADR-0033): its
-  one-snapshot look-back maps to a one-day Silver preload, clamped to
-  `silver.served_start` (`market-orders` Silver and Gold both start `2021-07-09`).
+- `defs/config.py` resolves the `orderbook-aggregate` / `orderbook-delta` shapes
+  (ADR-0033/0036): their one-snapshot look-back maps to a one-day Silver preload,
+  clamped to `silver.served_start` (`market-orders` Silver and Gold both start
+  `2021-07-09`). It also resolves the `kills-flat` (max-horizon look-back) and
+  `kills-recent` (EWMA warmup) shapes (ADR-0037).
 - `defs/config.py` adds `sde_entities` and `sde_gold_derivatives`, reading the SDE
   entity fan-out and Gold derivatives from the dataset YAML (the build-versioned
   SDE has no `served_start` / look-back, so `resolve_partition_starts` does not

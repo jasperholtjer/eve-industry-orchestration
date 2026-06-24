@@ -1,22 +1,31 @@
-"""market-orders: full-orderbook Silver and the orderbook-aggregate Gold (ADR-0033).
+"""market-orders: full-orderbook Silver and the two split Gold derivatives (ADR-0036).
 
 A day-partitioned Silver source — the day's ~30-min ``*.v3.csv.bz2`` snapshots of
-the full k-space orderbook, merged into one Silver stream — feeds a single Gold
-derivative, ``orderbook-sweep`` (``orderbook-aggregate`` shape): one row per
-``(snapshot_at, region_id, type_id)`` aggregate plus the cross-snapshot activity
-delta (filled/cancelled/expired/new/partial-filled/modified) against the
-immediately preceding snapshot.
+the full k-space orderbook, merged into one Silver stream — feeds **two**
+independent Gold derivatives, each its own Hive tree (``gold/<derivative>/...``),
+split from the single ADR-0033 ``orderbook-sweep``:
 
-Each asset is a thin shim over the ``corpus`` binary; the binary owns the
-compute, the k-space filter, the delta classifier, and the ``parquet +
-_INDEX.json + _DONE`` contract. Partition starts come from the corpus dataset
-config (see :mod:`config`), never hardcoded.
+- ``orderbook-snapshot`` (``orderbook-aggregate`` shape) — the per-snapshot
+  current-prices aggregate (top-of-book, VWAPs, depth, notionals). Pure
+  per-snapshot, no activity columns.
+- ``orderbook-changes`` (``orderbook-delta`` shape) — the cross-snapshot activity
+  changelog (filled/cancelled/expired/new/partial/modified) against the
+  immediately preceding snapshot.
+
+Both are daily-partitioned with a one-snapshot look-back (so the planner loads one
+day of tail), driven by a ``ready-dates`` sensor, exactly like the prior single
+derivative but one asset per tree.
+
+Each asset is a thin shim over the ``corpus`` binary; the binary owns the compute,
+the k-space filter, the delta classifier, and the ``parquet + _INDEX.json +
+_DONE`` contract. Partition starts come from the corpus dataset config (see
+:mod:`config`), never hardcoded.
 
 **Gold verify keys on the derivative name, not the dataset.** ``corpus gold
-build`` writes under ``gold/orderbook-sweep/...`` and ``corpus verify --tier
-gold`` resolves ``gold/<--dataset>/...``, so Gold verify passes the *derivative*
-name as ``--dataset``. Silver verify still uses the dataset name. The derivative
-name differs from the dataset name (like system-jumps), so every Gold call passes
+build`` writes under ``gold/<derivative>/...`` and ``corpus verify --tier gold``
+resolves ``gold/<--dataset>/...``, so Gold verify passes the *derivative* name as
+``--dataset``. Silver verify still uses the dataset name. The derivative names
+differ from the dataset name (like system-jumps), so every Gold call passes
 ``--derivative`` explicitly.
 """
 
@@ -28,17 +37,18 @@ from eve_industry_orchestration.defs.config import resolve_partition_starts
 from eve_industry_orchestration.defs.corpus_resource import CorpusResource
 
 DATASET = "market-orders"
-GOLD_DERIVATIVE = "orderbook-sweep"
+SNAPSHOT_DERIVATIVE = "orderbook-snapshot"
+CHANGES_DERIVATIVE = "orderbook-changes"
+GOLD_DERIVATIVES = (SNAPSHOT_DERIVATIVE, CHANGES_DERIVATIVE)
 
-# Silver and Gold share a served floor (2021-07-09, the first full-cadence day);
-# the orderbook delta engine looks back exactly one snapshot, so the Silver
-# preload is one day before the Gold start but clamps back up to the
-# silver.served_start floor (ADR-0027/0033) — both tiers land on 2021-07-09.
-_starts = resolve_partition_starts(DATASET, GOLD_DERIVATIVE)
-if _starts.gold is None:  # orderbook-sweep declares a served_start; narrow for typing
+# Both derivatives share the served floor (2021-07-09, the first full-cadence
+# day) and a one-snapshot look-back, so they resolve to the same Silver/Gold
+# starts; Silver is shared. Resolve via the snapshot derivative.
+_starts = resolve_partition_starts(DATASET, SNAPSHOT_DERIVATIVE)
+if _starts.gold is None:  # both derivatives declare a served_start; narrow for typing
     raise ValueError(
-        f"{DATASET}/{GOLD_DERIVATIVE} resolved no Gold served_start; "
-        "the orderbook-aggregate derivative must declare one"
+        f"{DATASET}/{SNAPSHOT_DERIVATIVE} resolved no Gold served_start; "
+        "an orderbook derivative must declare one"
     )
 silver_partitions = dg.DailyPartitionsDefinition(start_date=_starts.silver)
 gold_partitions = dg.DailyPartitionsDefinition(start_date=_starts.gold)
@@ -112,77 +122,82 @@ def market_orders_silver(
     )
 
 
-@dg.asset(
-    partitions_def=gold_partitions,
-    deps=[market_orders_silver],
-    group_name="market_orders",
-    kinds={"corpus"},
-    pool=_GOLD_POOL,
-    # A target day whose Silver is an upstream gap can never build a Gold row
-    # (ADR-0029); corpus reports "skipped", so the asset must complete without
-    # materialising — the partition stays Missing rather than failing.
-    output_required=False,
-)
-def market_orders_gold(
-    context: dg.AssetExecutionContext, corpus: CorpusResource
-) -> Iterator[dg.MaterializeResult | dg.AssetObservation]:
-    """Gold partition for the orderbook-aggregate derivative, then verify.
+def _build_gold_asset(derivative: str) -> dg.AssetsDefinition:
+    """Builds a daily-partitioned Gold asset for one orderbook derivative.
 
-    ``deps=`` is lineage only; the readiness sensor drives this. ``corpus gold
-    build`` reads the target day plus the prior day's tail snapshot and emits the
-    per-snapshot aggregate + activity delta. Verify keys on the derivative name
-    (its own ``gold/orderbook-sweep/...`` tree), not the dataset.
-
-    A target day that is a recorded upstream gap (``status: skipped``, ADR-0029)
-    is left Missing: the verify (which would 404 on the absent Gold partition) is
-    skipped and an ``AssetObservation`` records why, mirroring the Silver asset.
+    Both derivatives share the look-back, gap-skip, and verify contract; only the
+    ``--derivative`` and its own Hive tree differ. ``corpus gold build`` reads the
+    target day plus the prior day's tail snapshot; verify keys on the derivative
+    name (its own ``gold/<derivative>/...`` tree), not the dataset.
     """
-    date = context.partition_key
-    status = corpus.run(
-        context,
-        "gold",
-        "build",
-        "--dataset",
-        DATASET,
-        "--derivative",
-        GOLD_DERIVATIVE,
-        "--date",
-        date,
-        "--sink-path",
-        corpus.sink_path,
+
+    @dg.asset(
+        name=f"market_orders_{derivative.replace('-', '_')}_gold",
+        partitions_def=gold_partitions,
+        deps=[market_orders_silver],
+        group_name="market_orders",
+        kinds={"corpus"},
+        pool=_GOLD_POOL,
+        # A target day whose Silver is an upstream gap can never build a Gold row
+        # (ADR-0029); corpus reports "skipped", so the asset must complete without
+        # materialising — the partition stays Missing rather than failing.
+        output_required=False,
     )
-    if status is not None and status.get("status") == "skipped":
-        context.log.info(
-            "orderbook-sweep %s: target silver is an upstream gap, "
-            "leaving partition missing",
+    def _gold(
+        context: dg.AssetExecutionContext, corpus: CorpusResource
+    ) -> Iterator[dg.MaterializeResult | dg.AssetObservation]:
+        date = context.partition_key
+        status = corpus.run(
+            context,
+            "gold",
+            "build",
+            "--dataset",
+            DATASET,
+            "--derivative",
+            derivative,
+            "--date",
             date,
+            "--sink-path",
+            corpus.sink_path,
         )
-        yield dg.AssetObservation(
-            asset_key=context.asset_key,
-            partition=date,
+        if status is not None and status.get("status") == "skipped":
+            context.log.info(
+                "%s %s: target silver is an upstream gap, leaving partition missing",
+                derivative,
+                date,
+            )
+            yield dg.AssetObservation(
+                asset_key=context.asset_key,
+                partition=date,
+                metadata={
+                    "skip_reason": "upstream_gap",
+                    "detail": str(status.get("reason", "")),
+                },
+            )
+            return
+        corpus.run(
+            context,
+            "verify",
+            "--dataset",
+            derivative,
+            "--date",
+            date,
+            "--tier",
+            "gold",
+            "--sink-path",
+            corpus.sink_path,
+        )
+        yield dg.MaterializeResult(
             metadata={
-                "skip_reason": "upstream_gap",
-                "detail": str(status.get("reason", "")),
-            },
+                "dataset": DATASET,
+                "derivative": derivative,
+                "tier": "gold",
+                "partition": date,
+            }
         )
-        return
-    corpus.run(
-        context,
-        "verify",
-        "--dataset",
-        GOLD_DERIVATIVE,
-        "--date",
-        date,
-        "--tier",
-        "gold",
-        "--sink-path",
-        corpus.sink_path,
-    )
-    yield dg.MaterializeResult(
-        metadata={
-            "dataset": DATASET,
-            "derivative": GOLD_DERIVATIVE,
-            "tier": "gold",
-            "partition": date,
-        }
-    )
+
+    return _gold
+
+
+market_orders_snapshot_gold = _build_gold_asset(SNAPSHOT_DERIVATIVE)
+market_orders_changes_gold = _build_gold_asset(CHANGES_DERIVATIVE)

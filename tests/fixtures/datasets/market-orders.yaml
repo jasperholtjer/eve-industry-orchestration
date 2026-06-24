@@ -13,11 +13,18 @@ silver:
   # Coverage floor (ADR-0027 / ADR-0033): 2021-07-09 is the first full-cadence
   # day; the orchestrator clamps the Silver matrix to it.
   served_start: 2021-07-09
+# ADR-0036 — two independent Gold derivatives split from the single ADR-0033
+# orderbook-sweep. One-snapshot look-back (one prior day) on both.
 gold:
-  # ADR-0033 — one derivative: the per-snapshot orderbook aggregate plus the
-  # cross-snapshot activity delta. One-snapshot look-back (one prior day).
-  - name: orderbook-sweep
+  - name: orderbook-snapshot
     shape: orderbook-aggregate
+    sort_keys: [region_id, type_id, snapshot_at]
+    served_start: 2021-07-09
+    orderbook:
+      percentile: 5
+      delta: false
+  - name: orderbook-changes
+    shape: orderbook-delta
     sort_keys: [region_id, type_id, snapshot_at]
     served_start: 2021-07-09
     orderbook:

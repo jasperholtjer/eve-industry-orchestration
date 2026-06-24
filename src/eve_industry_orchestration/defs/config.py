@@ -299,11 +299,15 @@ def _lookback_for_shape(name: str, shape: str, entry: dict[str, Any]) -> int | N
     if shape == "rolling":
         return _rolling_lookback(entry.get("rolling"))
     if shape == "flat-multi-horizon":
-        return _flat_lookback(name, entry.get("flat"))
+        return _flat_lookback(name, entry.get("flat"), key="flat")
     if shape == "recency-weighted":
-        return _ewma_lookback(name, entry.get("ewma"))
-    if shape == "orderbook-aggregate":
+        return _ewma_lookback(name, entry.get("ewma"), key="ewma")
+    if shape in ("orderbook-aggregate", "orderbook-delta"):
         return _ORDERBOOK_LOOKBACK_DAYS
+    if shape == "kills-flat":
+        return _flat_lookback(name, entry.get("kills-flat"), key="kills-flat")
+    if shape == "kills-recent":
+        return _ewma_lookback(name, entry.get("kills-recent"), key="kills-recent")
     raise PartitionConfigError(f"gold derivative {name!r} has unknown shape {shape!r}")
 
 
@@ -323,28 +327,29 @@ def _rolling_lookback(rolling: Any) -> int:
     return max(horizons)
 
 
-def _flat_lookback(name: str, flat: Any) -> int:
+def _flat_lookback(name: str, flat: Any, key: str = "flat") -> int:
+    """Max horizon of a flat-style block (``flat`` or ``kills-flat``)."""
     if not isinstance(flat, dict):
-        raise PartitionConfigError(f"gold derivative {name!r} has no `flat` block")
+        raise PartitionConfigError(f"gold derivative {name!r} has no `{key}` block")
     horizons = flat.get("horizons")
     if not isinstance(horizons, list) or not horizons:
-        raise PartitionConfigError(f"gold derivative {name!r} has no `flat.horizons`")
+        raise PartitionConfigError(f"gold derivative {name!r} has no `{key}.horizons`")
     return max(horizons)
 
 
-def _ewma_lookback(name: str, ewma: Any) -> int:
+def _ewma_lookback(name: str, ewma: Any, key: str = "ewma") -> int:
     """EWMA warmup days, matching the corpus ``ewma_warmup_days`` helper.
 
-    Only relevant if a ``recency-weighted`` derivative ever gets a partition
-    matrix; under the scheduled "latest" model it carries no ``served_start``
-    and so never anchors Silver.
+    Only relevant if an EWMA-style derivative (``recency-weighted`` /
+    ``kills-recent``) ever gets a partition matrix; under the scheduled "latest"
+    model it carries no ``served_start`` and so never anchors Silver.
     """
     if not isinstance(ewma, dict):
-        raise PartitionConfigError(f"gold derivative {name!r} has no `ewma` block")
+        raise PartitionConfigError(f"gold derivative {name!r} has no `{key}` block")
     half_life = ewma.get("half_life_hours")
     if not isinstance(half_life, int):
         raise PartitionConfigError(
-            f"gold derivative {name!r} has no integer `ewma.half_life_hours`"
+            f"gold derivative {name!r} has no integer `{key}.half_life_hours`"
         )
     warmup_hours = half_life * _EWMA_WARMUP_HALF_LIVES
     return max(math.ceil(warmup_hours / 24), 1)

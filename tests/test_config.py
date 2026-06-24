@@ -108,29 +108,79 @@ def test_per_derivative_gold_override(monkeypatch: pytest.MonkeyPatch) -> None:
     assert starts.gold == "2023-03-01"
 
 
-# --- market-orders: orderbook-aggregate shape (ADR-0033) ------------------
+# --- market-orders: split orderbook shapes (ADR-0036) ---------------------
 
 MARKET_ORDERS = "market-orders"
-ORDERBOOK = "orderbook-sweep"
 
 
-def test_orderbook_gold_start_is_served_start() -> None:
+@pytest.mark.parametrize("derivative", ["orderbook-snapshot", "orderbook-changes"])
+def test_orderbook_gold_start_is_served_start(derivative: str) -> None:
     starts = resolve_partition_starts(
-        MARKET_ORDERS, ORDERBOOK, datasets_dir=str(DATASETS_DIR)
+        MARKET_ORDERS, derivative, datasets_dir=str(DATASETS_DIR)
     )
     assert starts.gold == "2021-07-09"
 
 
-def test_orderbook_silver_clamps_one_day_lookback_to_floor() -> None:
-    # The orderbook delta engine looks back one day (2021-07-09 − 1d =
-    # 2021-07-08), but silver.served_start is 2021-07-09 (ADR-0027/0033), so
-    # Silver clamps up: max(2021-07-08, 2021-07-09) = 2021-07-09.
+@pytest.mark.parametrize("derivative", ["orderbook-snapshot", "orderbook-changes"])
+def test_orderbook_silver_clamps_one_day_lookback_to_floor(derivative: str) -> None:
+    # Both shapes look back one day (2021-07-09 − 1d = 2021-07-08), but
+    # silver.served_start is 2021-07-09 (ADR-0027/0036), so Silver clamps up:
+    # max(2021-07-08, 2021-07-09) = 2021-07-09.
     starts = resolve_partition_starts(
-        MARKET_ORDERS, ORDERBOOK, datasets_dir=str(DATASETS_DIR)
+        MARKET_ORDERS, derivative, datasets_dir=str(DATASETS_DIR)
     )
     assert starts.silver == "2021-07-09"
 
 
-def test_orderbook_single_derivative_resolves_without_selector() -> None:
-    starts = resolve_partition_starts(MARKET_ORDERS, datasets_dir=str(DATASETS_DIR))
-    assert (starts.silver, starts.gold) == ("2021-07-09", "2021-07-09")
+def test_orderbook_ambiguous_without_selector() -> None:
+    # Two derivatives (ADR-0036), so a selector is required.
+    with pytest.raises(PartitionConfigError):
+        resolve_partition_starts(MARKET_ORDERS, datasets_dir=str(DATASETS_DIR))
+
+
+# --- system-kills: per-measure kills shapes (ADR-0037) --------------------
+
+SYSTEM_KILLS = "system-kills"
+
+
+@pytest.mark.parametrize(
+    "derivative",
+    [
+        "system-kills-ship-history",
+        "system-kills-npc-history",
+        "system-kills-pod-history",
+    ],
+)
+def test_kills_history_gold_start_is_served_start(derivative: str) -> None:
+    starts = resolve_partition_starts(
+        SYSTEM_KILLS, derivative, datasets_dir=str(DATASETS_DIR)
+    )
+    assert starts.gold == "2022-01-01"
+
+
+def test_kills_silver_clamps_to_upstream_coverage_floor() -> None:
+    # Derived preload is 2022-01-01 − 365d = 2021-01-01, but silver.served_start
+    # is 2021-07-01 (ADR-0027), so Silver clamps up to the floor.
+    starts = resolve_partition_starts(
+        SYSTEM_KILLS, "system-kills-ship-history", datasets_dir=str(DATASETS_DIR)
+    )
+    assert starts.silver == "2021-07-01"
+
+
+@pytest.mark.parametrize(
+    "derivative",
+    ["system-kills-ship-recent", "system-kills-npc-recent", "system-kills-pod-recent"],
+)
+def test_kills_recent_has_no_gold_start(derivative: str) -> None:
+    # The kills-recent EWMA derivatives are non-partitioned; no served_start, so
+    # Gold resolves to None while Silver stays shared (floor-clamped).
+    starts = resolve_partition_starts(
+        SYSTEM_KILLS, derivative, datasets_dir=str(DATASETS_DIR)
+    )
+    assert starts.gold is None
+    assert starts.silver == "2021-07-01"
+
+
+def test_kills_ambiguous_without_selector() -> None:
+    with pytest.raises(PartitionConfigError):
+        resolve_partition_starts(SYSTEM_KILLS, datasets_dir=str(DATASETS_DIR))
