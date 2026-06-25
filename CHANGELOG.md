@@ -6,6 +6,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- `market-orders` Silver and both Gold derivatives now use a dedicated
+  `market_orders` concurrency pool (limit 1) instead of sharing the generic
+  `everef_download` / `gold_heavy` pools, so at most one market-orders `corpus`
+  process runs at a time across every launch path. `deploy/redeploy.sh` sets the
+  limit-1 override (`dagster instance concurrency set market_orders 1`) since a
+  per-pool limit below `default_limit` cannot be declared in `dagster.yaml`.
+
 ### Added
 - `market-orders` orchestration (`defs/market_orders.py`, ADR-0036): a
   daily-partitioned `market_orders_silver` asset (full k-space orderbook, upstream

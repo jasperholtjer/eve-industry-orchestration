@@ -53,13 +53,19 @@ if _starts.gold is None:  # both derivatives declare a served_start; narrow for 
 silver_partitions = dg.DailyPartitionsDefinition(start_date=_starts.silver)
 gold_partitions = dg.DailyPartitionsDefinition(start_date=_starts.gold)
 
-# A Silver day is the whole k-space orderbook (~835 MiB/day compressed input);
-# the `everef_download` pool caps concurrent upstream fetches across every launch
-# path. A Gold build reads a day plus one tail snapshot and is the heaviest build
-# in the workspace, so it joins the shared `gold_heavy` memory pool. Both limits
-# live in deploy/dagster.yaml.
-_SILVER_POOL = "everef_download"
-_GOLD_POOL = "gold_heavy"
+# market-orders is the heaviest dataset in the workspace: a Silver day is the
+# whole k-space orderbook (~835 MiB/day compressed, ~75M rows) and Gold reads a
+# day plus one tail snapshot. Rather than share the generic `everef_download`
+# (network) and `gold_heavy` (memory) pools — which left two market-orders
+# corpus subprocesses able to run at once and exhaust the box — both Silver and
+# Gold join a DEDICATED `market_orders` pool with limit 1, so at most one
+# market-orders corpus process runs at a time across every launch path. The
+# pool's limit-1 override (below the `default_limit` of 2) lives in the instance
+# DB, set by deploy/redeploy.sh; see deploy/dagster.yaml. Silver streams one
+# row-group per snapshot in the corpus binary, so its memory floor is now one
+# snapshot, not the whole day.
+_SILVER_POOL = "market_orders"
+_GOLD_POOL = "market_orders"
 
 
 @dg.asset(

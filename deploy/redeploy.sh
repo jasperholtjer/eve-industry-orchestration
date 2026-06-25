@@ -198,6 +198,13 @@ main() {
   install -o "${SERVICE_USER}" -g 988 -m 0644 \
     "${REPO_DIR}/deploy/dagster.yaml" "${DAGSTER_HOME}/dagster.yaml"
 
+  # Per-pool concurrency overrides that cannot live in dagster.yaml (it only
+  # takes `default_limit`). `market_orders` is the heaviest dataset, capped at a
+  # single concurrent corpus process; the override is stored in the instance DB.
+  # Idempotent — re-setting the same limit is a no-op.
+  echo "==> Setting per-pool concurrency overrides"
+  run_as_user "cd '${REPO_DIR}' && DAGSTER_HOME='${DAGSTER_HOME}' uv run dagster instance concurrency set market_orders 1"
+
   echo "==> Restarting services"
   # Clear any prior failed state so an earlier crash-loop's start-limit does not
   # block this (good-config) restart.

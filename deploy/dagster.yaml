@@ -13,19 +13,30 @@
 #    opts in with `pool=` (see market_history.py) and is then bounded by
 #    min(global cap, pool limit). Pools gate at the asset/step, so they throttle
 #    EVERY launch path — sensor, UI backfill, manual — unlike a sensor-set run tag.
-#    `run` granularity queues at the run level (no idle run workers). Two pools
-#    today, both wanting 2, so `default_limit: 2` covers them declaratively (no
-#    per-pool DB override needed):
+#    `run` granularity queues at the run level (no idle run workers). Pools:
 #      - `gold_heavy`: MEMORY. A Gold build reads a 365-day rolling window and
 #        peaks ~3-4 GB in the `corpus` subprocess; left to the global cap alone
-#        they stack to ~12-16 GB and OOM-kill the worker. Shared budget across all
-#        heavy datasets, so total heavy memory stays bounded however many opt in.
+#        they stack to ~12-16 GB and OOM-kill the worker. Shared budget across the
+#        heavy datasets (market-history, system-jumps, system-kills), so total
+#        heavy memory stays bounded however many opt in. Limit = `default_limit` 2.
 #      - `everef_download`: POLITENESS to data.everef.net. EVE Ref endorses a small
 #        fan-out (its rclone example uses `--transfers 2`), so 2 concurrent fetches.
-#    Tune the global default with `/usr/bin/time -v`, or override one pool with
-#    `dagster instance concurrency set <pool> <limit>`. A future pool wanting a
-#    different limit takes such an override; lightweight datasets omit `pool=`
-#    entirely and stay bounded only by the global cap of 4.
+#        Limit = `default_limit` 2.
+#      - `market_orders`: BOTH, at limit 1. market-orders is the heaviest dataset
+#        (a Silver day is ~75M rows of full k-space orderbook; Gold the heaviest
+#        build). It used to share `everef_download` + `gold_heavy`, which let two
+#        market-orders corpus processes run at once and exhaust the box. Its Silver
+#        and both Gold derivatives now share this dedicated limit-1 pool, so at
+#        most ONE market-orders corpus process runs at a time across every launch
+#        path. (Silver also streams one row-group per snapshot in the binary, so
+#        its memory floor dropped from the whole day to one snapshot.)
+#    A per-pool limit that differs from `default_limit` cannot be declared here —
+#    `concurrency.pools` only takes `default_limit` + `granularity`. The
+#    `market_orders` limit-1 override lives in the instance DB and is set by
+#    deploy/redeploy.sh via `dagster instance concurrency set market_orders 1`.
+#    Tune the global default with `/usr/bin/time -v`, or override any pool with
+#    `dagster instance concurrency set <pool> <limit>`. Lightweight datasets omit
+#    `pool=` entirely and stay bounded only by the global cap of 4.
 #
 # The `sde` dataset (build-versioned, ADR-0031) puts `sde_silver` in
 # `everef_download` (it fetches one ~94 MB archive per build) but keeps both Gold
