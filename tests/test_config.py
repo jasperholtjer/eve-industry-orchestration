@@ -113,7 +113,9 @@ def test_per_derivative_gold_override(monkeypatch: pytest.MonkeyPatch) -> None:
 MARKET_ORDERS = "market-orders"
 
 
-@pytest.mark.parametrize("derivative", ["orderbook-snapshot", "orderbook-changes"])
+@pytest.mark.parametrize(
+    "derivative", ["market-orders-snapshot", "market-orders-changes"]
+)
 def test_orderbook_gold_start_is_served_start(derivative: str) -> None:
     starts = resolve_partition_starts(
         MARKET_ORDERS, derivative, datasets_dir=str(DATASETS_DIR)
@@ -121,7 +123,9 @@ def test_orderbook_gold_start_is_served_start(derivative: str) -> None:
     assert starts.gold == "2021-07-09"
 
 
-@pytest.mark.parametrize("derivative", ["orderbook-snapshot", "orderbook-changes"])
+@pytest.mark.parametrize(
+    "derivative", ["market-orders-snapshot", "market-orders-changes"]
+)
 def test_orderbook_silver_clamps_one_day_lookback_to_floor(derivative: str) -> None:
     # Both shapes look back one day (2021-07-09 − 1d = 2021-07-08), but
     # silver.served_start is 2021-07-09 (ADR-0027/0036), so Silver clamps up:

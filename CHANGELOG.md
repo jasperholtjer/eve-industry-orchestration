@@ -7,6 +7,7 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Changed
+- Renamed the `market-orders` Gold derivatives `orderbook-snapshot` → `market-orders-snapshot` and `orderbook-changes` → `market-orders-changes` (corpus ADR-0038), tracking the upstream rename. Asset keys become `market_orders_snapshot_gold` / `market_orders_changes_gold` (the name template no longer double-prefixes); the `--derivative` selector, sensor run keys, and `gold/<derivative>/` verify tree follow the new names.
 - Renamed the `gold_heavy` concurrency pool to `heavy`: it now bounds every heavy
   `corpus` subprocess, not only Gold builds. `market-orders` Silver (the only
   Silver heavy enough to need a memory bound — ~78M rows/day, ~3-4 GB peak after

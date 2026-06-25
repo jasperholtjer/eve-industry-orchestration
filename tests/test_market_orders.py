@@ -23,12 +23,12 @@ _GOLD_CASES = [
     (
         market_orders_snapshot_gold,
         market_orders_snapshot_gold_sensor,
-        "orderbook-snapshot",
+        "market-orders-snapshot",
     ),
     (
         market_orders_changes_gold,
         market_orders_changes_gold_sensor,
-        "orderbook-changes",
+        "market-orders-changes",
     ),
 ]
 

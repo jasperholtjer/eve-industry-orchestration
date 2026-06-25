@@ -33,9 +33,9 @@ The homelab deployment (LXC, NFS mount, build order) is documented in
   `orderbook-aggregate` /​ `orderbook-delta` /​ `kills-flat` derivative is a
   daily-partitioned asset + `ready-dates` sensor, while a `recency-weighted` /​
   `kills-recent` derivative is a single **non-partitioned** asset a schedule
-  rematerialises against the latest buildable date. `market-orders` (ADR-0036)
-  splits its Gold into two daily-partitioned derivatives — `orderbook-snapshot`
-  (per-snapshot aggregate) and `orderbook-changes` (cross-snapshot activity
+  rematerialises against the latest buildable date. `market-orders` (ADR-0036, derivatives renamed in ADR-0038)
+  splits its Gold into two daily-partitioned derivatives — `market-orders-snapshot`
+  (per-snapshot aggregate) and `market-orders-changes` (cross-snapshot activity
   delta), both a one-day look-back. `system-kills` (ADR-0037) fans its three
   measures into six derivatives — `system-kills-{ship,npc,pod}-history`
   (`kills-flat`, daily-partitioned + sensor) and `system-kills-{ship,npc,pod}-recent`

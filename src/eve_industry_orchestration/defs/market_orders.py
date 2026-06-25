@@ -5,10 +5,10 @@ the full k-space orderbook, merged into one Silver stream — feeds **two**
 independent Gold derivatives, each its own Hive tree (``gold/<derivative>/...``),
 split from the single ADR-0033 ``orderbook-sweep``:
 
-- ``orderbook-snapshot`` (``orderbook-aggregate`` shape) — the per-snapshot
+- ``market-orders-snapshot`` (``orderbook-aggregate`` shape) — the per-snapshot
   current-prices aggregate (top-of-book, VWAPs, depth, notionals). Pure
   per-snapshot, no activity columns.
-- ``orderbook-changes`` (``orderbook-delta`` shape) — the cross-snapshot activity
+- ``market-orders-changes`` (``orderbook-delta`` shape) — the cross-snapshot activity
   changelog (filled/cancelled/expired/new/partial/modified) against the
   immediately preceding snapshot.
 
@@ -37,8 +37,8 @@ from eve_industry_orchestration.defs.config import resolve_partition_starts
 from eve_industry_orchestration.defs.corpus_resource import CorpusResource
 
 DATASET = "market-orders"
-SNAPSHOT_DERIVATIVE = "orderbook-snapshot"
-CHANGES_DERIVATIVE = "orderbook-changes"
+SNAPSHOT_DERIVATIVE = "market-orders-snapshot"
+CHANGES_DERIVATIVE = "market-orders-changes"
 GOLD_DERIVATIVES = (SNAPSHOT_DERIVATIVE, CHANGES_DERIVATIVE)
 
 # Both derivatives share the served floor (2021-07-09, the first full-cadence
@@ -136,7 +136,7 @@ def _build_gold_asset(derivative: str) -> dg.AssetsDefinition:
     """
 
     @dg.asset(
-        name=f"market_orders_{derivative.replace('-', '_')}_gold",
+        name=f"{derivative.replace('-', '_')}_gold",
         partitions_def=gold_partitions,
         deps=[market_orders_silver],
         group_name="market_orders",
