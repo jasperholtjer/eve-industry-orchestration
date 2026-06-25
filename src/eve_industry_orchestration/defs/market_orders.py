@@ -55,17 +55,15 @@ gold_partitions = dg.DailyPartitionsDefinition(start_date=_starts.gold)
 
 # market-orders is the heaviest dataset in the workspace: a Silver day is the
 # whole k-space orderbook (~835 MiB/day compressed, ~75M rows) and Gold reads a
-# day plus one tail snapshot. Rather than share the generic `everef_download`
-# (network) and `gold_heavy` (memory) pools — which left two market-orders
-# corpus subprocesses able to run at once and exhaust the box — both Silver and
-# Gold join a DEDICATED `market_orders` pool with limit 1, so at most one
-# market-orders corpus process runs at a time across every launch path. The
-# pool's limit-1 override (below the `default_limit` of 2) lives in the instance
-# DB, set by deploy/redeploy.sh; see deploy/dagster.yaml. Silver streams one
-# row-group per snapshot in the corpus binary, so its memory floor is now one
-# snapshot, not the whole day.
-_SILVER_POOL = "market_orders"
-_GOLD_POOL = "market_orders"
+# day plus one tail snapshot. The corpus binary now streams Silver one row-group
+# per snapshot, so its peak is one snapshot (~3-4 GB), comparable to a Gold
+# build. Both therefore join the shared `heavy` MEMORY pool (limit 2 via
+# `default_limit`) rather than the network `everef_download` pool: this is the
+# only Silver heavy enough to need a memory bound, and sharing one budget with
+# every Gold build caps total heavy memory at ~2 x ~4 GB regardless of how the
+# coordinator mixes runs. See deploy/dagster.yaml.
+_SILVER_POOL = "heavy"
+_GOLD_POOL = "heavy"
 
 
 @dg.asset(

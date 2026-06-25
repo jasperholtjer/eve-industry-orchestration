@@ -131,7 +131,7 @@ materialisation is manual.
   dates; Gold follows via the `deps=` chain once item 2 is unblocked.
 - Respect concurrency: `deploy/dagster.yaml` pins `max_concurrent_runs: 4` (the NAS
   spindle is the real limiter) plus concurrency pools — `everef_download` (EVE Ref
-  endorses ~2 parallel transfers) and `gold_heavy` (Gold memory), both at
+  endorses ~2 parallel transfers) and `heavy` (Gold memory), both at
   `default_limit: 2` — keyed on the assets' `pool=` so they bound every launch path.
   The sensor must also not stampede the queue, hence the per-tick cap.
 

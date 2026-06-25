@@ -26,7 +26,7 @@ gold_partitions = dg.DailyPartitionsDefinition(start_date=_starts.gold)
 
 # Silver fetches one EVE Ref archive per run; the `everef_download` pool caps
 # concurrent upstream fetches (politeness to data.everef.net) across every launch
-# path — sensor, UI backfill, manual — mirroring the `gold_heavy` memory pool. The
+# path — sensor, UI backfill, manual — mirroring the `heavy` memory pool. The
 # limit lives in deploy/dagster.yaml.
 _SILVER_POOL = "everef_download"
 
@@ -72,11 +72,11 @@ def market_history_silver(
 
 # Blueprint for heavyweight datasets: a Gold build reads the full
 # [date - max_horizon, date] rolling window and peaks ~3-4 GB in the `corpus`
-# subprocess. The `gold_heavy` concurrency pool (limit set in deploy/dagster.yaml)
+# subprocess. The `heavy` concurrency pool (limit set in deploy/dagster.yaml)
 # caps how many such builds run at once across ALL launch paths — sensor, UI
 # backfill, manual — and is shared by every heavy dataset so total memory stays
 # bounded on the single box. Lightweight datasets omit `pool=` entirely.
-_GOLD_POOL = "gold_heavy"
+_GOLD_POOL = "heavy"
 
 
 @dg.asset(

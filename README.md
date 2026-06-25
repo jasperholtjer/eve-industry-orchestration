@@ -88,7 +88,7 @@ binary and its dataset configs are pulled by `redeploy.sh` (see below). This rep
 supplies the orchestration wiring in `deploy/`:
 
 - `dagster.yaml` — instance config; `QueuedRunCoordinator` (`max_concurrent_runs: 4`,
-  the NAS-spindle I/O cap) plus concurrency pools (`gold_heavy`, `everef_download`,
+  the NAS-spindle I/O cap) plus concurrency pools (`heavy`, `everef_download`,
   `default_limit: 2`) that bound Gold memory and EVE Ref fetches across every launch
   path. Copy to `$DAGSTER_HOME/dagster.yaml`.
 - `workspace.yaml` — code location (`eve_industry_orchestration.definitions`).

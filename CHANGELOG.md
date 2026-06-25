@@ -7,12 +7,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Changed
-- `market-orders` Silver and both Gold derivatives now use a dedicated
-  `market_orders` concurrency pool (limit 1) instead of sharing the generic
-  `everef_download` / `gold_heavy` pools, so at most one market-orders `corpus`
-  process runs at a time across every launch path. `deploy/redeploy.sh` sets the
-  limit-1 override (`dagster instance concurrency set market_orders 1`) since a
-  per-pool limit below `default_limit` cannot be declared in `dagster.yaml`.
+- Renamed the `gold_heavy` concurrency pool to `heavy`: it now bounds every heavy
+  `corpus` subprocess, not only Gold builds. `market-orders` Silver (the only
+  Silver heavy enough to need a memory bound — ~78M rows/day, ~3-4 GB peak after
+  the corpus streaming ingest) joins it alongside all Gold builds and leaves the
+  network `everef_download` pool. Sharing one memory budget caps total heavy
+  memory at ~`heavy_limit × ~4 GB` (≈ 8 GB at the `default_limit` of 2) however
+  the coordinator mixes runs, so the LXC sizing rule (`>= 12 GiB` at limit 2) holds
+  regardless of dataset. Removes the dedicated `market_orders` limit-1 pool and its
+  `deploy/redeploy.sh` override.
 
 ### Added
 - `market-orders` orchestration (`defs/market_orders.py`, ADR-0036): a

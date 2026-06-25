@@ -44,16 +44,18 @@ The full rationale lives in [ROADMAP.md](ROADMAP.md); the load-bearing rules:
   is the global I/O cap — the single-HDD NAS spindle is the real limiter, every
   run taps it. Per-class limits are concurrency **pools** keyed on the assets'
   `pool=`, not run tags: `everef_download` (Silver fetch politeness; EVE Ref
-  endorses ~2 parallel transfers) and `gold_heavy` (Gold memory), both at
+  endorses ~2 parallel transfers) and `heavy` (heavy-corpus memory), both at
   `default_limit: 2`. A pool gates **every** launch path — sensor, UI backfill,
   manual — unlike a sensor-set run tag, and a pooled run is bounded by
   `min(global, pool)`. Lightweight datasets omit `pool=` and obey only the global
   cap. Keep sensor fan-out capped per tick.
-  - **Gold memory governs the `gold_heavy` pool.** A Gold build streams its
+  - **Heavy-corpus memory governs the `heavy` pool.** Every Gold build streams its
     `[date - max_horizon, date]` Silver window via a k-way merge (corpus
-    ≥ v0.1.6) and peaks ~3–4 GiB in the `corpus` subprocess. Peak Gold RAM ≈
-    `gold_heavy limit × ~4 GiB`, so set the limit to `floor((RAM_GiB − ~4
-    headroom) / 4)` — at the default 2, budget ~8 GiB for Gold alone, so the LXC
+    ≥ v0.1.6) and peaks ~3–4 GiB; `market-orders` Silver also joins this pool —
+    it streams ~78M rows/day one row-group per snapshot (corpus ≥ v0.7.0) and
+    peaks the same ~3–4 GiB, the only Silver heavy enough to need a memory bound.
+    Peak heavy RAM ≈ `heavy limit × ~4 GiB`, so set the limit to `floor((RAM_GiB −
+    ~4 headroom) / 4)` — at the default 2, budget ~8 GiB, so the LXC
     wants **≥ 12 GiB RAM** (or drop the pool to 1 at 8 GiB). Measure the real peak
     with `/usr/bin/time -v` before raising. Set RAM/cores on the Proxmox host, not
     here: `pct set 211 --cores 4 --memory 12288 --swap 2048`. Authoritative host

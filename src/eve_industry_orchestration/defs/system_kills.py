@@ -60,7 +60,7 @@ silver_partitions = dg.DailyPartitionsDefinition(start_date=_history_starts.silv
 history_gold_partitions = dg.DailyPartitionsDefinition(start_date=_history_starts.gold)
 
 _SILVER_POOL = "everef_download"
-_GOLD_POOL = "gold_heavy"
+_GOLD_POOL = "heavy"
 
 
 def _derivative_to_asset_name(derivative: str) -> str:
@@ -211,7 +211,7 @@ def _build_recent_asset(derivative: str) -> dg.AssetsDefinition:
     Resolves the latest date itself (``corpus gold ready-dates`` → ``max(ready)``)
     and builds only that date. ``deps=`` carries lineage only (the EWMA reads the
     shared Silver tree); a non-partitioned asset cannot chain partitions, so the
-    schedule — not Silver — drives it. No ``gold_heavy`` pool: the EWMA build spans
+    schedule — not Silver — drives it. No ``heavy`` pool: the EWMA build spans
     only the short warmup, so it is lightweight, and keeping it out of the heavy
     pool stops the hourly schedules from starving the 365d history backfills.
     """

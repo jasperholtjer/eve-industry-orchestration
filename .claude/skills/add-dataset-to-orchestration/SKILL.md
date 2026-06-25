@@ -165,7 +165,7 @@ Mirror `market_history.py`. Per dataset:
   clear short name): daily-partitioned on that derivative's Gold start;
   `deps=[<dataset>_silver]` (lineage only — it does **not** trigger Gold, the
   sensor does); `corpus gold build --dataset <name> --derivative <deriv>` then
-  `corpus verify --tier gold --dataset <deriv>`. Carries `pool="gold_heavy"` only
+  `corpus verify --tier gold --dataset <deriv>`. Carries `pool="heavy"` only
   if the build is memory-heavy; lightweight derivatives omit `pool=`.
   - **Gold verify keys on the derivative name, not the dataset.** Gold writes to
     `gold/<derivative>/…` and `corpus verify --tier gold` resolves
@@ -237,10 +237,10 @@ Keep methods derivative-agnostic for single-derivative datasets (no flag).
 
 ### 7. `deploy/dagster.yaml`
 
-- Assign heavy Gold builds to the `gold_heavy` pool and EVE Ref fetches to
+- Assign heavy Gold builds to the `heavy` pool and EVE Ref fetches to
   `everef_download` via the assets' `pool=` (the pools are defined here).
 - A high-cadence recency-weighted schedule still shares `max_concurrent_runs` and
-  the `gold_heavy` pool — verify it cannot starve the windowed backfills (cap its
+  the `heavy` pool — verify it cannot starve the windowed backfills (cap its
   cadence or give it its own small pool if it competes).
 
 ## Verify before declaring done

@@ -25,7 +25,7 @@ ADR-0030/0031), so the asset graph collapses to one node per tier per build:
   historical snapshot trees — Silver is the build history.
 
 Both Gold builds are row diffs / passthroughs over a single build's Silver, not
-a windowed scan, so they are lightweight — no ``gold_heavy`` pool.
+a windowed scan, so they are lightweight — no ``heavy`` pool.
 
 **Verify keys on the on-disk tree.** Silver and changelog use Hive date paths
 (``silver/sde/`` and ``gold/sde-changelog/``) addressed at the build's

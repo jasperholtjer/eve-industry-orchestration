@@ -31,7 +31,7 @@ from eve_industry_orchestration.defs.market_history import (
 )
 
 # Concurrency is governed by deploy/dagster.yaml (global max_concurrent_runs:4 plus
-# the `everef_download` / `gold_heavy` pools on the assets). Independently, cap how
+# the `everef_download` / `heavy` pools on the assets). Independently, cap how
 # many partitions enter the queue per tick (oldest first) so a cold start does not
 # enqueue the whole backlog at once; later ticks drain the remainder.
 MAX_PARTITIONS_PER_TICK = 10
@@ -103,7 +103,7 @@ def market_history_gold_sensor(
             deferred,
         )
 
-    # No memory tag here: the `gold_heavy` pool on the asset (market_history.py)
+    # No memory tag here: the `heavy` pool on the asset (market_history.py)
     # throttles every launch path — sensor, backfill, manual — so this stays a
     # thin cap-and-dedup loop.
     run_requests = [
@@ -482,7 +482,7 @@ def sde_gold_sensor(
 
 # Hourly navigate-now refresh of the EWMA "recent" heat. A schedule, not a
 # sensor: there is no per-date matrix to diff, only "rebuild the latest". The
-# asset omits the `gold_heavy` pool, so this cadence cannot starve the windowed
+# asset omits the `heavy` pool, so this cadence cannot starve the windowed
 # history backfills under `max_concurrent_runs`.
 system_jumps_recent_schedule = dg.ScheduleDefinition(
     name="system_jumps_recent_schedule",
@@ -495,7 +495,7 @@ system_jumps_recent_schedule = dg.ScheduleDefinition(
 # Hourly navigate-now refresh of each per-measure EWMA "danger-now" heat
 # (ship/npc/pod), mirroring system_jumps_recent_schedule. Schedules, not sensors:
 # there is no per-date matrix to diff, only "rebuild the latest". The assets omit
-# the `gold_heavy` pool, so this cadence cannot starve the windowed history
+# the `heavy` pool, so this cadence cannot starve the windowed history
 # backfills under `max_concurrent_runs`.
 def _build_kills_recent_schedule(
     derivative: str, asset: dg.AssetsDefinition
