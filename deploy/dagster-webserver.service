@@ -13,6 +13,11 @@ Environment=DAGSTER_HOME=/var/lib/dagster
 Environment=CORPUS_BINARY_PATH=/usr/local/bin/corpus
 Environment=CORPUS_DATASETS_DIR=/usr/local/share/corpus/datasets
 Environment=CORPUS_SINK_PATH=/mnt/eve
+# Cap rayon below the core count so a UI-launched market-orders Silver run (the
+# only rayon parser) leaves 2 cores free on the 8-core box for concurrent Gold /
+# light runs. Must match the daemon unit: a Silver run launched from the
+# launchpad inherits THIS process's env, not the daemon's. See dagster-daemon.service.
+Environment=RAYON_NUM_THREADS=6
 ExecStart=/opt/eve-industry-orchestration/.venv/bin/dagster-webserver -h 0.0.0.0 -p 3000 -w /opt/eve-industry-orchestration/deploy/workspace.yaml
 Restart=on-failure
 

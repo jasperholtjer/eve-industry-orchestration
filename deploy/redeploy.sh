@@ -215,6 +215,17 @@ main() {
   run_as_user "cd '${REPO_DIR}' && DAGSTER_HOME='${DAGSTER_HOME}' \
     uv run dagster instance concurrency set market_orders 1"
 
+  # Install the systemd units from the repo (root-owned /etc/systemd/system) so
+  # unit changes — env like RAYON_NUM_THREADS, ExecStart — ship with a redeploy
+  # instead of being a manual one-off. daemon-reload picks up edits before the
+  # restart below. install is a no-op when the unit is byte-identical.
+  echo "==> Installing systemd units"
+  install -m 0644 "${REPO_DIR}/deploy/dagster-daemon.service" \
+    /etc/systemd/system/dagster-daemon.service
+  install -m 0644 "${REPO_DIR}/deploy/dagster-webserver.service" \
+    /etc/systemd/system/dagster-webserver.service
+  systemctl daemon-reload
+
   echo "==> Restarting services"
   # Clear any prior failed state so an earlier crash-loop's start-limit does not
   # block this (good-config) restart.

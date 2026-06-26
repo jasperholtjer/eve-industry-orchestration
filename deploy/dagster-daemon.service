@@ -13,6 +13,12 @@ Environment=DAGSTER_HOME=/var/lib/dagster
 Environment=CORPUS_BINARY_PATH=/usr/local/bin/corpus
 Environment=CORPUS_DATASETS_DIR=/usr/local/share/corpus/datasets
 Environment=CORPUS_SINK_PATH=/mnt/eve
+# Cap rayon below the core count so the one in-flight market-orders Silver run
+# (the only rayon parser) leaves headroom: at 6 on an 8-core box it frees 2
+# cores for the concurrent `heavy` Gold and single-threaded datasets, so a
+# multi-day market-orders backfill cannot monopolise every core. Inherited by
+# the `corpus` subprocess via CorpusResource; no-op for non-rayon datasets.
+Environment=RAYON_NUM_THREADS=6
 ExecStart=/opt/eve-industry-orchestration/.venv/bin/dagster-daemon run -w /opt/eve-industry-orchestration/deploy/workspace.yaml
 Restart=on-failure
 
