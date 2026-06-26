@@ -13,14 +13,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 - Renamed the `market-orders` Gold derivatives `orderbook-snapshot` → `market-orders-snapshot` and `orderbook-changes` → `market-orders-changes` (corpus ADR-0038), tracking the upstream rename. Asset keys become `market_orders_snapshot_gold` / `market_orders_changes_gold` (the name template no longer double-prefixes); the `--derivative` selector, sensor run keys, and `gold/<derivative>/` verify tree follow the new names.
 - Renamed the `gold_heavy` concurrency pool to `heavy`: it now bounds every heavy
-  `corpus` subprocess, not only Gold builds. `market-orders` Silver (the only
-  Silver heavy enough to need a memory bound — ~78M rows/day, ~3-4 GB peak after
-  the corpus streaming ingest) joins it alongside all Gold builds and leaves the
-  network `everef_download` pool. Sharing one memory budget caps total heavy
-  memory at ~`heavy_limit × ~4 GB` (≈ 8 GB at the `default_limit` of 2) however
-  the coordinator mixes runs, so the LXC sizing rule (`>= 12 GiB` at limit 2) holds
-  regardless of dataset. Removes the dedicated `market_orders` limit-1 pool and its
-  `deploy/redeploy.sh` override.
+  Gold `corpus` subprocess (a 365-day rolling window peaks ~3-4 GB), capping Gold
+  memory at ~`heavy_limit × ~4 GB` (≈ 8 GB at the `default_limit` of 2).
+- Kept `market-orders` Silver in its own `market_orders` concurrency pool at
+  limit 1, on CPU grounds: it is the only ingestor that parses with rayon, so a
+  single run saturates every core and a second concurrent run only oversubscribes
+  them (observed loadavg `r` ~9 on 4 cores during a backfill) with no throughput
+  gain. The limit-1 pool also bounds its memory (~3-4 GB peak after the corpus
+  streaming ingest). The pool limit cannot live in `dagster.yaml` (only
+  `default_limit` does), so `deploy/redeploy.sh` sets it via
+  `dagster instance concurrency set market_orders 1` after publishing the config.
+  Worst-case heavy memory is 2 Gold + 1 market-orders Silver ≈ 12 GB (unchanged
+  by the split — same heavy-slot count), so the LXC sizing rule stays `>= 12 GiB`.
 
 ### Added
 - `market-orders` orchestration (`defs/market_orders.py`, ADR-0036): a

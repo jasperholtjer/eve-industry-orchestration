@@ -25,13 +25,20 @@
 # login` once, or export GH_TOKEN. First-time host setup (LXC, UID/GID map, NFS
 # mount, gh auth, uv) lives in homelab_docs: docs/howto/deploy-dagster-lxc.md
 #
-# Container sizing tracks the heavy pool, not max_concurrent_runs: a Gold
-# build streams its rolling window (corpus >= v0.1.6) and peaks ~3-4 GiB, so peak
-# Gold RAM ~= heavy limit x ~4 GiB. At the default pool limit 2 budget ~8 GiB
-# for Gold alone; size the LXC >= 12 GiB (or drop the pool to 1 at 8 GiB). Set on
-# the Proxmox host (not in this container), e.g.:
-#   pct set 211 --cores 4 --memory 12288 --swap 2048
-# Raising the pool without matching RAM thrashes swap and risks an OOM-killed daemon.
+# Container sizing. Two independent axes:
+#   - RAM tracks the heavy pools, not max_concurrent_runs. A Gold build streams
+#     its rolling window (corpus >= v0.1.6) and peaks ~3-4 GiB; worst case is the
+#     `heavy` pool (2 Gold) plus the `market_orders` pool (1 Silver) ≈ 3 x ~4 GiB
+#     ≈ 12 GiB. Size the LXC >= 12 GiB (observed peak is far lower, ~4 GiB). This
+#     is unchanged by the Silver/Gold pool split — same number of heavy slots.
+#   - CORES gate the market-orders backfill: its Silver parses with rayon and is
+#     CPU-bound (observed loadavg ~= cores, I/O-wait ~0), so the backfill scales
+#     ~linearly with cores. 8 cores roughly halves market-orders backfill time vs
+#     4, well within RAM headroom.
+# Set both on the Proxmox host (not in this container), e.g.:
+#   pct set 211 --cores 8 --memory 12288 --swap 2048
+# Raising RAM does NOT speed up the CPU-bound backfill — add cores for that.
+# Raising the heavy pool without matching RAM thrashes swap and risks an OOM-killed daemon.
 set -euo pipefail
 
 SERVICE_USER="${SERVICE_USER:-corpus}"
@@ -197,6 +204,16 @@ main() {
   install -d -o "${SERVICE_USER}" -g 988 "${DAGSTER_HOME}"
   install -o "${SERVICE_USER}" -g 988 -m 0644 \
     "${REPO_DIR}/deploy/dagster.yaml" "${DAGSTER_HOME}/dagster.yaml"
+
+  # Per-pool limits below `default_limit` cannot live in dagster.yaml (it only
+  # carries `default_limit`); they persist in the instance DB. Set the
+  # `market_orders` CPU pool to 1 here so the override is reproducible at deploy
+  # time rather than a one-off manual CLI call. Runs as `corpus` so it writes the
+  # corpus-owned instance DB under DAGSTER_HOME. Idempotent: re-setting the same
+  # limit is a no-op. See deploy/dagster.yaml for why this pool is limit 1.
+  echo "==> Setting per-pool concurrency limits"
+  run_as_user "cd '${REPO_DIR}' && DAGSTER_HOME='${DAGSTER_HOME}' \
+    uv run dagster instance concurrency set market_orders 1"
 
   echo "==> Restarting services"
   # Clear any prior failed state so an earlier crash-loop's start-limit does not

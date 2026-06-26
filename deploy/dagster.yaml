@@ -13,25 +13,34 @@
 #    opts in with `pool=` (see market_history.py) and is then bounded by
 #    min(global cap, pool limit). Pools gate at the asset/step, so they throttle
 #    EVERY launch path — sensor, UI backfill, manual — unlike a sensor-set run tag.
-#    `run` granularity queues at the run level (no idle run workers). Two pools,
-#    both at `default_limit` 2:
-#      - `heavy`: MEMORY. The shared budget for every heavy `corpus`
-#        subprocess: all Gold builds (a 365-day rolling window peaks ~3-4 GB) AND
-#        market-orders Silver. The latter is the only Silver heavy enough to need
-#        a memory bound — a day is ~75M rows of full k-space orderbook — but the
-#        binary streams it one row-group per snapshot, so its peak (~3-4 GB) is a
-#        Gold-equivalent. Sharing ONE budget across all heavy work caps total heavy
-#        memory at ~2 x ~4 GB ≈ 8 GB however the coordinator mixes runs (e.g. two
-#        market-orders, or one market-orders Silver + one Gold). Size the LXC
-#        >= 12 GiB. Left to the global cap alone these would stack to ~12-16 GB and
-#        OOM-kill the worker.
-#      - `everef_download`: POLITENESS to data.everef.net. The light Silver fetches
-#        (market-history, system-jumps, system-kills, sde). EVE Ref endorses a
-#        small fan-out (its rclone example uses `--transfers 2`), so 2 concurrent.
-#    Both pools want 2, so `default_limit: 2` covers them with no per-pool DB
-#    override. Tune the global default with `/usr/bin/time -v`, or override a pool
-#    with `dagster instance concurrency set <pool> <limit>`. Lightweight datasets
-#    omit `pool=` entirely and stay bounded only by the global cap of 4.
+#    `run` granularity queues at the run level (no idle run workers). Three pools:
+#      - `heavy` (limit 2 via `default_limit`): MEMORY. The shared budget for every
+#        heavy `corpus` Gold build (a 365-day rolling window peaks ~3-4 GB).
+#        Sharing ONE budget across all Gold work caps Gold memory at ~2 x ~4 GB
+#        ≈ 8 GB however the coordinator mixes builds.
+#      - `market_orders` (limit 1, set via CLI in redeploy.sh — see below): CPU.
+#        market-orders Silver is the ONLY ingestor that parses with rayon, so a
+#        single run saturates every core on the box; a second concurrent run only
+#        oversubscribes the cores with no throughput gain. limit 1 keeps exactly
+#        one CPU-saturating Silver run in flight while single-threaded datasets
+#        fill the remaining cores via their own pools. A market-orders Silver day
+#        is ~75M rows of full k-space orderbook, but the binary streams it one
+#        row-group per snapshot, so its peak (~3-4 GB) is a Gold-equivalent — the
+#        limit-1 pool bounds that memory too. See defs/market_orders.py.
+#      - `everef_download` (limit 2 via `default_limit`): POLITENESS to
+#        data.everef.net. The light Silver fetches (market-history, system-jumps,
+#        system-kills, sde). EVE Ref endorses a small fan-out (its rclone example
+#        uses `--transfers 2`), so 2 concurrent.
+#    `heavy` and `everef_download` want 2, so `default_limit: 2` covers them with
+#    no per-pool override. `market_orders` needs limit 1, which the yaml cannot
+#    express (only `default_limit` lives here) — redeploy.sh sets it via
+#    `dagster instance concurrency set market_orders 1` after publishing this
+#    config, so the override is reproducible at deploy time. Worst-case heavy
+#    memory is 2 Gold + 1 market-orders Silver ≈ 3 x ~4 GB ≈ 12 GB (unchanged by
+#    the split — same heavy-slot count); size the LXC >= 12 GiB. Tune the global
+#    default with
+#    `/usr/bin/time -v`. Lightweight datasets omit `pool=` entirely and stay
+#    bounded only by the global cap of 4.
 #
 # The `sde` dataset (build-versioned, ADR-0031) puts `sde_silver` in
 # `everef_download` (it fetches one ~94 MB archive per build) but keeps both Gold
