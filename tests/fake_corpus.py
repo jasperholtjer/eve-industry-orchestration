@@ -206,6 +206,47 @@ def _write_flat(sink: str, tier: str, tree: str) -> None:
     (pdir / "_DONE").write_text("", encoding="utf-8")
 
 
+def _do_live(args: list[str], sink: str) -> int:
+    """Mimics ``corpus live build`` (ADR-0039): overwrite a flat ``current/``.
+
+    The live dataset has no Silver and no date matrix — it fetches the newest
+    snapshot and overwrites ``gold/<dataset>/current/``. The fake writes the flat
+    partition and prints the ``written`` status object the asset surfaces.
+    """
+    subcommand = args[1] if len(args) > 1 else ""
+    if subcommand != "build":
+        print(f"live: unsupported subcommand {subcommand!r}", file=sys.stderr)
+        return 2
+    dataset = _pop_opt(args, "--dataset")
+    if dataset is None:
+        print("live build: --dataset required", file=sys.stderr)
+        return 2
+    _write_flat(sink, "gold", f"{dataset}/current")
+    print(f"wrote 1 live gold rows -> {dataset}/current", file=sys.stderr)
+    # The two live datasets emit different status shapes, mirroring the real
+    # binary: market-orders-live (everef snapshot) carries `snapshot_file`/`date`;
+    # market-prices-live (ESI, ADR-0040) carries `snapshot_at`/`source`.
+    status: dict[str, object] = {
+        "status": "written",
+        "dataset": dataset,
+        "derivative": dataset,
+        "rows": 1,
+        "parquet_sha256": "fake",
+        "partition_dir": f"{dataset}/current",
+    }
+    if dataset == "market-prices-live":
+        status["source"] = "esi"
+        status["url"] = (
+            "https://esi.evetech.net/latest/markets/prices/?datasource=tranquility"
+        )
+        status["snapshot_at"] = "2026-06-26T12:00:00+00:00"
+    else:
+        status["snapshot_file"] = f"{dataset}-2026-06-26_12-00-00.v3.csv.bz2"
+        status["date"] = "2026-06-26"
+    print(json.dumps(status))
+    return 0
+
+
 def _do_sde_ingest(args: list[str], sink: str) -> int:
     available = _sde_builds_env()
     build = _resolve_build(args, available)
@@ -654,6 +695,8 @@ def main(argv: list[str]) -> int:
         return _do_verify(args, sink)
     if command == "everef":
         return _do_everef(args, sink)
+    if command == "live":
+        return _do_live(args, sink)
     if command == "state":
         return _do_state(args, sink)
     print(f"fake corpus: unknown command {command!r}", file=sys.stderr)

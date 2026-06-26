@@ -6,6 +6,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- `market_orders_live_gold` non-partitioned asset + `market_orders_live_schedule` (every 30 min, STOPPED by default): shells `corpus live build --dataset market-orders-live` to overwrite the live `gold/market-orders-live/current/` orderbook aggregate (corpus ADR-0039). A deliberate cron-over-sensor exception — there is no per-date matrix, only "rebuild the newest snapshot". Joins the `everef_download` pool; the fake corpus gains a `live build` subcommand.
+- `market_prices_live_gold` non-partitioned asset + `market_prices_live_schedule` (hourly, STOPPED by default): shells `corpus live build --dataset market-prices-live` to overwrite the live `gold/market-prices-live/current/` price passthrough (corpus ADR-0040). Same cron-over-sensor pattern as the orderbook live asset, but the fetch hits ESI (not EVE Ref), so it joins no `everef_download` pool and obeys only the global cap. The fake corpus `live build` now emits the ESI-shaped status (`snapshot_at`/`source`) for this dataset.
+
 ### Changed
 - Renamed the `market-orders` Gold derivatives `orderbook-snapshot` → `market-orders-snapshot` and `orderbook-changes` → `market-orders-changes` (corpus ADR-0038), tracking the upstream rename. Asset keys become `market_orders_snapshot_gold` / `market_orders_changes_gold` (the name template no longer double-prefixes); the `--derivative` selector, sensor run keys, and `gold/<derivative>/` verify tree follow the new names.
 - Renamed the `gold_heavy` concurrency pool to `heavy`: it now bounds every heavy

@@ -18,6 +18,8 @@ is driven by polling ``corpus gold ready-dates`` rather than by the Silver run.
 import dagster as dg
 
 from eve_industry_orchestration.defs import market_orders as mo
+from eve_industry_orchestration.defs import market_orders_live as mol
+from eve_industry_orchestration.defs import market_prices_live as mpl
 from eve_industry_orchestration.defs import sde
 from eve_industry_orchestration.defs import system_jumps as sj
 from eve_industry_orchestration.defs import system_kills as sk
@@ -529,5 +531,34 @@ sde_snapshot_schedule = dg.ScheduleDefinition(
     name="sde_snapshot_schedule",
     target=sde.sde_snapshot_gold,
     cron_schedule="0 2 * * *",
+    default_status=dg.DefaultScheduleStatus.STOPPED,
+)
+
+
+# Half-hourly refresh of the live orderbook aggregate (corpus ADR-0039). A
+# schedule, not a sensor, and a deliberate departure from "sensor over cron":
+# there is no per-date matrix to diff, only "overwrite current/ with the newest
+# snapshot". The cadence matches EVE Ref's ~30-min snapshot rhythm. The asset
+# joins the `everef_download` pool (one fetch per run), not `heavy`, so it cannot
+# starve the windowed backfills under max_concurrent_runs.
+market_orders_live_schedule = dg.ScheduleDefinition(
+    name="market_orders_live_schedule",
+    target=mol.market_orders_live_gold,
+    cron_schedule="*/30 * * * *",
+    default_status=dg.DefaultScheduleStatus.STOPPED,
+)
+
+
+# Hourly refresh of the live CCP prices (corpus ADR-0040). Same schedule-not-
+# sensor rationale as `market_orders_live_schedule`: there is no per-date matrix
+# to diff, only "overwrite current/ with the latest ESI snapshot". CCP recomputes
+# the prices ~once per day and the exact update time is unknown, while ESI caches
+# for ~40 min — so hourly is comfortably fresh at negligible cost. The asset hits
+# ESI (not EVE Ref), so it joins no `everef_download` pool and obeys only the
+# global concurrency cap.
+market_prices_live_schedule = dg.ScheduleDefinition(
+    name="market_prices_live_schedule",
+    target=mpl.market_prices_live_gold,
+    cron_schedule="0 * * * *",
     default_status=dg.DefaultScheduleStatus.STOPPED,
 )
