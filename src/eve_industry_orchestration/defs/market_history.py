@@ -10,6 +10,8 @@ it so the first Gold partition has its full window present. Both dates come from
 the corpus dataset config (see :mod:`config`), never hardcoded here.
 """
 
+from collections.abc import Iterator
+
 import dagster as dg
 
 from eve_industry_orchestration.defs.config import resolve_partition_starts
@@ -36,13 +38,25 @@ _SILVER_POOL = "everef_download"
     group_name="market_history",
     kinds={"corpus"},
     pool=_SILVER_POOL,
+    # EVE Ref publishes the daily market-history file incrementally (ADR-0041):
+    # a not-yet-settled day reports status "incomplete" (exit 0, no partition),
+    # so the asset must complete without materialising — the partition stays
+    # Missing and the sensor re-proposes it until the upstream file settles.
+    output_required=False,
 )
 def market_history_silver(
     context: dg.AssetExecutionContext, corpus: CorpusResource
-) -> dg.MaterializeResult:
-    """Silver partition: ingest one date, then verify the written contract."""
+) -> Iterator[dg.MaterializeResult | dg.AssetObservation]:
+    """Silver partition: ingest one date, then verify the written contract.
+
+    A day whose upstream publication is still incomplete (corpus reports
+    ``status: incomplete``, ADR-0041) is left Missing: the verify (which would
+    fail on the absent partition) is skipped and an ``AssetObservation`` records
+    why. Unlike a permanent absent-day skip, the partition is re-proposed on the
+    next sensor tick, so the full file is picked up once EVE Ref finishes it.
+    """
     date = context.partition_key
-    corpus.run(
+    status = corpus.run(
         context,
         "ingest",
         "--dataset",
@@ -52,6 +66,21 @@ def market_history_silver(
         "--sink-path",
         corpus.sink_path,
     )
+    if status is not None and status.get("status") == "incomplete":
+        context.log.info(
+            "market-history %s: upstream publication incomplete, leaving partition "
+            "missing (retryable)",
+            date,
+        )
+        yield dg.AssetObservation(
+            asset_key=context.asset_key,
+            partition=date,
+            metadata={
+                "skip_reason": "upstream_incomplete",
+                "detail": str(status.get("reason", "")),
+            },
+        )
+        return
     corpus.run(
         context,
         "verify",
@@ -65,7 +94,7 @@ def market_history_silver(
         corpus.sink_path,
     )
     # TODO: enrich metadata from _INDEX.json / `corpus state query`.
-    return dg.MaterializeResult(
+    yield dg.MaterializeResult(
         metadata={"dataset": DATASET, "tier": "silver", "partition": date}
     )
 

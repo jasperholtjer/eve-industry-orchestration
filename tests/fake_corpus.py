@@ -405,6 +405,26 @@ def _do_ingest(args: list[str], sink: str) -> int:
     # "skipped" status object on stdout, exit 0. Upstream availability comes from
     # FAKE_EVEREF_DATES; when it is unset the fake assumes every day is present
     # (keeps the always-write behaviour the other tests rely on).
+    # Mirror ADR-0041: a day whose upstream publication is still incomplete
+    # reports status "incomplete" — no partition, exit 0 — and is retried (no
+    # permanent skip recorded). Controlled by FAKE_INCOMPLETE_DATES.
+    incomplete_raw = os.environ.get("FAKE_INCOMPLETE_DATES", "")
+    incomplete = {d.strip() for d in incomplete_raw.split(",") if d.strip()}
+    if date in incomplete:
+        print(
+            json.dumps(
+                {
+                    "status": "incomplete",
+                    "dataset": dataset,
+                    "date": date,
+                    "partition_key": f"date={date}",
+                    "reason": "source Last-Modified below the stability floor",
+                }
+            )
+        )
+        print(f"{date} incomplete, will retry", file=sys.stderr)
+        return 0
+
     upstream_raw = os.environ.get("FAKE_EVEREF_DATES", "")
     upstream = {d.strip() for d in upstream_raw.split(",") if d.strip()}
     if upstream and date not in upstream:
