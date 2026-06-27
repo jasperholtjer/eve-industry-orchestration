@@ -162,10 +162,20 @@ Makes the "overview / logging" purpose of the repo real.
 
 ### Downstream fan-out from NAS Gold
 
-Not now — sketched so the earlier items don't paint it into a corner. Once Gold is
-served on the NAS, consumers fan out from that canonical contract, each as an
-independent Dagster asset downstream of the Gold partition (the same `deps=` over
-the NAS contract pattern Gold already uses on Silver):
+First consumer landed: the serving tier (Postgres `eve` + Neo4j on the DB-VM). Its
+load wiring lives in `defs/serving.py` / `defs/serving_resource.py` and is
+documented in [docs/serving-seam.md](docs/serving-seam.md) — four non-partitioned
+load assets that shell the idempotent `eve-serving load` CLI over SSH, hung off
+their source Gold availability via `deps=`, with `serving_load_sde` upstream of the
+three market loads (an SDE rebuild TRUNCATEs `market.*`). Triggered by an hourly
+`serving_load_schedule` rather than a per-target sensor for now — the loads are
+latest-only / `current`-snapshot, so there is no per-date matrix to diff, and the
+loader's `parquet_sha256` idempotency makes an unchanged hour a no-op. The
+principles below still hold for the next consumers:
+
+Once Gold is served on the NAS, consumers fan out from that canonical contract,
+each as an independent Dagster asset downstream of the Gold partition (the same
+`deps=` over the NAS contract pattern Gold already uses on Silver):
 
 - One loader per target (e.g. Postgres, Neo4j derivatives), never a single chained
   step — independent retry/backfill, independent cadence, and the NAS stays the

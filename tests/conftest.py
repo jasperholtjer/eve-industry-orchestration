@@ -17,6 +17,7 @@ import pytest
 FIXTURES = Path(__file__).parent / "fixtures"
 DATASETS_DIR = FIXTURES / "datasets"
 FAKE_CORPUS = Path(__file__).parent / "fake_corpus.py"
+FAKE_SERVING = Path(__file__).parent / "fake_serving.py"
 
 os.environ.setdefault("CORPUS_DATASETS_DIR", str(DATASETS_DIR))
 
@@ -55,4 +56,41 @@ def corpus(corpus_binary: str, tmp_path: Path):
         binary_path=corpus_binary,
         datasets_dir=str(DATASETS_DIR),
         sink_path=str(sink),
+    )
+
+
+@pytest.fixture
+def serving_binary(tmp_path: Path) -> str:
+    """Writes a launcher invoking the fake eve-serving script as the SSH client.
+
+    ``ServingResource`` execs ``[ssh_binary, user@host, eve-serving, load, ...]``,
+    so the launcher stands in for ``ssh`` and forwards every argument to
+    ``fake_serving.py`` (which drops the destination + remote command itself).
+    """
+    if os.name == "nt":
+        launcher = tmp_path / "ssh.cmd"
+        launcher.write_text(
+            f'@echo off\r\n"{sys.executable}" "{FAKE_SERVING}" %*\r\n',
+            encoding="utf-8",
+        )
+        return str(launcher)
+    launcher = tmp_path / "ssh"
+    launcher.write_text(
+        f'#!/bin/sh\nexec "{sys.executable}" "{FAKE_SERVING}" "$@"\n',
+        encoding="utf-8",
+    )
+    launcher.chmod(0o755)
+    return str(launcher)
+
+
+@pytest.fixture
+def serving(serving_binary: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """A ``ServingResource`` bound to the fake SSH/eve-serving and a throwaway state."""
+    from eve_industry_orchestration.defs.serving_resource import ServingResource
+
+    monkeypatch.setenv("FAKE_SERVING_STATE", str(tmp_path / "serving-state.json"))
+    return ServingResource(
+        ssh_binary=serving_binary,
+        host="192.168.2.212",
+        user="serving",
     )

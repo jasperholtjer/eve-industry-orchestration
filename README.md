@@ -62,8 +62,19 @@ The homelab deployment (LXC, NFS mount, build order) is documented in
   committed Silver), and `sde_snapshot_schedule` (daily rematerialise of the
   non-partitioned latest snapshot). All key status on corpus run-state, never on
   globbing the NAS tree; `run_key` dedup prevents re-queuing in-flight work.
-- **Resources** (`defs/resources.py`) — binds `corpus` to the assets and sensors
-  from env vars.
+- **Serving-load assets** (`defs/serving.py`, `defs/serving_resource.py`) — the
+  "when" of the serving tier. `ServingResource` shells the idempotent
+  `eve-serving load` CLI on the DB-VM over SSH (the corpus account's existing key;
+  no credentials here) and surfaces the loader's `loaded`/`skipped` row count. Four
+  non-partitioned load assets (`sde`, `market-history`, `market-orders-live`,
+  `market-prices-live`) hang off their source Gold availability via `deps=`, with
+  `serving_load_sde` modelled **upstream** of the three market loads — an SDE
+  rebuild rewrites the static reference and TRUNCATEs `market.*`, so the markets
+  must reload after it. `serving_load_job` + the hourly `serving_load_schedule`
+  reload the tier in dependency order; the loader's `parquet_sha256` idempotency
+  makes an unchanged run a no-op. See [docs/serving-seam.md](docs/serving-seam.md).
+- **Resources** (`defs/resources.py`) — binds `corpus` and `serving` to the assets
+  and sensors from env vars.
 
 Adding a dataset is a new module mirroring `market_history.py` (single `rolling`
 derivative) or `system_jumps.py` (multi-derivative, ADR-0025); see the
