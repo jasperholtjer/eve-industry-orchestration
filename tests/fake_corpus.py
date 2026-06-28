@@ -50,7 +50,11 @@ def _pop_flag(args: list[str], name: str) -> bool:
 _DERIVATIVES: dict[str, list[str]] = {
     "market-history": ["market-history"],
     "system-jumps": ["system-traffic-history", "system-traffic-recent"],
-    "market-orders": ["market-orders-snapshot", "market-orders-changes"],
+    "market-orders": [
+        "market-orders-snapshot",
+        "market-orders-changes",
+        "market-orders-events",
+    ],
     "system-kills": [
         "system-kills-ship-history",
         "system-kills-ship-recent",
@@ -67,6 +71,7 @@ _SERVED_START: dict[str, str | None] = {
     "system-traffic-recent": None,
     "market-orders-snapshot": "2021-07-09",
     "market-orders-changes": "2021-07-09",
+    "market-orders-events": "2021-07-09",
     "system-kills-ship-history": "2022-01-01",
     "system-kills-npc-history": "2022-01-01",
     "system-kills-pod-history": "2022-01-01",

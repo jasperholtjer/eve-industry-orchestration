@@ -1,9 +1,9 @@
-"""market-orders: full-orderbook Silver and the two split Gold derivatives (ADR-0036).
+"""market-orders: full-orderbook Silver and the three split Gold derivatives.
 
 A day-partitioned Silver source — the day's ~30-min ``*.v3.csv.bz2`` snapshots of
-the full k-space orderbook, merged into one Silver stream — feeds **two**
+the full k-space orderbook, merged into one Silver stream — feeds **three**
 independent Gold derivatives, each its own Hive tree (``gold/<derivative>/...``),
-split from the single ADR-0033 ``orderbook-sweep``:
+split from the single ADR-0033 ``orderbook-sweep`` (ADR-0036, ADR-0042):
 
 - ``market-orders-snapshot`` (``orderbook-aggregate`` shape) — the per-snapshot
   current-prices aggregate (top-of-book, VWAPs, depth, notionals). Pure
@@ -11,10 +11,15 @@ split from the single ADR-0033 ``orderbook-sweep``:
 - ``market-orders-changes`` (``orderbook-delta`` shape) — the cross-snapshot activity
   changelog (filled/cancelled/expired/new/partial/modified) against the
   immediately preceding snapshot.
+- ``market-orders-events`` (``orderbook-events`` shape, ADR-0042) — the
+  un-collapsed per-order event log feeding the changes derivative: one row per
+  order state-change (create/fill/cancel/expire/partial/modify), keyed by
+  ``order_id``. Same one-snapshot look-back and classifier as the changes
+  derivative.
 
-Both are daily-partitioned with a one-snapshot look-back (so the planner loads one
-day of tail), driven by a ``ready-dates`` sensor, exactly like the prior single
-derivative but one asset per tree.
+All three are daily-partitioned with a one-snapshot look-back (so the planner
+loads one day of tail), driven by a ``ready-dates`` sensor, exactly like the prior
+single derivative but one asset per tree.
 
 Each asset is a thin shim over the ``corpus`` binary; the binary owns the compute,
 the k-space filter, the delta classifier, and the ``parquet + _INDEX.json +
@@ -39,11 +44,12 @@ from eve_industry_orchestration.defs.corpus_resource import CorpusResource
 DATASET = "market-orders"
 SNAPSHOT_DERIVATIVE = "market-orders-snapshot"
 CHANGES_DERIVATIVE = "market-orders-changes"
-GOLD_DERIVATIVES = (SNAPSHOT_DERIVATIVE, CHANGES_DERIVATIVE)
+EVENTS_DERIVATIVE = "market-orders-events"
+GOLD_DERIVATIVES = (SNAPSHOT_DERIVATIVE, CHANGES_DERIVATIVE, EVENTS_DERIVATIVE)
 
-# Both derivatives share the served floor (2021-07-09, the first full-cadence
-# day) and a one-snapshot look-back, so they resolve to the same Silver/Gold
-# starts; Silver is shared. Resolve via the snapshot derivative.
+# All three derivatives share the served floor (2021-07-09, the first
+# full-cadence day) and a one-snapshot look-back, so they resolve to the same
+# Silver/Gold starts; Silver is shared. Resolve via the snapshot derivative.
 _starts = resolve_partition_starts(DATASET, SNAPSHOT_DERIVATIVE)
 if _starts.gold is None:  # both derivatives declare a served_start; narrow for typing
     raise ValueError(
@@ -137,7 +143,7 @@ def market_orders_silver(
 def _build_gold_asset(derivative: str) -> dg.AssetsDefinition:
     """Builds a daily-partitioned Gold asset for one orderbook derivative.
 
-    Both derivatives share the look-back, gap-skip, and verify contract; only the
+    All derivatives share the look-back, gap-skip, and verify contract; only the
     ``--derivative`` and its own Hive tree differ. ``corpus gold build`` reads the
     target day plus the prior day's tail snapshot; verify keys on the derivative
     name (its own ``gold/<derivative>/...`` tree), not the dataset.
@@ -213,3 +219,4 @@ def _build_gold_asset(derivative: str) -> dg.AssetsDefinition:
 
 market_orders_snapshot_gold = _build_gold_asset(SNAPSHOT_DERIVATIVE)
 market_orders_changes_gold = _build_gold_asset(CHANGES_DERIVATIVE)
+market_orders_events_gold = _build_gold_asset(EVENTS_DERIVATIVE)

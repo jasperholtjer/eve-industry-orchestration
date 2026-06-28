@@ -114,7 +114,8 @@ MARKET_ORDERS = "market-orders"
 
 
 @pytest.mark.parametrize(
-    "derivative", ["market-orders-snapshot", "market-orders-changes"]
+    "derivative",
+    ["market-orders-snapshot", "market-orders-changes", "market-orders-events"],
 )
 def test_orderbook_gold_start_is_served_start(derivative: str) -> None:
     starts = resolve_partition_starts(
@@ -124,7 +125,8 @@ def test_orderbook_gold_start_is_served_start(derivative: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "derivative", ["market-orders-snapshot", "market-orders-changes"]
+    "derivative",
+    ["market-orders-snapshot", "market-orders-changes", "market-orders-events"],
 )
 def test_orderbook_silver_clamps_one_day_lookback_to_floor(derivative: str) -> None:
     # Both shapes look back one day (2021-07-09 − 1d = 2021-07-08), but
@@ -137,7 +139,7 @@ def test_orderbook_silver_clamps_one_day_lookback_to_floor(derivative: str) -> N
 
 
 def test_orderbook_ambiguous_without_selector() -> None:
-    # Two derivatives (ADR-0036), so a selector is required.
+    # Three derivatives (ADR-0036/0042), so a selector is required.
     with pytest.raises(PartitionConfigError):
         resolve_partition_starts(MARKET_ORDERS, datasets_dir=str(DATASETS_DIR))
 

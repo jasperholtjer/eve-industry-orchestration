@@ -7,12 +7,14 @@ import pytest
 
 from eve_industry_orchestration.defs.market_orders import (
     market_orders_changes_gold,
+    market_orders_events_gold,
     market_orders_silver,
     market_orders_snapshot_gold,
 )
 from eve_industry_orchestration.defs.sensors import (
     market_orders_availability_sensor,
     market_orders_changes_gold_sensor,
+    market_orders_events_gold_sensor,
     market_orders_snapshot_gold_sensor,
 )
 
@@ -29,6 +31,11 @@ _GOLD_CASES = [
         market_orders_changes_gold,
         market_orders_changes_gold_sensor,
         "market-orders-changes",
+    ),
+    (
+        market_orders_events_gold,
+        market_orders_events_gold_sensor,
+        "market-orders-events",
     ),
 ]
 

@@ -302,7 +302,7 @@ def _lookback_for_shape(name: str, shape: str, entry: dict[str, Any]) -> int | N
         return _flat_lookback(name, entry.get("flat"), key="flat")
     if shape == "recency-weighted":
         return _ewma_lookback(name, entry.get("ewma"), key="ewma")
-    if shape in ("orderbook-aggregate", "orderbook-delta"):
+    if shape in ("orderbook-aggregate", "orderbook-delta", "orderbook-events"):
         return _ORDERBOOK_LOOKBACK_DAYS
     if shape == "kills-flat":
         return _flat_lookback(name, entry.get("kills-flat"), key="kills-flat")

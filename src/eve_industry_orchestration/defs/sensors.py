@@ -273,6 +273,9 @@ market_orders_snapshot_gold_sensor = _build_orderbook_gold_sensor(
 market_orders_changes_gold_sensor = _build_orderbook_gold_sensor(
     mo.CHANGES_DERIVATIVE, mo.market_orders_changes_gold
 )
+market_orders_events_gold_sensor = _build_orderbook_gold_sensor(
+    mo.EVENTS_DERIVATIVE, mo.market_orders_events_gold
+)
 
 
 # --- system-kills (per-measure Gold, ADR-0037) ----------------------------
