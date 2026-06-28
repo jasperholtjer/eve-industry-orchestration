@@ -64,6 +64,7 @@ _DERIVATIVES: dict[str, list[str]] = {
         "system-kills-pod-recent",
     ],
     "sde": ["sde-changelog", "sde-snapshot"],
+    "industry-cost-indices": ["industry-cost-indices-history"],
 }
 # Per-derivative served_start, surfaced in `gold ready-dates` JSON.
 _SERVED_START: dict[str, str | None] = {
@@ -78,6 +79,7 @@ _SERVED_START: dict[str, str | None] = {
     "system-kills-ship-recent": None,
     "system-kills-npc-recent": None,
     "system-kills-pod-recent": None,
+    "industry-cost-indices-history": "2022-01-01",
 }
 
 

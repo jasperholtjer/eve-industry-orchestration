@@ -1,0 +1,61 @@
+name: industry-cost-indices
+schema_version: 1
+source:
+  # EVE Ref publishes this dataset under `industry-systems/` (the logical
+  # name `industry-cost-indices/` 404s). Same packaging as system-jumps:
+  # ~hourly snapshots under per-date subdirectories (folder era, from
+  # 2022-12-16) and a per-year tar of plain-JSON `systemcost_<ISO>.json`
+  # members for the older era. A partition is one DAY; the day's ~24 hourly
+  # files are merged. `folder_era_start` picks the fetch path per date,
+  # `tar_filename_template` names the per-year tar (`{year}` substituted).
+  kind: everef
+  layout: hourly-folder-tar
+  base_url: https://data.everef.net/industry-systems/history
+  folder_era_start: 2022-12-16
+  tar_filename_template: "industry-systems-{year}.tar.bz2"
+bronze:
+  # EVE Ref snapshots are idempotently re-downloadable; Bronze is a
+  # download-avoidance cache, not the source of truth. 30d covers most
+  # parser-bug discovery windows without holding raw bytes indefinitely.
+  retention_days: 30
+silver:
+  # Authoritative Silver encoding + on-disk order, consumed by
+  # `corpus ingest`: codec + level drive the parquet writer; sort_keys is
+  # validated against the parser's natural key (mismatch fails the run).
+  # zstd-19 is pinned by the committed golden hashes (tests/golden.rs).
+  # Source-faithful (ADR-0007): long-form hourly rows, day-partitioned —
+  # the nested `cost_indices` array is flattened to one row per
+  # (snapshot_at, solar_system_id, activity), keeping EVE Ref's verbatim
+  # names. The wide canonical pivot happens only at Gold.
+  parquet_codec: zstd
+  parquet_codec_level: 19
+  sort_keys: [snapshot_at, solar_system_id, activity]
+  # Coverage floor (ADR-0027): earliest date Silver serves. EVE Ref's dense
+  # hourly era begins 2021-07-01 (the 2021 tar covers 2021-07-01..12-31);
+  # the sparse 2017–2019 tars and the entirely-absent 2020 precede it and are
+  # not served. The daily-snapshot Gold has no look-back, so Silver needs no
+  # preload before the Gold floor and the two starts coincide.
+  served_start: 2021-07-01
+# ADR-0043 — one day-partitioned Gold derivative: the rolling feature history.
+# The point-in-time "now" level is NOT a day-partitioned derivative here — it is
+# the separate current-overwrite live dataset `industry-cost-indices-live` (one
+# mutable `current/` partition, no history), which the database reads directly.
+gold:
+  # history — rolling features over the long-form last-of-day series, keyed
+  # (system_id, activity, date), closed="left" (leakage-free for ML). Base
+  # column `cost_index` (target day's last-of-day) + {mean,median,p95,max,std}
+  # over 7/30/90/365d. A forecast-feature table (trend/volatility), not the
+  # deterministic fee coefficient.
+  - name: industry-cost-indices-history
+    shape: cost-index-history
+    sort_keys: [system_id, activity, date]
+    # 365d look-back over the 2021-07-01 Silver floor with a 0.5 coverage gate:
+    # the earliest target with ≥50% of its window present lands ~2022-01-01.
+    served_start: 2022-01-01
+    flat:
+      # `last` (not `sum`): a cost index is an administered level, so the daily
+      # value is the last-of-day snapshot, not a sum of the day's ~24 captures.
+      daily_rollup: last
+      horizons: [7, 30, 90, 365]
+      aggregators: [mean, median, p95, max, std]
+      coverage_min_ratio: 0.5

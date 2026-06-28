@@ -298,7 +298,10 @@ def _derivative_from_list_entry(entry: dict[str, Any]) -> _Derivative:
 def _lookback_for_shape(name: str, shape: str, entry: dict[str, Any]) -> int | None:
     if shape == "rolling":
         return _rolling_lookback(entry.get("rolling"))
-    if shape == "flat-multi-horizon":
+    if shape in ("flat-multi-horizon", "cost-index-history"):
+        # cost-index-history (ADR-0043) carries the same `flat` block — a max
+        # horizon over a daily-rollup series — so its Silver preload is the max
+        # of `flat.horizons`, exactly like flat-multi-horizon.
         return _flat_lookback(name, entry.get("flat"), key="flat")
     if shape == "recency-weighted":
         return _ewma_lookback(name, entry.get("ewma"), key="ewma")

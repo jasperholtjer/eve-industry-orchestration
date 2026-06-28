@@ -1,0 +1,33 @@
+name: industry-cost-indices-live
+schema_version: 1
+source:
+  # Same upstream as `industry-cost-indices`: EVE Ref's ~hourly cost-index
+  # snapshots under per-date folders (industry-systems-<date>_<HH-MM-SS>.json.bz2),
+  # published under `industry-systems/`. Folder-only here (`hourly-folder`, no tar
+  # back-catalogue): the live path lists the most recent day's folder and fetches
+  # only the single newest snapshot (ADR-0043).
+  kind: everef
+  layout: hourly-folder
+  base_url: https://data.everef.net/industry-systems/history
+bronze:
+  # The live build streams the one snapshot straight to Gold and never caches it;
+  # Bronze is unused. Kept short for schema symmetry.
+  retention_days: 1
+silver:
+  # No Silver tier is written — `corpus live build` collapses the newest snapshot
+  # to Gold in one pass. These fields satisfy the shared config contract and pin
+  # the parser's natural key for the reused industry-cost-indices ingestor; they
+  # are not exercised by the live path.
+  parquet_codec: zstd
+  parquet_codec_level: 19
+  sort_keys: [snapshot_at, solar_system_id, activity]
+# One derivative: the daily-snapshot pivot of the newest snapshot, written to a
+# single mutable `gold/industry-cost-indices-live/current/` partition that each
+# run overwrites atomically (ADR-0043). No day-partition tree, no history — the
+# database reads `current/` directly. A cost index is the currently-valid
+# administered level, so the now-value is simply the latest snapshot (no EWMA or
+# rolling — that is the `industry-cost-indices-history` derivative).
+gold:
+  - name: industry-cost-indices-live
+    shape: daily-snapshot
+    sort_keys: [system_id, date]

@@ -108,6 +108,36 @@ def test_per_derivative_gold_override(monkeypatch: pytest.MonkeyPatch) -> None:
     assert starts.gold == "2023-03-01"
 
 
+# --- industry-cost-indices: single cost-index-history derivative (ADR-0043) -
+
+INDUSTRY_COST_INDICES = "industry-cost-indices"
+COST_INDEX_HISTORY = "industry-cost-indices-history"
+
+
+def test_cost_index_history_gold_start_is_served_start() -> None:
+    starts = resolve_partition_starts(
+        INDUSTRY_COST_INDICES, COST_INDEX_HISTORY, datasets_dir=str(DATASETS_DIR)
+    )
+    assert starts.gold == "2022-01-01"
+
+
+def test_cost_index_silver_clamps_to_coverage_floor() -> None:
+    # Derived preload is 2022-01-01 − 365d = 2021-01-01, but the dataset declares
+    # silver.served_start: 2021-07-01 (ADR-0027), so Silver clamps up to the floor.
+    starts = resolve_partition_starts(
+        INDUSTRY_COST_INDICES, COST_INDEX_HISTORY, datasets_dir=str(DATASETS_DIR)
+    )
+    assert starts.silver == "2021-07-01"
+
+
+def test_cost_index_single_derivative_resolves_without_selector() -> None:
+    # Exactly one derivative → the selector may be omitted, like market-history.
+    starts = resolve_partition_starts(
+        INDUSTRY_COST_INDICES, datasets_dir=str(DATASETS_DIR)
+    )
+    assert (starts.silver, starts.gold) == ("2021-07-01", "2022-01-01")
+
+
 # --- market-orders: split orderbook shapes (ADR-0036) ---------------------
 
 MARKET_ORDERS = "market-orders"

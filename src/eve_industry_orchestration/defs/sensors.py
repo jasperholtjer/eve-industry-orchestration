@@ -17,6 +17,8 @@ is driven by polling ``corpus gold ready-dates`` rather than by the Silver run.
 
 import dagster as dg
 
+from eve_industry_orchestration.defs import industry_cost_indices as ici
+from eve_industry_orchestration.defs import industry_cost_indices_live as icil
 from eve_industry_orchestration.defs import market_orders as mo
 from eve_industry_orchestration.defs import market_orders_live as mol
 from eve_industry_orchestration.defs import market_prices_live as mpl
@@ -181,6 +183,80 @@ def system_jumps_history_gold_sensor(
     run_requests = [
         dg.RunRequest(
             run_key=f"{sj.HISTORY_DERIVATIVE}-gold-{date}", partition_key=date
+        )
+        for date in selected
+    ]
+    return dg.SensorResult(run_requests=run_requests)
+
+
+# --- industry-cost-indices (cost-index-history, ADR-0043) -----------------
+
+
+@dg.sensor(
+    target=ici.industry_cost_indices_silver,
+    minimum_interval_seconds=3600,
+    default_status=dg.DefaultSensorStatus.STOPPED,
+)
+def industry_cost_indices_availability_sensor(
+    context: dg.SensorEvaluationContext, corpus: CorpusResource
+) -> dg.SensorResult:
+    """Requests Silver runs for cost-index dates newly available upstream."""
+    report = corpus.everef_missing_partitions(ici.DATASET)
+    missing = report.get("missing", [])
+
+    valid = set(ici.silver_partitions.get_partition_keys())
+    eligible = sorted(date for date in missing if date in valid)
+    selected = eligible[:MAX_PARTITIONS_PER_TICK]
+
+    deferred = len(eligible) - len(selected)
+    if deferred > 0:
+        context.log.info(
+            "availability: %d eligible, requesting %d this tick, %d deferred",
+            len(eligible),
+            len(selected),
+            deferred,
+        )
+
+    run_requests = [
+        dg.RunRequest(run_key=f"{ici.DATASET}-silver-{date}", partition_key=date)
+        for date in selected
+    ]
+    return dg.SensorResult(run_requests=run_requests)
+
+
+@dg.sensor(
+    target=ici.industry_cost_indices_history_gold,
+    minimum_interval_seconds=3600,
+    default_status=dg.DefaultSensorStatus.STOPPED,
+)
+def industry_cost_indices_history_gold_sensor(
+    context: dg.SensorEvaluationContext, corpus: CorpusResource
+) -> dg.SensorResult:
+    """Requests history-Gold runs for cost-index dates whose window is complete.
+
+    Polls ``corpus gold ready-dates --derivative industry-cost-indices-history``
+    (the binary owns the coverage decision) and stays a thin cap-and-dedup loop,
+    mirroring the system-jumps history Gold sensor.
+    """
+    report = corpus.gold_ready_dates(ici.DATASET, derivative=ici.HISTORY_DERIVATIVE)
+    ready = report.get("ready", [])
+
+    valid = set(ici.history_gold_partitions.get_partition_keys())
+    eligible = sorted(date for date in ready if date in valid)
+    selected = eligible[:MAX_PARTITIONS_PER_TICK]
+
+    deferred = len(eligible) - len(selected)
+    if deferred > 0:
+        context.log.info(
+            "gold-readiness: %d eligible, requesting %d this tick, %d deferred",
+            len(eligible),
+            len(selected),
+            deferred,
+        )
+
+    run_requests = [
+        dg.RunRequest(
+            run_key=f"{ici.HISTORY_DERIVATIVE}-gold-{date}", partition_key=date
         )
         for date in selected
     ]
@@ -562,6 +638,20 @@ market_orders_live_schedule = dg.ScheduleDefinition(
 market_prices_live_schedule = dg.ScheduleDefinition(
     name="market_prices_live_schedule",
     target=mpl.market_prices_live_gold,
+    cron_schedule="0 * * * *",
+    default_status=dg.DefaultScheduleStatus.STOPPED,
+)
+
+
+# Hourly refresh of the live cost-index level (corpus ADR-0043). Same schedule-
+# not-sensor rationale as `market_orders_live_schedule`: there is no per-date
+# matrix to diff, only "overwrite current/ with the newest snapshot". The hourly
+# cadence matches EVE Ref's cost-index publish rhythm. The source is EVE Ref, so
+# the asset joins the `everef_download` pool (one fetch per run), not `heavy`, and
+# cannot starve the windowed backfills under max_concurrent_runs.
+industry_cost_indices_live_schedule = dg.ScheduleDefinition(
+    name="industry_cost_indices_live_schedule",
+    target=icil.industry_cost_indices_live_gold,
     cron_schedule="0 * * * *",
     default_status=dg.DefaultScheduleStatus.STOPPED,
 )
