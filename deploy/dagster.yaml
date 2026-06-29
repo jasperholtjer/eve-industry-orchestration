@@ -14,10 +14,13 @@
 #    min(global cap, pool limit). Pools gate at the asset/step, so they throttle
 #    EVERY launch path — sensor, UI backfill, manual — unlike a sensor-set run tag.
 #    `run` granularity queues at the run level (no idle run workers). Three pools:
-#      - `heavy` (limit 2 via `default_limit`): MEMORY. The shared budget for every
-#        heavy `corpus` Gold build (a 365-day rolling window peaks ~3-4 GB).
-#        Sharing ONE budget across all Gold work caps Gold memory at ~2 x ~4 GB
-#        ≈ 8 GB however the coordinator mixes builds.
+#      - `heavy` (limit 2 via `default_limit`): MEMORY. The shared budget for the
+#        wide-window `corpus` Gold builds that actually peak ~3-4 GB — only
+#        market-history and market-orders Gold (a 365-day window over wide daily
+#        files). Sharing ONE budget caps that work at ~2 x ~4 GB ≈ 8 GB however the
+#        coordinator mixes builds. system-jumps/system-kills/cost-indices Gold use
+#        the same 365d window but over ~5k-row/day narrow snapshots (measured peak
+#        ~90-97 MiB), so they omit `pool=` and stay on the global cap alone.
 #      - `market_orders` (limit 1, set via CLI in redeploy.sh — see below): CPU.
 #        market-orders Silver is the ONLY ingestor that parses with rayon, so a
 #        single run saturates every core on the box; a second concurrent run only

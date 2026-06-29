@@ -60,7 +60,6 @@ silver_partitions = dg.DailyPartitionsDefinition(start_date=_history_starts.silv
 history_gold_partitions = dg.DailyPartitionsDefinition(start_date=_history_starts.gold)
 
 _SILVER_POOL = "everef_download"
-_GOLD_POOL = "heavy"
 
 
 def _derivative_to_asset_name(derivative: str) -> str:
@@ -143,7 +142,10 @@ def _build_history_asset(derivative: str) -> dg.AssetsDefinition:
         deps=[system_kills_silver],
         group_name="system_kills",
         kinds={"corpus"},
-        pool=_GOLD_POOL,
+        # No `heavy` pool: each measure's 365d window is ~360 narrow daily files
+        # (~5k systems × 24h) merged k-way over small row-groups — measured peak
+        # RSS ~90 MiB, ~40x under the ~4 GiB `heavy` budget. With three measures
+        # (ship/npc/pod) this also stops kills from monopolising both heavy slots.
         # A target day whose Silver is an upstream gap can never build a Gold row
         # (ADR-0029); corpus reports "skipped", so the asset completes without
         # materialising — the partition stays Missing rather than failing.

@@ -44,7 +44,6 @@ silver_partitions = dg.DailyPartitionsDefinition(start_date=_history_starts.silv
 history_gold_partitions = dg.DailyPartitionsDefinition(start_date=_history_starts.gold)
 
 _SILVER_POOL = "everef_download"
-_GOLD_POOL = "heavy"
 
 
 @dg.asset(
@@ -113,7 +112,10 @@ def system_jumps_silver(
     deps=[system_jumps_silver],
     group_name="system_jumps",
     kinds={"corpus"},
-    pool=_GOLD_POOL,
+    # No `heavy` pool: the 365d window is ~360 narrow daily files (~5k systems ×
+    # 24h) and the k-way merge holds only small row-groups — measured peak RSS
+    # ~97 MiB, ~40x under the ~4 GiB `heavy` budget. Bounded by the global cap
+    # alone so it never occupies a scarce heavy slot meant for the big backfills.
     # A target day whose Silver is an upstream gap can never build a Gold row
     # (ADR-0029); corpus reports "skipped", so the asset must complete without
     # materialising — the partition stays Missing rather than failing.
