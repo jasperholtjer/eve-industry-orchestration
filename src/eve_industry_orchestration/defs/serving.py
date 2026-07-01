@@ -6,29 +6,30 @@ the idempotent ``eve-serving load`` CLI over SSH (see :class:`ServingResource`)
 and records the run — it reimplements no load logic and never touches the
 databases directly.
 
-**Ordering (the SDE→market edge).** A new SDE build does a full-state rewrite that
-``TRUNCATE``s the ``market.*`` tables and clears their serving load-state, so the
-market datasets must be (re)loaded *after* the SDE load. The asset graph models
-this: :func:`serving_load_sde` is an upstream of all three market loads, so a
-single :data:`serving_load_job` run executes them in topological order — SDE
-first, then the markets — and the loader's ``parquet_sha256`` idempotency makes an
-unchanged run a no-op. After an SDE rebuild the SDE load truncates and repopulates,
-which clears the market load-state, so the downstream market loads re-run and
-repopulate ``market.*`` in the same pass.
+**Ordering (the SDE→fact edge).** A new SDE build does a full-state rewrite that
+``TRUNCATE``s the ``market.*`` + ``industry.*`` fact tables and clears their
+serving load-state, so the fact datasets must be (re)loaded *after* the SDE load.
+The asset graph models this: :func:`serving_load_sde` is an upstream of all four
+fact loads, so a single :data:`serving_load_job` run executes them in topological
+order — SDE first, then the facts — and the loader's ``parquet_sha256`` idempotency
+makes an unchanged run a no-op. After an SDE rebuild the SDE load truncates and
+repopulates, which clears the fact load-state, so the downstream fact loads re-run
+and repopulate their tables in the same pass.
 
 Each load also depends on its source Gold dataset being present (``_DONE``): the
-``deps=`` carry that lineage (the SDE load off Gold ``sde-snapshot``, each market
+``deps=`` carry that lineage (the SDE load off Gold ``sde-snapshot``, each fact
 load off its Gold dataset). ``deps=`` is lineage only — the schedule on
 :data:`serving_load_job` drives the actual materialisations, mirroring how the rest
 of this repo separates lineage from triggering.
 
-All four loads are latest-only / ``current``-snapshot operations, so the assets are
+All five loads are latest-only / ``current``-snapshot operations, so the assets are
 **non-partitioned** (the loader resolves the newest Gold partition itself), like
 the ``*-live`` Gold assets.
 """
 
 import dagster as dg
 
+from eve_industry_orchestration.defs import industry_cost_indices_live as icil
 from eve_industry_orchestration.defs import market_history, sde
 from eve_industry_orchestration.defs import market_orders_live as mol
 from eve_industry_orchestration.defs import market_prices_live as mpl
@@ -119,9 +120,28 @@ def serving_load_market_prices_live(
     return _result("market-prices-live", serving, status)
 
 
-# One job over the four loads. Selecting them together makes a single run execute
-# in dependency order — SDE first, then the three markets — so an SDE rebuild's
-# TRUNCATE is always followed by a market reload within the same pass.
+@dg.asset(
+    key="serving_load_industry_cost_indices_live",
+    deps=[icil.industry_cost_indices_live_gold, serving_load_sde],
+    group_name=_GROUP,
+    kinds=_KINDS,
+)
+def serving_load_industry_cost_indices_live(
+    context: dg.AssetExecutionContext, serving: ServingResource
+) -> dg.MaterializeResult:
+    """Load the live cost-index ``current`` snapshot into the serving tier.
+
+    Downstream of :func:`serving_load_sde`: the ``industry.cost_indices_live`` rows
+    carry a ``system_id`` FK into the map dimension, so the SDE full-state rewrite
+    TRUNCATEs the table and clears its load-state, forcing a reload in the same pass.
+    """
+    status = serving.load(context, "industry-cost-indices-live")
+    return _result("industry-cost-indices-live", serving, status)
+
+
+# One job over the five loads. Selecting them together makes a single run execute
+# in dependency order — SDE first, then the market + industry facts — so an SDE
+# rebuild's TRUNCATE is always followed by a fact reload within the same pass.
 serving_load_job = dg.define_asset_job(
     name="serving_load_job",
     selection=[
@@ -129,6 +149,7 @@ serving_load_job = dg.define_asset_job(
         serving_load_market_history,
         serving_load_market_orders_live,
         serving_load_market_prices_live,
+        serving_load_industry_cost_indices_live,
     ],
 )
 

@@ -6,6 +6,7 @@ import dagster as dg
 import pytest
 
 from eve_industry_orchestration.defs.serving import (
+    serving_load_industry_cost_indices_live,
     serving_load_job,
     serving_load_market_history,
     serving_load_market_orders_live,
@@ -18,6 +19,7 @@ _MARKET_ASSETS = (
     serving_load_market_history,
     serving_load_market_orders_live,
     serving_load_market_prices_live,
+    serving_load_industry_cost_indices_live,
 )
 _ALL_ASSETS = [serving_load_sde, *_MARKET_ASSETS]
 
@@ -109,6 +111,7 @@ def test_sde_rebuild_reloads_markets(serving, monkeypatch: pytest.MonkeyPatch) -
     assert actions["serving_load_market_history"] == "loaded"
     assert actions["serving_load_market_orders_live"] == "loaded"
     assert actions["serving_load_market_prices_live"] == "loaded"
+    assert actions["serving_load_industry_cost_indices_live"] == "loaded"
 
 
 # --- wiring: deps + non-partitioned + schedule -----------------------------
