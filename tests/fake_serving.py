@@ -19,8 +19,10 @@ import os
 import sys
 from pathlib import Path
 
-# Fact datasets the SDE full-state rewrite TRUNCATEs and clears load-state for.
+# Datasets the SDE full-state rewrite TRUNCATEs and clears load-state for: the
+# market/industry facts plus the SDE-derived product universe (ADR-0044).
 _MARKET_DATASETS = (
+    "sde-industry-products",
     "market-history",
     "market-orders-live",
     "market-prices-live",
@@ -29,6 +31,7 @@ _MARKET_DATASETS = (
 # Deterministic row counts so a `loaded` summary carries a non-zero count.
 _ROWS = {
     "sde": 4096,
+    "sde-industry-products": 2048,
     "market-history": 12345,
     "market-orders-live": 6789,
     "market-prices-live": 16000,

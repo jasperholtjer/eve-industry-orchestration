@@ -7,10 +7,11 @@ and records the run — it reimplements no load logic and never touches the
 databases directly.
 
 **Ordering (the SDE→fact edge).** A new SDE build does a full-state rewrite that
-``TRUNCATE``s the ``market.*`` + ``industry.*`` fact tables and clears their
-serving load-state, so the fact datasets must be (re)loaded *after* the SDE load.
-The asset graph models this: :func:`serving_load_sde` is an upstream of all four
-fact loads, so a single :data:`serving_load_job` run executes them in topological
+``TRUNCATE``s the ``market.*`` + ``industry.*`` fact tables (and the SDE-derived
+``industry.products`` universe) and clears their serving load-state, so those
+datasets must be (re)loaded *after* the SDE load. The asset graph models this:
+:func:`serving_load_sde` is an upstream of every other load, so a single
+:data:`serving_load_job` run executes them in topological
 order — SDE first, then the facts — and the loader's ``parquet_sha256`` idempotency
 makes an unchanged run a no-op. After an SDE rebuild the SDE load truncates and
 repopulates, which clears the fact load-state, so the downstream fact loads re-run
@@ -22,7 +23,7 @@ load off its Gold dataset). ``deps=`` is lineage only — the schedule on
 :data:`serving_load_job` drives the actual materialisations, mirroring how the rest
 of this repo separates lineage from triggering.
 
-All five loads are latest-only / ``current``-snapshot operations, so the assets are
+All six loads are latest-only / ``current``-snapshot operations, so the assets are
 **non-partitioned** (the loader resolves the newest Gold partition itself), like
 the ``*-live`` Gold assets.
 """
@@ -71,6 +72,29 @@ def serving_load_sde(
     """
     status = serving.load(context, "sde", "--latest")
     return _result("sde", serving, status)
+
+
+@dg.asset(
+    key="serving_load_sde_industry_products",
+    deps=[sde.sde_industry_products_gold, serving_load_sde],
+    group_name=_GROUP,
+    kinds=_KINDS,
+)
+def serving_load_sde_industry_products(
+    context: dg.AssetExecutionContext, serving: ServingResource
+) -> dg.MaterializeResult:
+    """Load the latest ``sde-industry-products`` Gold into the serving tier.
+
+    Non-partitioned, latest-only: ``eve-serving load --dataset
+    sde-industry-products`` reads the newest flat Gold tree (ADR-0044). The
+    product universe is derived entirely from the SDE, and its rows carry FKs into
+    ``sde.types`` / ``sde.blueprints``, so it sits downstream of
+    :func:`serving_load_sde` — the SDE full-state rewrite TRUNCATEs
+    ``industry.products`` and clears its load-state, forcing a reload in the same
+    pass.
+    """
+    status = serving.load(context, "sde-industry-products")
+    return _result("sde-industry-products", serving, status)
 
 
 @dg.asset(
@@ -139,13 +163,15 @@ def serving_load_industry_cost_indices_live(
     return _result("industry-cost-indices-live", serving, status)
 
 
-# One job over the five loads. Selecting them together makes a single run execute
-# in dependency order — SDE first, then the market + industry facts — so an SDE
-# rebuild's TRUNCATE is always followed by a fact reload within the same pass.
+# One job over the six loads. Selecting them together makes a single run execute
+# in dependency order — SDE first, then the SDE-derived product universe + the
+# market + industry facts — so an SDE rebuild's TRUNCATE is always followed by a
+# reload within the same pass.
 serving_load_job = dg.define_asset_job(
     name="serving_load_job",
     selection=[
         serving_load_sde,
+        serving_load_sde_industry_products,
         serving_load_market_history,
         serving_load_market_orders_live,
         serving_load_market_prices_live,

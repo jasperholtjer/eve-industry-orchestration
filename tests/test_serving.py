@@ -13,9 +13,11 @@ from eve_industry_orchestration.defs.serving import (
     serving_load_market_prices_live,
     serving_load_schedule,
     serving_load_sde,
+    serving_load_sde_industry_products,
 )
 
 _MARKET_ASSETS = (
+    serving_load_sde_industry_products,
     serving_load_market_history,
     serving_load_market_orders_live,
     serving_load_market_prices_live,
@@ -108,6 +110,7 @@ def test_sde_rebuild_reloads_markets(serving, monkeypatch: pytest.MonkeyPatch) -
     assert result.success
     actions = _actions(result)
     assert actions["serving_load_sde"] == "loaded"
+    assert actions["serving_load_sde_industry_products"] == "loaded"
     assert actions["serving_load_market_history"] == "loaded"
     assert actions["serving_load_market_orders_live"] == "loaded"
     assert actions["serving_load_market_prices_live"] == "loaded"
