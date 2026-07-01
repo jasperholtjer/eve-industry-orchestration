@@ -600,15 +600,16 @@ system_kills_pod_recent_schedule = _build_kills_recent_schedule(
 )
 
 
-# Daily rebuild of the latest-only SDE snapshot (ADR-0032). A schedule, not a
-# sensor: the snapshot is non-partitioned ("rebuild the latest"), like the
-# system-jumps recent asset. SDE only changes on a game patch (every few days),
-# so a daily cadence keeps the served catalogue fresh without churn; the
-# build-discovery + gold sensors already pick up new builds for Silver and the
-# changelog within the hour. The asset self-skips when no Silver is committed.
+# Daily rebuild of the latest-only SDE Gold catalogues (ADR-0032/0044). A
+# schedule, not a sensor: both are non-partitioned ("rebuild the latest"), like
+# the system-jumps recent asset. SDE only changes on a game patch (every few
+# days), so a daily cadence keeps the served catalogue + product universe fresh
+# without churn; the build-discovery + gold sensors already pick up new builds
+# for Silver and the changelog within the hour. Each asset self-skips when no
+# Silver is committed.
 sde_snapshot_schedule = dg.ScheduleDefinition(
     name="sde_snapshot_schedule",
-    target=sde.sde_snapshot_gold,
+    target=[sde.sde_snapshot_gold, sde.sde_industry_products_gold],
     cron_schedule="0 2 * * *",
     default_status=dg.DefaultScheduleStatus.STOPPED,
 )

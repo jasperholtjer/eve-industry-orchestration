@@ -48,9 +48,11 @@ The homelab deployment (LXC, NFS mount, build order) is documented in
   look-back). Silver is one build-partitioned `@asset` (one atomic unified
   `corpus ingest --build <n>` per build); `sde-changelog` is one build-partitioned
   `@asset` that leaves baseline builds (no predecessor) Missing
-  (`output_required=False`). `sde-snapshot` is the latest-only catalogue: a
-  **non-partitioned** `@asset` a schedule rematerialises against `--latest`
-  (mirrors the `recency-weighted` recent asset), not part of the partition matrix.
+  (`output_required=False`). `sde-snapshot` (the latest-only catalogue) and
+  `sde-industry-products` (ADR-0044, the latest-only industrial product universe)
+  are both **non-partitioned** `@asset`s a schedule rematerialises against
+  `--latest` (mirroring the `recency-weighted` recent asset), not part of the
+  partition matrix.
 - **Availability sensors** (`defs/sensors.py`) and **schedules** — thin
   cap-and-dedup loops. A Silver sensor per dataset polls
   `corpus everef missing-partitions`; a Gold sensor per windowed derivative polls
@@ -60,7 +62,7 @@ The homelab deployment (LXC, NFS mount, build order) is documented in
   hourly. SDE instead has `sde_build_discovery_sensor` (registers build partitions
   from `corpus everef list`), `sde_gold_sensor` (the changelog for builds with
   committed Silver), and `sde_snapshot_schedule` (daily rematerialise of the
-  non-partitioned latest snapshot). All key status on corpus run-state, never on
+  non-partitioned latest snapshot and `sde-industry-products`). All key status on corpus run-state, never on
   globbing the NAS tree; `run_key` dedup prevents re-queuing in-flight work.
 - **Serving-load assets** (`defs/serving.py`, `defs/serving_resource.py`) — the
   "when" of the serving tier. `ServingResource` shells the idempotent

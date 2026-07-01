@@ -31,3 +31,6 @@ gold:
     sort_keys: [_key]
     snapshot:
       entities: all
+  - name: sde-industry-products
+    shape: industry-products
+    sort_keys: [type_id]

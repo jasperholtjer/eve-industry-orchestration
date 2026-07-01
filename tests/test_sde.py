@@ -9,6 +9,7 @@ from eve_industry_orchestration.defs import sde
 from eve_industry_orchestration.defs.config import sde_entities, sde_gold_derivatives
 from eve_industry_orchestration.defs.sde import (
     sde_changelog_gold,
+    sde_industry_products_gold,
     sde_silver,
     sde_snapshot_gold,
 )
@@ -52,6 +53,7 @@ def test_sde_gold_derivatives_from_config() -> None:
     assert [(d.name, d.shape) for d in derivatives] == [
         ("sde-changelog", "entity-changelog"),
         ("sde-snapshot", "entity-snapshot"),
+        ("sde-industry-products", "industry-products"),
     ]
 
 
@@ -107,6 +109,43 @@ def test_snapshot_skips_when_no_silver_committed(corpus) -> None:
 
     result = dg.materialize(
         [sde_snapshot_gold],
+        instance=instance,
+        resources={"corpus": corpus},
+    )
+
+    assert result.success
+    events = result.get_asset_materialization_events()
+    assert len(events) == 1
+    assert events[0].materialization.metadata["built"].value is False
+
+
+# --- industry-products Gold (latest-only, non-partitioned; ADR-0044) --------
+
+
+def test_industry_products_materialises_against_latest(
+    corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("FAKE_SDE_BUILDS", BUILDS)
+    instance = _instance_with_builds(100)
+    _ingest_build(corpus, 100)
+
+    result = dg.materialize(
+        [sde_industry_products_gold],
+        instance=instance,
+        resources={"corpus": corpus},
+    )
+
+    assert result.success
+    events = result.get_asset_materialization_events()
+    assert len(events) == 1
+    assert events[0].asset_key.to_user_string() == "sde_industry_products"
+
+
+def test_industry_products_skips_when_no_silver_committed(corpus) -> None:
+    instance = dg.DagsterInstance.ephemeral()
+
+    result = dg.materialize(
+        [sde_industry_products_gold],
         instance=instance,
         resources={"corpus": corpus},
     )

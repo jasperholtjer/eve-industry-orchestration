@@ -23,6 +23,10 @@ ADR-0030/0031), so the asset graph collapses to one node per tier per build:
   (mirrors the system-jumps ``recency-weighted`` recent asset): it fans out over
   entities into flat ``gold/sde-<entity>/`` trees, overwritten per build. No
   historical snapshot trees — Silver is the build history.
+- :func:`sde_industry_products_gold` — the latest-only industrial product
+  universe (ADR-0044). Same non-partitioned, ``--latest`` schedule-driven shape
+  as the snapshot; overwrites the single flat ``gold/sde-industry-products/``
+  tree (one deduplicated row per buildable-product ``type_id``).
 
 Both Gold builds are row diffs / passthroughs over a single build's Silver, not
 a windowed scan, so they are lightweight — no ``heavy`` pool.
@@ -44,6 +48,7 @@ from eve_industry_orchestration.defs.corpus_resource import CorpusResource
 DATASET = "sde"
 CHANGELOG_DERIVATIVE = "sde-changelog"
 SNAPSHOT_DERIVATIVE = "sde-snapshot"
+INDUSTRY_PRODUCTS_DERIVATIVE = "sde-industry-products"
 
 # The entity list (ADR-0032 parse manifest) is config-driven, read once at
 # import like the daily datasets resolve their partition starts. Used for
@@ -241,5 +246,63 @@ def sde_snapshot_gold(
             "build": (status or {}).get("build_id"),
             "release_date": (status or {}).get("release_date"),
             "entities_written": (status or {}).get("entities_written"),
+        }
+    )
+
+
+@dg.asset(
+    key="sde_industry_products",
+    deps=[sde_silver],
+    group_name=_GROUP,
+    kinds={"corpus"},
+)
+def sde_industry_products_gold(
+    context: dg.AssetExecutionContext, corpus: CorpusResource
+) -> dg.MaterializeResult:
+    """Latest-only industrial product universe for the current build (ADR-0044).
+
+    Non-partitioned, driven by the same schedule as :func:`sde_snapshot_gold`:
+    ``corpus gold build --derivative sde-industry-products --latest`` resolves the
+    highest committed Silver build and overwrites the single flat
+    ``gold/sde-industry-products/`` tree (one deduplicated row per
+    buildable-product ``type_id``). ``deps=`` carries lineage only (a
+    non-partitioned asset cannot chain build partitions).
+
+    Skips cleanly when no Silver build is committed yet (the schedule may fire on
+    a cold corpus): the flat tree is not date-verifiable, so the build status is
+    the success signal.
+    """
+    committed = corpus.state_query(
+        "SELECT 1 FROM partitions WHERE tier = 'silver' AND dataset = 'sde' LIMIT 1"
+    )
+    if not committed:
+        context.log.info(
+            "sde industry-products: no committed Silver build yet; skipping"
+        )
+        return dg.MaterializeResult(
+            metadata={"dataset": DATASET, "tier": "gold", "built": False}
+        )
+
+    status = corpus.run(
+        context,
+        "gold",
+        "build",
+        "--dataset",
+        DATASET,
+        "--derivative",
+        INDUSTRY_PRODUCTS_DERIVATIVE,
+        "--latest",
+        "--sink-path",
+        corpus.sink_path,
+    )
+    return dg.MaterializeResult(
+        metadata={
+            "dataset": DATASET,
+            "derivative": INDUSTRY_PRODUCTS_DERIVATIVE,
+            "tier": "gold",
+            "built": True,
+            "build": (status or {}).get("build_id"),
+            "release_date": (status or {}).get("release_date"),
+            "row_count": (status or {}).get("row_count"),
         }
     )
