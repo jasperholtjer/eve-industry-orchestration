@@ -40,6 +40,13 @@ _GROUP = "serving"
 # Each load writes both serving stores; the kinds surface that in the asset graph.
 _KINDS = {"postgres", "neo4j"}
 
+# The loader reads Gold over NFS from the single-HDD NAS, so a load can hit a
+# transient `IO Error: … Stale file handle` when a Gold build overwrites the tree
+# under a reader's cached handle. Every load is idempotent on the partition's
+# `parquet_sha256`, so a retried load re-converges; back off to let the writer
+# settle before re-reading.
+_RETRY = dg.RetryPolicy(max_retries=3, delay=30, backoff=dg.Backoff.EXPONENTIAL)
+
 
 def _result(
     dataset: str, serving: ServingResource, status: dict
@@ -59,6 +66,7 @@ def _result(
     deps=[sde.sde_snapshot_gold],
     group_name=_GROUP,
     kinds=_KINDS,
+    retry_policy=_RETRY,
 )
 def serving_load_sde(
     context: dg.AssetExecutionContext, serving: ServingResource
@@ -79,6 +87,7 @@ def serving_load_sde(
     deps=[sde.sde_industry_products_gold, serving_load_sde],
     group_name=_GROUP,
     kinds=_KINDS,
+    retry_policy=_RETRY,
 )
 def serving_load_sde_industry_products(
     context: dg.AssetExecutionContext, serving: ServingResource
@@ -102,6 +111,7 @@ def serving_load_sde_industry_products(
     deps=[market_history.market_history_gold, serving_load_sde],
     group_name=_GROUP,
     kinds=_KINDS,
+    retry_policy=_RETRY,
 )
 def serving_load_market_history(
     context: dg.AssetExecutionContext, serving: ServingResource
@@ -121,6 +131,7 @@ def serving_load_market_history(
     deps=[mol.market_orders_live_gold, serving_load_sde],
     group_name=_GROUP,
     kinds=_KINDS,
+    retry_policy=_RETRY,
 )
 def serving_load_market_orders_live(
     context: dg.AssetExecutionContext, serving: ServingResource
@@ -135,6 +146,7 @@ def serving_load_market_orders_live(
     deps=[mpl.market_prices_live_gold, serving_load_sde],
     group_name=_GROUP,
     kinds=_KINDS,
+    retry_policy=_RETRY,
 )
 def serving_load_market_prices_live(
     context: dg.AssetExecutionContext, serving: ServingResource
@@ -149,6 +161,7 @@ def serving_load_market_prices_live(
     deps=[icil.industry_cost_indices_live_gold, serving_load_sde],
     group_name=_GROUP,
     kinds=_KINDS,
+    retry_policy=_RETRY,
 )
 def serving_load_industry_cost_indices_live(
     context: dg.AssetExecutionContext, serving: ServingResource

@@ -36,6 +36,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Worst-case heavy memory is 2 Gold + 1 market-orders Silver ≈ 12 GB (unchanged
   by the split — same heavy-slot count), so the LXC sizing rule stays `>= 12 GiB`.
 
+### Fixed
+- Serving-load assets now carry a `RetryPolicy` (3 retries, 30s exponential backoff): the loader reads Gold over NFS from the single-HDD NAS, so a load can hit a transient `IO Error: … Stale file handle` when a Gold build overwrites the tree under a reader's cached handle. Each load is idempotent on the partition's `parquet_sha256`, so a retried load re-converges.
+
 ### Added
 - `market-orders` orchestration (`defs/market_orders.py`, ADR-0036): a
   daily-partitioned `market_orders_silver` asset (full k-space orderbook, upstream
