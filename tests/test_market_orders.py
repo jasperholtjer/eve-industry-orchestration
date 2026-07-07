@@ -103,7 +103,9 @@ def test_silver_sensor_requests_newly_available_dates(
 
     by_partition = {rr.partition_key: rr for rr in result.run_requests}
     assert sorted(by_partition) == ["2021-07-09", "2021-07-10"]
-    assert by_partition["2021-07-09"].run_key == "market-orders-silver-2021-07-09"
+    assert by_partition["2021-07-09"].run_key.startswith(
+        "market-orders-silver-2021-07-09-"
+    )
 
 
 # --- Gold readiness sensors (one per derivative) --------------------------
@@ -119,7 +121,9 @@ def test_gold_sensor_requests_ready_dates(corpus, _asset, sensor, derivative) ->
     by_partition = {rr.partition_key: rr for rr in result.run_requests}
     assert sorted(by_partition) == ["2021-07-09"]
     # run_key is keyed on the derivative (its own Gold tree), not the dataset.
-    assert by_partition["2021-07-09"].run_key == f"{derivative}-gold-2021-07-09"
+    assert by_partition["2021-07-09"].run_key.startswith(
+        f"{derivative}-gold-2021-07-09-"
+    )
 
 
 @pytest.mark.parametrize(("_asset", "sensor", "_derivative"), _GOLD_CASES)

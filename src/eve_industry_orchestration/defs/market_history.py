@@ -53,7 +53,9 @@ def market_history_silver(
     ``status: incomplete``, ADR-0041) is left Missing: the verify (which would
     fail on the absent partition) is skipped and an ``AssetObservation`` records
     why. Unlike a permanent absent-day skip, the partition is re-proposed on the
-    next sensor tick, so the full file is picked up once EVE Ref finishes it.
+    next sensor tick — the availability sensor rotates its ``run_key`` per tick
+    (see :mod:`sensor_util`) so Dagster dedup does not swallow the retry — so the
+    full file is picked up once EVE Ref finishes it.
     """
     date = context.partition_key
     status = corpus.run(

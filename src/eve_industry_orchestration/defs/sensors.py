@@ -33,12 +33,10 @@ from eve_industry_orchestration.defs.market_history import (
     market_history_silver,
     silver_partitions,
 )
-
-# Concurrency is governed by deploy/dagster.yaml (global max_concurrent_runs:4 plus
-# the `everef_download` / `heavy` pools on the assets). Independently, cap how
-# many partitions enter the queue per tick (oldest first) so a cold start does not
-# enqueue the whole backlog at once; later ticks drain the remainder.
-MAX_PARTITIONS_PER_TICK = 10
+from eve_industry_orchestration.defs.sensor_util import (
+    MAX_PARTITIONS_PER_TICK,
+    request_partitions,
+)
 
 
 @dg.sensor(
@@ -51,28 +49,16 @@ def market_history_availability_sensor(
 ) -> dg.SensorResult:
     """Requests Silver runs for market-history dates newly available upstream."""
     report = corpus.everef_missing_partitions(DATASET)
-    missing = report.get("missing", [])
-
-    valid = set(silver_partitions.get_partition_keys())
-    eligible = sorted(date for date in missing if date in valid)
-    selected = eligible[:MAX_PARTITIONS_PER_TICK]
-
-    deferred = len(eligible) - len(selected)
-    if deferred > 0:
-        context.log.info(
-            "availability: %d eligible, requesting %d this tick, %d deferred",
-            len(eligible),
-            len(selected),
-            deferred,
-        )
-
     # No download tag here: the `everef_download` pool on the asset
     # (market_history.py) throttles fetches across every launch path.
-    run_requests = [
-        dg.RunRequest(run_key=f"{DATASET}-silver-{date}", partition_key=date)
-        for date in selected
-    ]
-    return dg.SensorResult(run_requests=run_requests)
+    return request_partitions(
+        context,
+        reported=report.get("missing", []),
+        valid=set(silver_partitions.get_partition_keys()),
+        run_key_prefix=f"{DATASET}-silver",
+        asset_key=market_history_silver.key,
+        label="availability",
+    )
 
 
 @dg.sensor(
@@ -92,29 +78,17 @@ def market_history_gold_sensor(
     cap-and-dedup loop, mirroring the Silver sensor.
     """
     report = corpus.gold_ready_dates(DATASET)
-    ready = report.get("ready", [])
-
-    valid = set(gold_partitions.get_partition_keys())
-    eligible = sorted(date for date in ready if date in valid)
-    selected = eligible[:MAX_PARTITIONS_PER_TICK]
-
-    deferred = len(eligible) - len(selected)
-    if deferred > 0:
-        context.log.info(
-            "gold-readiness: %d eligible, requesting %d this tick, %d deferred",
-            len(eligible),
-            len(selected),
-            deferred,
-        )
-
     # No memory tag here: the `heavy` pool on the asset (market_history.py)
     # throttles every launch path — sensor, backfill, manual — so this stays a
     # thin cap-and-dedup loop.
-    run_requests = [
-        dg.RunRequest(run_key=f"{DATASET}-gold-{date}", partition_key=date)
-        for date in selected
-    ]
-    return dg.SensorResult(run_requests=run_requests)
+    return request_partitions(
+        context,
+        reported=report.get("ready", []),
+        valid=set(gold_partitions.get_partition_keys()),
+        run_key_prefix=f"{DATASET}-gold",
+        asset_key=market_history_gold.key,
+        label="gold-readiness",
+    )
 
 
 @dg.sensor(
@@ -127,26 +101,14 @@ def system_jumps_availability_sensor(
 ) -> dg.SensorResult:
     """Requests Silver runs for system-jumps dates newly available upstream."""
     report = corpus.everef_missing_partitions(sj.DATASET)
-    missing = report.get("missing", [])
-
-    valid = set(sj.silver_partitions.get_partition_keys())
-    eligible = sorted(date for date in missing if date in valid)
-    selected = eligible[:MAX_PARTITIONS_PER_TICK]
-
-    deferred = len(eligible) - len(selected)
-    if deferred > 0:
-        context.log.info(
-            "availability: %d eligible, requesting %d this tick, %d deferred",
-            len(eligible),
-            len(selected),
-            deferred,
-        )
-
-    run_requests = [
-        dg.RunRequest(run_key=f"{sj.DATASET}-silver-{date}", partition_key=date)
-        for date in selected
-    ]
-    return dg.SensorResult(run_requests=run_requests)
+    return request_partitions(
+        context,
+        reported=report.get("missing", []),
+        valid=set(sj.silver_partitions.get_partition_keys()),
+        run_key_prefix=f"{sj.DATASET}-silver",
+        asset_key=sj.system_jumps_silver.key,
+        label="availability",
+    )
 
 
 @dg.sensor(
@@ -165,28 +127,14 @@ def system_jumps_history_gold_sensor(
     derivative has no sensor — a schedule drives its non-partitioned asset.
     """
     report = corpus.gold_ready_dates(sj.DATASET, derivative=sj.HISTORY_DERIVATIVE)
-    ready = report.get("ready", [])
-
-    valid = set(sj.history_gold_partitions.get_partition_keys())
-    eligible = sorted(date for date in ready if date in valid)
-    selected = eligible[:MAX_PARTITIONS_PER_TICK]
-
-    deferred = len(eligible) - len(selected)
-    if deferred > 0:
-        context.log.info(
-            "gold-readiness: %d eligible, requesting %d this tick, %d deferred",
-            len(eligible),
-            len(selected),
-            deferred,
-        )
-
-    run_requests = [
-        dg.RunRequest(
-            run_key=f"{sj.HISTORY_DERIVATIVE}-gold-{date}", partition_key=date
-        )
-        for date in selected
-    ]
-    return dg.SensorResult(run_requests=run_requests)
+    return request_partitions(
+        context,
+        reported=report.get("ready", []),
+        valid=set(sj.history_gold_partitions.get_partition_keys()),
+        run_key_prefix=f"{sj.HISTORY_DERIVATIVE}-gold",
+        asset_key=sj.system_jumps_history_gold.key,
+        label="gold-readiness",
+    )
 
 
 # --- industry-cost-indices (cost-index-history, ADR-0043) -----------------
@@ -202,26 +150,14 @@ def industry_cost_indices_availability_sensor(
 ) -> dg.SensorResult:
     """Requests Silver runs for cost-index dates newly available upstream."""
     report = corpus.everef_missing_partitions(ici.DATASET)
-    missing = report.get("missing", [])
-
-    valid = set(ici.silver_partitions.get_partition_keys())
-    eligible = sorted(date for date in missing if date in valid)
-    selected = eligible[:MAX_PARTITIONS_PER_TICK]
-
-    deferred = len(eligible) - len(selected)
-    if deferred > 0:
-        context.log.info(
-            "availability: %d eligible, requesting %d this tick, %d deferred",
-            len(eligible),
-            len(selected),
-            deferred,
-        )
-
-    run_requests = [
-        dg.RunRequest(run_key=f"{ici.DATASET}-silver-{date}", partition_key=date)
-        for date in selected
-    ]
-    return dg.SensorResult(run_requests=run_requests)
+    return request_partitions(
+        context,
+        reported=report.get("missing", []),
+        valid=set(ici.silver_partitions.get_partition_keys()),
+        run_key_prefix=f"{ici.DATASET}-silver",
+        asset_key=ici.industry_cost_indices_silver.key,
+        label="availability",
+    )
 
 
 @dg.sensor(
@@ -239,28 +175,14 @@ def industry_cost_indices_history_gold_sensor(
     mirroring the system-jumps history Gold sensor.
     """
     report = corpus.gold_ready_dates(ici.DATASET, derivative=ici.HISTORY_DERIVATIVE)
-    ready = report.get("ready", [])
-
-    valid = set(ici.history_gold_partitions.get_partition_keys())
-    eligible = sorted(date for date in ready if date in valid)
-    selected = eligible[:MAX_PARTITIONS_PER_TICK]
-
-    deferred = len(eligible) - len(selected)
-    if deferred > 0:
-        context.log.info(
-            "gold-readiness: %d eligible, requesting %d this tick, %d deferred",
-            len(eligible),
-            len(selected),
-            deferred,
-        )
-
-    run_requests = [
-        dg.RunRequest(
-            run_key=f"{ici.HISTORY_DERIVATIVE}-gold-{date}", partition_key=date
-        )
-        for date in selected
-    ]
-    return dg.SensorResult(run_requests=run_requests)
+    return request_partitions(
+        context,
+        reported=report.get("ready", []),
+        valid=set(ici.history_gold_partitions.get_partition_keys()),
+        run_key_prefix=f"{ici.HISTORY_DERIVATIVE}-gold",
+        asset_key=ici.industry_cost_indices_history_gold.key,
+        label="gold-readiness",
+    )
 
 
 # --- market-orders (orderbook-aggregate, ADR-0033) ------------------------
@@ -276,26 +198,14 @@ def market_orders_availability_sensor(
 ) -> dg.SensorResult:
     """Requests Silver runs for market-orders dates newly available upstream."""
     report = corpus.everef_missing_partitions(mo.DATASET)
-    missing = report.get("missing", [])
-
-    valid = set(mo.silver_partitions.get_partition_keys())
-    eligible = sorted(date for date in missing if date in valid)
-    selected = eligible[:MAX_PARTITIONS_PER_TICK]
-
-    deferred = len(eligible) - len(selected)
-    if deferred > 0:
-        context.log.info(
-            "availability: %d eligible, requesting %d this tick, %d deferred",
-            len(eligible),
-            len(selected),
-            deferred,
-        )
-
-    run_requests = [
-        dg.RunRequest(run_key=f"{mo.DATASET}-silver-{date}", partition_key=date)
-        for date in selected
-    ]
-    return dg.SensorResult(run_requests=run_requests)
+    return request_partitions(
+        context,
+        reported=report.get("missing", []),
+        valid=set(mo.silver_partitions.get_partition_keys()),
+        run_key_prefix=f"{mo.DATASET}-silver",
+        asset_key=mo.market_orders_silver.key,
+        label="availability",
+    )
 
 
 def _build_orderbook_gold_sensor(
@@ -319,26 +229,14 @@ def _build_orderbook_gold_sensor(
         context: dg.SensorEvaluationContext, corpus: CorpusResource
     ) -> dg.SensorResult:
         report = corpus.gold_ready_dates(mo.DATASET, derivative=derivative)
-        ready = report.get("ready", [])
-
-        valid = set(mo.gold_partitions.get_partition_keys())
-        eligible = sorted(date for date in ready if date in valid)
-        selected = eligible[:MAX_PARTITIONS_PER_TICK]
-
-        deferred = len(eligible) - len(selected)
-        if deferred > 0:
-            context.log.info(
-                "gold-readiness: %d eligible, requesting %d this tick, %d deferred",
-                len(eligible),
-                len(selected),
-                deferred,
-            )
-
-        run_requests = [
-            dg.RunRequest(run_key=f"{derivative}-gold-{date}", partition_key=date)
-            for date in selected
-        ]
-        return dg.SensorResult(run_requests=run_requests)
+        return request_partitions(
+            context,
+            reported=report.get("ready", []),
+            valid=set(mo.gold_partitions.get_partition_keys()),
+            run_key_prefix=f"{derivative}-gold",
+            asset_key=asset.key,
+            label="gold-readiness",
+        )
 
     return _sensor
 
@@ -367,26 +265,14 @@ def system_kills_availability_sensor(
 ) -> dg.SensorResult:
     """Requests Silver runs for system-kills dates newly available upstream."""
     report = corpus.everef_missing_partitions(sk.DATASET)
-    missing = report.get("missing", [])
-
-    valid = set(sk.silver_partitions.get_partition_keys())
-    eligible = sorted(date for date in missing if date in valid)
-    selected = eligible[:MAX_PARTITIONS_PER_TICK]
-
-    deferred = len(eligible) - len(selected)
-    if deferred > 0:
-        context.log.info(
-            "availability: %d eligible, requesting %d this tick, %d deferred",
-            len(eligible),
-            len(selected),
-            deferred,
-        )
-
-    run_requests = [
-        dg.RunRequest(run_key=f"{sk.DATASET}-silver-{date}", partition_key=date)
-        for date in selected
-    ]
-    return dg.SensorResult(run_requests=run_requests)
+    return request_partitions(
+        context,
+        reported=report.get("missing", []),
+        valid=set(sk.silver_partitions.get_partition_keys()),
+        run_key_prefix=f"{sk.DATASET}-silver",
+        asset_key=sk.system_kills_silver.key,
+        label="availability",
+    )
 
 
 def _build_kills_history_gold_sensor(
@@ -410,26 +296,14 @@ def _build_kills_history_gold_sensor(
         context: dg.SensorEvaluationContext, corpus: CorpusResource
     ) -> dg.SensorResult:
         report = corpus.gold_ready_dates(sk.DATASET, derivative=derivative)
-        ready = report.get("ready", [])
-
-        valid = set(sk.history_gold_partitions.get_partition_keys())
-        eligible = sorted(date for date in ready if date in valid)
-        selected = eligible[:MAX_PARTITIONS_PER_TICK]
-
-        deferred = len(eligible) - len(selected)
-        if deferred > 0:
-            context.log.info(
-                "gold-readiness: %d eligible, requesting %d this tick, %d deferred",
-                len(eligible),
-                len(selected),
-                deferred,
-            )
-
-        run_requests = [
-            dg.RunRequest(run_key=f"{derivative}-gold-{date}", partition_key=date)
-            for date in selected
-        ]
-        return dg.SensorResult(run_requests=run_requests)
+        return request_partitions(
+            context,
+            reported=report.get("ready", []),
+            valid=set(sk.history_gold_partitions.get_partition_keys()),
+            run_key_prefix=f"{derivative}-gold",
+            asset_key=asset.key,
+            label="gold-readiness",
+        )
 
     return _sensor
 

@@ -88,8 +88,8 @@ def test_silver_sensor_requests_newly_available_dates(
 
     by_partition = {rr.partition_key: rr for rr in result.run_requests}
     assert sorted(by_partition) == ["2024-01-15", "2024-01-16"]
-    assert (
-        by_partition["2024-01-15"].run_key == "industry-cost-indices-silver-2024-01-15"
+    assert by_partition["2024-01-15"].run_key.startswith(
+        "industry-cost-indices-silver-2024-01-15-"
     )
 
 
@@ -105,9 +105,8 @@ def test_history_gold_sensor_requests_ready_dates(corpus) -> None:
     by_partition = {rr.partition_key: rr for rr in result.run_requests}
     assert sorted(by_partition) == ["2024-01-15"]
     # run_key is keyed on the derivative (its own Gold tree), not the dataset.
-    assert (
-        by_partition["2024-01-15"].run_key
-        == "industry-cost-indices-history-gold-2024-01-15"
+    assert by_partition["2024-01-15"].run_key.startswith(
+        "industry-cost-indices-history-gold-2024-01-15-"
     )
 
 

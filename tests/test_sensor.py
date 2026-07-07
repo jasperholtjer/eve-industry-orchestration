@@ -49,7 +49,11 @@ def test_requests_runs_for_newly_available_dates(
     by_partition = {rr.partition_key: rr for rr in result.run_requests}
     assert sorted(by_partition) == ["2024-01-15", "2024-01-16"]
     assert all(rr.run_key for rr in result.run_requests)
-    assert by_partition["2024-01-15"].run_key == "market-history-silver-2024-01-15"
+    # The run_key carries a rotating per-tick token so a still-missing date can be
+    # re-requested; only its partition-identifying stem is stable.
+    assert by_partition["2024-01-15"].run_key.startswith(
+        "market-history-silver-2024-01-15-"
+    )
 
 
 def test_excludes_already_materialised_dates(
@@ -76,6 +80,46 @@ def test_excludes_already_materialised_dates(
     assert [rr.partition_key for rr in result.run_requests] == ["2024-01-16"]
 
 
+def test_still_missing_date_is_retried_with_fresh_run_key(
+    corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A date that stays `missing` (e.g. upstream still incomplete, ADR-0041, so
+    # the Silver no-op never commits it) must be re-requested on the next tick.
+    # A static run_key would be deduped by Dagster after the first no-op run; the
+    # rotating per-tick token keeps the retry a distinct, launchable run.
+    monkeypatch.setenv("FAKE_EVEREF_DATES", "2024-01-15")
+
+    first = market_history_availability_sensor(
+        dg.build_sensor_context(resources={"corpus": corpus})
+    )
+    second = market_history_availability_sensor(
+        dg.build_sensor_context(resources={"corpus": corpus}, cursor=first.cursor)
+    )
+
+    (first_rr,) = first.run_requests
+    (second_rr,) = second.run_requests
+    assert first_rr.partition_key == second_rr.partition_key == "2024-01-15"
+    assert first_rr.run_key != second_rr.run_key
+
+
+def test_in_flight_date_is_not_re_requested(
+    corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The rotating run_key must not launch a second run for a date whose prior
+    # run is still in flight — that would race two corpus writers on one contract
+    # dir. The in-flight guard drops such dates for this tick.
+    monkeypatch.setenv("FAKE_EVEREF_DATES", "2024-01-15,2024-01-16")
+    monkeypatch.setattr(
+        "eve_industry_orchestration.defs.sensor_util._in_flight_partitions",
+        lambda context, asset_key: {"2024-01-15"},
+    )
+    context = dg.build_sensor_context(resources={"corpus": corpus})
+
+    result = market_history_availability_sensor(context)
+
+    assert [rr.partition_key for rr in result.run_requests] == ["2024-01-16"]
+
+
 def test_no_missing_dates_yields_no_requests(
     corpus, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -97,7 +141,9 @@ def test_gold_sensor_requests_ready_dates(corpus) -> None:
 
     by_partition = {rr.partition_key: rr for rr in result.run_requests}
     assert sorted(by_partition) == ["2024-01-15"]
-    assert by_partition["2024-01-15"].run_key == "market-history-gold-2024-01-15"
+    assert by_partition["2024-01-15"].run_key.startswith(
+        "market-history-gold-2024-01-15-"
+    )
 
 
 def test_gold_sensor_excludes_already_built_dates(corpus) -> None:
