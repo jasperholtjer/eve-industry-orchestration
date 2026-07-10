@@ -18,10 +18,11 @@ Environment=CORPUS_SINK_PATH=/mnt/eve
 # light runs. Must match the daemon unit: a Silver run launched from the
 # launchpad inherits THIS process's env, not the daemon's. See dagster-daemon.service.
 Environment=RAYON_NUM_THREADS=6
-# Context-dataset secrets (corpus ADR-0047): SUPADATA_API_KEY, YOUTUBE_API_KEY,
-# CONTENTFUL_DELIVERY_TOKEN. Must match the daemon unit — a backfill job launched
-# from the launchpad inherits THIS process's env, not the daemon's. Optional (`-`)
-# and kept out of the repo; see dagster-daemon.service for the full rationale.
+# Context-dataset secrets (corpus ADR-0047): SUPADATA_API_KEY and YOUTUBE_API_KEY
+# (the `news` backfill needs none — it discovers the Contentful token itself,
+# ADR-0049). Must match the daemon unit — a backfill job launched from the
+# launchpad inherits THIS process's env, not the daemon's. Optional (`-`) and kept
+# out of the repo; see dagster-daemon.service for the full rationale.
 EnvironmentFile=-/etc/eve-industry-orchestration/secrets.env
 ExecStart=/opt/eve-industry-orchestration/.venv/bin/dagster-webserver -h 0.0.0.0 -p 3000 -w /opt/eve-industry-orchestration/deploy/workspace.yaml
 Restart=on-failure

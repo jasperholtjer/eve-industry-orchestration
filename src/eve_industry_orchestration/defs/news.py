@@ -17,9 +17,9 @@ dedups its own work, so nothing per-date exists for Dagster to diff.
 
 The fetch hits CCP's news feed (neither EVE Ref nor ESI), so the asset joins no
 concurrency pool: request pacing (~0.7 s between article fetches) lives in the
-binary. The daily ``news`` fetch needs no secret; the historical backfill reads
-``CONTENTFUL_DELIVERY_TOKEN`` from the process env (ADR-0047, Doppler retired),
-passed through to the subprocess by :class:`CorpusResource`.
+binary. Neither the daily fetch nor the backfill needs a secret — the backfill
+discovers the Contentful Content Delivery token from the public site bundle
+itself (corpus ADR-0049), so no ``CONTENTFUL_DELIVERY_TOKEN`` env var is required.
 """
 
 import dagster as dg

@@ -60,7 +60,9 @@ DATASETS_DIR="${CORPUS_DATASETS_DIR:-/usr/local/share/corpus/datasets}"
 # optional root-only EnvironmentFile (see dagster-{daemon,webserver}.service). The
 # path must match the unit's `EnvironmentFile=` line.
 SECRETS_ENV="${SECRETS_ENV:-/etc/eve-industry-orchestration/secrets.env}"
-CONTEXT_SECRET_KEYS=(SUPADATA_API_KEY YOUTUBE_API_KEY CONTENTFUL_DELIVERY_TOKEN)
+# `news` needs no secret (its backfill discovers the Contentful token from the
+# public site bundle, ADR-0049); only the transcript paths need keys.
+CONTEXT_SECRET_KEYS=(SUPADATA_API_KEY YOUTUBE_API_KEY)
 
 # uv installs user-local to ~/.local/bin; a non-interactive `su -` may not pick
 # it up from the profile, so put it on PATH explicitly.
@@ -185,10 +187,10 @@ PY
 }
 
 # Advisory check of the context-dataset secrets file (corpus ADR-0047). NEVER
-# aborts the deploy: the daily `news` fetch needs no secret, so a box that only
-# runs it is fine without the file. But `transcripts` fetch/backfill and the `news`
-# backfill fail at runtime without their key, so this surfaces a missing file or
-# key at deploy time instead of inside a run. Greps for a defined, non-empty
+# aborts the deploy: the `news` dataset needs no secret, so a box that only runs it
+# is fine without the file. But `transcripts` fetch/backfill fail at runtime
+# without their key, so this surfaces a missing file or key at deploy time instead
+# of inside a run. Greps for a defined, non-empty
 # `KEY=value` line (the EnvironmentFile format; tolerates leading whitespace and a
 # stray `export`), never sourcing the file — its values are opaque secrets.
 check_context_secrets() {

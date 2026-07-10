@@ -121,11 +121,12 @@ supplies the orchestration wiring in `deploy/`:
   `corpus`, with `CORPUS_*` env and `DAGSTER_HOME` set. Adjust the `WorkingDirectory`
   to the real clone path before installing. Both load an optional
   `EnvironmentFile=-/etc/eve-industry-orchestration/secrets.env` for the
-  context-dataset secrets (ADR-0047) — `SUPADATA_API_KEY` (transcripts),
-  `YOUTUBE_API_KEY` (transcripts backfill), `CONTENTFUL_DELIVERY_TOKEN` (news
-  backfill). Create that root-only file on the LXC; it is never committed, and its
-  absence only disables the transcript/backfill paths (the no-secret `news` daily
-  fetch keeps working).
+  context-dataset secrets (ADR-0047) — `SUPADATA_API_KEY` (transcripts fetch +
+  backfill) and `YOUTUBE_API_KEY` (transcripts backfill). The `news` dataset needs
+  no secret: its backfill discovers the Contentful token from the public site
+  bundle itself (ADR-0049). Create that root-only file on the LXC; it is never
+  committed, and its absence only disables the transcript paths (`news` keeps
+  working).
 
 Deploy = `git clone` + `uv sync` on the LXC, install the units, `systemctl enable --now`.
 First-time host setup (LXC, UID/GID map, NFS mount, `gh` auth, `uv`) is in the
