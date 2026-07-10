@@ -102,3 +102,16 @@ def test_transcripts_backfill_job_runs_capped(corpus) -> None:
     )
 
     assert result.success
+
+
+def test_transcripts_backfill_defaults_to_90() -> None:
+    # A bare run must never sweep uncapped and blow the paid Supadata budget.
+    assert TranscriptsBackfillConfig().max_videos == 90
+
+
+def test_transcripts_backfill_job_runs_with_default_cap(corpus) -> None:
+    # No run-config: the 90-video default applies, so the op still passes
+    # --max-videos to the binary.
+    result = transcripts_backfill_job.execute_in_process(resources={"corpus": corpus})
+
+    assert result.success

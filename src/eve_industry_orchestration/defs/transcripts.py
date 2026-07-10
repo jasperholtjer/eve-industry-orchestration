@@ -67,12 +67,15 @@ def transcripts_bronze(
 class TranscriptsBackfillConfig(dg.Config):
     """Run-config for the historical transcript backfill.
 
-    ``max_videos`` caps the ~305-video scope because each Supadata transcript call
-    costs paid credits. Omitted ⇒ uncapped. When the summary reports ``capped:
-    true`` the operator re-runs until ``capped: false``.
+    ``max_videos`` caps how many Supadata transcript calls one run makes — each
+    costs a paid credit (~305 videos in scope, shared with the daily fetch's
+    quota). Defaults to 90 so a bare run never sweeps uncapped and blows a monthly
+    budget; set it higher to spend more per run, or ``null`` for a fully uncapped
+    sweep. When the summary reports ``capped: true`` the operator re-runs (next
+    billing month) until ``capped: false``.
     """
 
-    max_videos: int | None = None
+    max_videos: int | None = 90
 
 
 @dg.op
