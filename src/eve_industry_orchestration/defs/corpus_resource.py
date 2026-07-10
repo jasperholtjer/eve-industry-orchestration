@@ -56,7 +56,9 @@ class CorpusResource(dg.ConfigurableResource):
         return {**os.environ, "CORPUS_DATASETS_DIR": self.datasets_dir}
 
     def run(
-        self, context: dg.AssetExecutionContext, *args: str
+        self,
+        context: dg.AssetExecutionContext | dg.OpExecutionContext,
+        *args: str,
     ) -> dict[str, Any] | None:
         """Runs one ``corpus`` subcommand, streaming output to the run log.
 

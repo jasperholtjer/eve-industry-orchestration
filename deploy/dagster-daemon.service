@@ -19,6 +19,14 @@ Environment=CORPUS_SINK_PATH=/mnt/eve
 # multi-day market-orders backfill cannot monopolise every core. Inherited by
 # the `corpus` subprocess via CorpusResource; no-op for non-rayon datasets.
 Environment=RAYON_NUM_THREADS=6
+# Context-dataset secrets (corpus ADR-0047; Doppler retired, process env is the
+# source): SUPADATA_API_KEY (transcripts fetch + backfill), YOUTUBE_API_KEY
+# (transcripts backfill), CONTENTFUL_DELIVERY_TOKEN (news backfill). Kept out of
+# the repo — the operator writes them to this root-only host file. The `-` prefix
+# makes it optional, so a box without the file still starts: the no-secret `news`
+# daily fetch keeps working; `transcripts` fetch/backfill fail loudly at runtime if
+# their key is absent. Inherited by the `corpus` subprocess via CorpusResource._env().
+EnvironmentFile=-/etc/eve-industry-orchestration/secrets.env
 ExecStart=/opt/eve-industry-orchestration/.venv/bin/dagster-daemon run -w /opt/eve-industry-orchestration/deploy/workspace.yaml
 Restart=on-failure
 

@@ -22,7 +22,7 @@ from eve_industry_orchestration.defs import industry_cost_indices_live as icil
 from eve_industry_orchestration.defs import market_orders as mo
 from eve_industry_orchestration.defs import market_orders_live as mol
 from eve_industry_orchestration.defs import market_prices_live as mpl
-from eve_industry_orchestration.defs import sde
+from eve_industry_orchestration.defs import news, sde, transcripts
 from eve_industry_orchestration.defs import system_jumps as sj
 from eve_industry_orchestration.defs import system_kills as sk
 from eve_industry_orchestration.defs.corpus_resource import CorpusResource
@@ -528,5 +528,31 @@ industry_cost_indices_live_schedule = dg.ScheduleDefinition(
     name="industry_cost_indices_live_schedule",
     target=icil.industry_cost_indices_live_gold,
     cron_schedule="0 * * * *",
+    default_status=dg.DefaultScheduleStatus.STOPPED,
+)
+
+
+# --- context datasets (Bronze-only archival, corpus ADR-0045/0046/0048) ----
+#
+# Daily archival fetch of the CCP news feed and the YouTube transcripts. Schedules,
+# not sensors, and a deliberate departure from "sensor over cron": the fetch is
+# keyed on the fetch date (one dense Bronze partition per day) and the binary dedups
+# already-archived documents via its seen-ledger, so there is no per-date upstream
+# matrix to diff. Late UTC evening, after CCP's publishing day, staggered 30 min
+# apart. STOPPED by default. Neither asset joins a pool (it hits neither EVE Ref nor
+# ESI), so both obey only the global concurrency cap; the historical sweeps run via
+# the manually-triggered `news_backfill_job` / `transcripts_backfill_job`, not here.
+news_bronze_schedule = dg.ScheduleDefinition(
+    name="news_bronze_schedule",
+    target=news.news_bronze,
+    cron_schedule="0 22 * * *",
+    default_status=dg.DefaultScheduleStatus.STOPPED,
+)
+
+
+transcripts_bronze_schedule = dg.ScheduleDefinition(
+    name="transcripts_bronze_schedule",
+    target=transcripts.transcripts_bronze,
+    cron_schedule="30 22 * * *",
     default_status=dg.DefaultScheduleStatus.STOPPED,
 )

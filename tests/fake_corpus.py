@@ -213,6 +213,111 @@ def _write_flat(sink: str, tier: str, tree: str) -> None:
     (pdir / "_DONE").write_text("", encoding="utf-8")
 
 
+# --- context datasets (Bronze-only archival, ADR-0045/0046/0048) ----------
+
+# The fetch date the fake stamps its Bronze partition with. The real binary uses
+# "today"; a fixed, overridable date keeps the tests deterministic.
+_FAKE_CONTEXT_DATE = os.environ.get("FAKE_CONTEXT_DATE", "2026-07-10")
+
+
+def _write_bronze(sink: str, dataset: str, date: str, objects: int) -> None:
+    """Writes a keep-forever Bronze partition (`_MANIFEST.json` + `_DONE` last)."""
+    year, month, day = date.split("-")
+    pdir = (
+        Path(sink)
+        / "bronze"
+        / dataset
+        / f"year={int(year)}"
+        / f"month={int(month):02d}"
+        / f"day={int(day):02d}"
+    )
+    pdir.mkdir(parents=True, exist_ok=True)
+    for i in range(objects):
+        (pdir / f"doc-{i:04d}.raw").write_bytes(b"fake-raw-bytes")
+    manifest = {
+        "schema_version": 1,
+        "dataset": dataset,
+        "objects": objects,
+        "retention_class": "archive",
+    }
+    (pdir / "_MANIFEST.json").write_text(json.dumps(manifest), encoding="utf-8")
+    (pdir / "_DONE").write_text("", encoding="utf-8")
+
+
+def _context_partition(date: str) -> str:
+    year, month, day = date.split("-")
+    return f"year={int(year)}/month={int(month):02d}/day={int(day):02d}"
+
+
+def _do_context(args: list[str], sink: str) -> int:
+    subcommand = args[1] if len(args) > 1 else ""
+    if subcommand == "fetch":
+        return _do_context_fetch(args, sink)
+    if subcommand == "backfill":
+        return _do_context_backfill(args, sink)
+    print(f"context: unsupported subcommand {subcommand!r}", file=sys.stderr)
+    return 2
+
+
+def _do_context_fetch(args: list[str], sink: str) -> int:
+    """Mimics `corpus context fetch` (ADR-0048): one dense fetch-date Bronze partition."""
+    dataset = _pop_opt(args, "--dataset")
+    if dataset is None:
+        print("context fetch: --dataset required", file=sys.stderr)
+        return 2
+    date = _FAKE_CONTEXT_DATE
+    _write_bronze(sink, dataset, date, objects=12)
+    print(f"archived 12 {dataset} objects -> bronze/{dataset}", file=sys.stderr)
+    print(
+        json.dumps(
+            {
+                "status": "ok",
+                "dataset": dataset,
+                "tier": "bronze",
+                "partition": _context_partition(date),
+                "objects": 12,
+                "new_documents": 5,
+            }
+        )
+    )
+    return 0
+
+
+def _do_context_backfill(args: list[str], sink: str) -> int:
+    """Mimics `corpus context backfill`: resumable historical sweep with a cap.
+
+    Honours the paid-work cap flags (`--max-articles` for news, `--max-videos` for
+    transcripts): when a cap is passed the fake reports `capped: true` (more work
+    remains, so the operator re-runs), else `capped: false`.
+    """
+    dataset = _pop_opt(args, "--dataset")
+    max_articles = _pop_opt(args, "--max-articles")
+    max_videos = _pop_opt(args, "--max-videos")
+    if dataset is None:
+        print("context backfill: --dataset required", file=sys.stderr)
+        return 2
+    cap = max_articles or max_videos
+    capped = cap is not None
+    date = _FAKE_CONTEXT_DATE
+    _write_bronze(sink, dataset, date, objects=12)
+    print(f"backfilled {dataset} (capped={capped})", file=sys.stderr)
+    status = {
+        "status": "ok",
+        "dataset": dataset,
+        "tier": "bronze",
+        "partition": _context_partition(date),
+        "objects": 12,
+        "new_documents": 12,
+        "capped": capped,
+    }
+    if max_articles is not None:
+        status["article_attempts"] = int(max_articles)
+    if max_videos is not None:
+        status["transcript_attempts"] = int(max_videos)
+    print(json.dumps(status))
+    return 0
+
+
 def _do_live(args: list[str], sink: str) -> int:
     """Mimics ``corpus live build`` (ADR-0039): overwrite a flat ``current/``.
 
@@ -724,6 +829,8 @@ def main(argv: list[str]) -> int:
         return _do_everef(args, sink)
     if command == "live":
         return _do_live(args, sink)
+    if command == "context":
+        return _do_context(args, sink)
     if command == "state":
         return _do_state(args, sink)
     print(f"fake corpus: unknown command {command!r}", file=sys.stderr)

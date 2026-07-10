@@ -56,6 +56,12 @@ CORPUS_TARGET="${CORPUS_TARGET:-x86_64-unknown-linux-musl}"
 CORPUS_BIN="${CORPUS_BINARY_PATH:-/usr/local/bin/corpus}"
 DATASETS_DIR="${CORPUS_DATASETS_DIR:-/usr/local/share/corpus/datasets}"
 
+# Context-dataset secrets (corpus ADR-0047). The systemd units load these from an
+# optional root-only EnvironmentFile (see dagster-{daemon,webserver}.service). The
+# path must match the unit's `EnvironmentFile=` line.
+SECRETS_ENV="${SECRETS_ENV:-/etc/eve-industry-orchestration/secrets.env}"
+CONTEXT_SECRET_KEYS=(SUPADATA_API_KEY YOUTUBE_API_KEY CONTENTFUL_DELIVERY_TOKEN)
+
 # uv installs user-local to ~/.local/bin; a non-interactive `su -` may not pick
 # it up from the profile, so put it on PATH explicitly.
 run_as_user() {
@@ -178,6 +184,35 @@ PY
   echo "    dagster.yaml OK"
 }
 
+# Advisory check of the context-dataset secrets file (corpus ADR-0047). NEVER
+# aborts the deploy: the daily `news` fetch needs no secret, so a box that only
+# runs it is fine without the file. But `transcripts` fetch/backfill and the `news`
+# backfill fail at runtime without their key, so this surfaces a missing file or
+# key at deploy time instead of inside a run. Greps for a defined, non-empty
+# `KEY=value` line (the EnvironmentFile format; tolerates leading whitespace and a
+# stray `export`), never sourcing the file — its values are opaque secrets.
+check_context_secrets() {
+  echo "==> Checking context-dataset secrets (${SECRETS_ENV})"
+  if [[ ! -f "${SECRETS_ENV}" ]]; then
+    echo "    note: ${SECRETS_ENV} absent — the 'news' daily fetch still works, but" >&2
+    echo "          'transcripts' fetch/backfill and the 'news' backfill fail until it" >&2
+    echo "          defines: ${CONTEXT_SECRET_KEYS[*]}" >&2
+    return 0
+  fi
+  local missing=() key
+  for key in "${CONTEXT_SECRET_KEYS[@]}"; do
+    if ! grep -Eq "^[[:space:]]*(export[[:space:]]+)?${key}=.+" "${SECRETS_ENV}"; then
+      missing+=("${key}")
+    fi
+  done
+  if [[ "${#missing[@]}" -gt 0 ]]; then
+    echo "    warning: ${SECRETS_ENV} is missing keys: ${missing[*]}" >&2
+    echo "             the datasets needing them will fail at runtime" >&2
+    return 0
+  fi
+  echo "    all context-dataset secrets present"
+}
+
 # Wrapped in a function so bash parses the whole body before executing: the
 # git pull below may update this very file, and a half-read script would break.
 main() {
@@ -225,6 +260,10 @@ main() {
   install -m 0644 "${REPO_DIR}/deploy/dagster-webserver.service" \
     /etc/systemd/system/dagster-webserver.service
   systemctl daemon-reload
+
+  # Advisory: report on the secrets file the units just referenced, before the
+  # restart makes it live. Never blocks the deploy.
+  check_context_secrets
 
   echo "==> Restarting services"
   # Clear any prior failed state so an earlier crash-loop's start-limit does not
