@@ -65,6 +65,12 @@ _DERIVATIVES: dict[str, list[str]] = {
     ],
     "sde": ["sde-changelog", "sde-snapshot"],
     "industry-cost-indices": ["industry-cost-indices-history"],
+    "news": [
+        "news-articles",
+        "news-sections",
+        "news-entity-mentions",
+        "news-events",
+    ],
 }
 # Per-derivative served_start, surfaced in `gold ready-dates` JSON.
 _SERVED_START: dict[str, str | None] = {
@@ -106,6 +112,7 @@ def _load_state(sink: str) -> dict:
             "skipped": [],
             "sde_silver": {},
             "sde_gold": {},
+            "seen_documents": {},
         }
     state = json.loads(path.read_text(encoding="utf-8"))
     state.setdefault("silver", [])
@@ -116,6 +123,9 @@ def _load_state(sink: str) -> dict:
     # build -> release_date, and Gold built builds per derivative.
     state.setdefault("sde_silver", {})
     state.setdefault("sde_gold", {})
+    # Context-dataset seen-ledger (ADR-0045): documents actually archived, per
+    # dataset — the `seen_documents` table the real binary keeps in run-state.
+    state.setdefault("seen_documents", {})
     # Gold is keyed per derivative (each its own tree); tolerate the older flat
     # list shape by folding it under a dataset-named key on read.
     gold = state.get("gold", {})
@@ -267,6 +277,9 @@ def _do_context_fetch(args: list[str], sink: str) -> int:
         return 2
     date = _FAKE_CONTEXT_DATE
     _write_bronze(sink, dataset, date, objects=12)
+    state = _load_state(sink)
+    state["seen_documents"][dataset] = 12
+    _save_state(sink, state)
     print(f"archived 12 {dataset} objects -> bronze/{dataset}", file=sys.stderr)
     print(
         json.dumps(
@@ -300,6 +313,9 @@ def _do_context_backfill(args: list[str], sink: str) -> int:
     capped = cap is not None
     date = _FAKE_CONTEXT_DATE
     _write_bronze(sink, dataset, date, objects=12)
+    state = _load_state(sink)
+    state["seen_documents"][dataset] = 12
+    _save_state(sink, state)
     print(f"backfilled {dataset} (capped={capped})", file=sys.stderr)
     status = {
         "status": "ok",
@@ -315,6 +331,41 @@ def _do_context_backfill(args: list[str], sink: str) -> int:
     if max_videos is not None:
         status["transcript_attempts"] = int(max_videos)
     print(json.dumps(status))
+    return 0
+
+
+def _do_news(args: list[str], sink: str) -> int:
+    """Mimics ``corpus news match-stats`` (ADR-0052): the entity-mention report.
+
+    The asset check only reads ``stats.articles`` (the *listed* side of the
+    listed-vs-archived delta) and the vocabulary fingerprint, so the fake reports
+    the counts and a token of the rest of the real report's shape. ``FAKE_NEWS_
+    LISTED`` injects the article count; the archived side comes from the ledger
+    (``state query`` over ``seen_documents``).
+    """
+    subcommand = args[1] if len(args) > 1 else ""
+    if subcommand != "match-stats":
+        print(f"news: unsupported subcommand {subcommand!r}", file=sys.stderr)
+        return 2
+    listed = int(os.environ.get("FAKE_NEWS_LISTED", "19"))
+    print(
+        json.dumps(
+            {
+                "dependency_fingerprint": "sde-build-3021700",
+                "silver_partitions": 1,
+                "vocabulary_names": 1000,
+                "vocabulary_blocked": 10,
+                "stats": {
+                    "articles": listed,
+                    "matches_per_kind": {"type": 42},
+                    "title_rule_matches": 3,
+                    "prose_rule_matches": 39,
+                    "top_surface_forms": [["Ishtar", 7]],
+                    "blocklist_hits": {},
+                },
+            }
+        )
+    )
     return 0
 
 
@@ -785,6 +836,12 @@ def _do_state(args: list[str], sink: str) -> int:
     sql = _pop_opt(args, "--sql") or ""
     _pop_opt(args, "--format")
     state = _load_state(sink)
+    # The news listed-vs-archived asset check counts the seen-ledger (ADR-0045).
+    if "seen_documents" in sql:
+        dataset = "news" if "'news'" in sql else ""
+        archived = int(state["seen_documents"].get(dataset, 0))
+        print(json.dumps([{"archived": archived}]))
+        return 0
     # The SDE Gold sensor + snapshot asset query committed Silver builds
     # (dataset = 'sde', ADR-0032).
     if "dataset = 'sde'" in sql:
@@ -833,6 +890,8 @@ def main(argv: list[str]) -> int:
         return _do_context(args, sink)
     if command == "state":
         return _do_state(args, sink)
+    if command == "news":
+        return _do_news(args, sink)
     print(f"fake corpus: unknown command {command!r}", file=sys.stderr)
     return 2
 
