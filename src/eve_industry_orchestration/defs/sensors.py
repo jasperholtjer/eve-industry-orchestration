@@ -22,7 +22,7 @@ from eve_industry_orchestration.defs import industry_cost_indices_live as icil
 from eve_industry_orchestration.defs import market_orders as mo
 from eve_industry_orchestration.defs import market_orders_live as mol
 from eve_industry_orchestration.defs import market_prices_live as mpl
-from eve_industry_orchestration.defs import news, sde, transcripts
+from eve_industry_orchestration.defs import sde, transcripts
 from eve_industry_orchestration.defs import system_jumps as sj
 from eve_industry_orchestration.defs import system_kills as sk
 from eve_industry_orchestration.defs.corpus_resource import CorpusResource
@@ -542,9 +542,17 @@ industry_cost_indices_live_schedule = dg.ScheduleDefinition(
 # apart. STOPPED by default. Neither asset joins a pool (it hits neither EVE Ref nor
 # ESI), so both obey only the global concurrency cap; the historical sweeps run via
 # the manually-triggered `news_backfill_job` / `transcripts_backfill_job`, not here.
-news_bronze_schedule = dg.ScheduleDefinition(
-    name="news_bronze_schedule",
-    target=news.news_bronze,
+# news is the one context dataset with a Silver/Gold chain (ADR-0050/0052), so its
+# schedule targets the whole `news` group — fetch → ingest → the four Gold trees —
+# in one run, in dependency order. Every tier is keyed on the same fetch date and
+# each Gold partition is a pure function of that day's Silver, so there is nothing
+# to diff per-date and no sensor to write. The `news-entity-mentions` build reads
+# the `sde-*` Gold snapshots (cross-dataset input) but does not rebuild them: the
+# group selection stops at the news assets, so a stale SDE snapshot is a
+# fingerprint recorded in `_INDEX.json`, never a run this schedule triggers.
+news_daily_schedule = dg.ScheduleDefinition(
+    name="news_daily_schedule",
+    target=dg.AssetSelection.groups("news"),
     cron_schedule="0 22 * * *",
     default_status=dg.DefaultScheduleStatus.STOPPED,
 )

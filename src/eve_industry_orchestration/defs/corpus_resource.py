@@ -217,6 +217,18 @@ class CorpusResource(dg.ConfigurableResource):
             "json",
         )
 
+    def news_match_stats(self) -> dict[str, Any]:
+        """Returns the news entity-mention tuning report as a dict.
+
+        Wraps ``corpus news match-stats`` (corpus ADR-0052), which scans every
+        ``_DONE``-sealed ``silver/news`` partition against the SDE snapshot
+        vocabulary at the Gold root and prints its JSON report. ``stats.articles``
+        is the number of articles Silver holds (latest version per slug) — the
+        *listed* side of the listed-vs-archived delta; the ledger (``state
+        query`` over ``seen_documents``) is the *archived* side.
+        """
+        return self._capture_json("news", "match-stats", "--sink-path", self.sink_path)
+
     def state_query(self, sql: str) -> list[dict[str, Any]]:
         """Runs a read-only ``corpus state query`` and returns the JSON rows."""
         return self._capture_json(
