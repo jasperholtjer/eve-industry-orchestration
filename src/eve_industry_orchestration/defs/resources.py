@@ -16,6 +16,10 @@ def resources() -> dg.Definitions:
                 binary_path=dg.EnvVar("CORPUS_BINARY_PATH"),
                 datasets_dir=dg.EnvVar("CORPUS_DATASETS_DIR"),
                 sink_path=dg.EnvVar("CORPUS_SINK_PATH"),
+                # Optional: only `corpus enrich embed` (news-embeddings) needs the
+                # local ONNX artifact, so an unset var must not break every other
+                # dataset's resource init — hence os.environ.get, not dg.EnvVar.
+                embedding_model_dir=os.environ.get("CORPUS_EMBEDDING_MODEL_DIR", ""),
             ),
             # Host/user are configurable via SERVING_HOST / SERVING_USER, defaulting
             # to serving@192.168.2.212. No credentials here — the corpus account's

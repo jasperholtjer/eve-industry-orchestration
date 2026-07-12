@@ -30,15 +30,27 @@
 #        is ~75M rows of full k-space orderbook, but the binary streams it one
 #        row-group per snapshot, so its peak (~3-4 GB) is a Gold-equivalent — the
 #        limit-1 pool bounds that memory too. See defs/market_orders.py.
+#      - `news_embed` (limit 1, set via CLI in redeploy.sh): MEMORY + CPU.
+#        `corpus enrich embed` (news-embeddings, ADR-0053) runs the pinned local
+#        ONNX model in-process: measured 4.4 GB RSS at 3.76 chunks/s, so a full
+#        11 320-chunk generation is ~50 min. It gets its OWN pool rather than
+#        joining `heavy`, because `heavy` allows 2 concurrent holders — two embeds
+#        at once would peak ~8.8 GB and leave nothing for the rest of the box.
+#        limit 1 guarantees no two embed runs ever overlap, across every launch
+#        path. An asset can hold only ONE pool, so this does not also exclude a
+#        concurrent `heavy` Gold build (~3 GB floor): worst case embed + one heavy
+#        Gold ≈ 7.4 GB, which fits the 12 GB LXC. The step is ledgered and
+#        idempotent (`embedded_chunks`, keyed chunk × model_rev), so even an
+#        OOM-killed run resumes on the next materialisation with no data loss.
 #      - `everef_download` (limit 2 via `default_limit`): POLITENESS to
 #        data.everef.net. The light Silver fetches (market-history, system-jumps,
 #        system-kills, sde). EVE Ref endorses a small fan-out (its rclone example
 #        uses `--transfers 2`), so 2 concurrent.
 #    `heavy` and `everef_download` want 2, so `default_limit: 2` covers them with
-#    no per-pool override. `market_orders` needs limit 1, which the yaml cannot
-#    express (only `default_limit` lives here) — redeploy.sh sets it via
-#    `dagster instance concurrency set market_orders 1` after publishing this
-#    config, so the override is reproducible at deploy time. Worst-case heavy
+#    no per-pool override. `market_orders` and `news_embed` need limit 1, which the
+#    yaml cannot express (only `default_limit` lives here) — redeploy.sh sets each
+#    via `dagster instance concurrency set <pool> 1` after publishing this
+#    config, so the overrides are reproducible at deploy time. Worst-case heavy
 #    memory is 2 Gold + 1 market-orders Silver ≈ 3 x ~4 GB ≈ 12 GB (unchanged by
 #    the split — same heavy-slot count); size the LXC >= 12 GiB. Tune the global
 #    default with

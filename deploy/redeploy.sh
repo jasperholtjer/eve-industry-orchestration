@@ -244,13 +244,16 @@ main() {
 
   # Per-pool limits below `default_limit` cannot live in dagster.yaml (it only
   # carries `default_limit`); they persist in the instance DB. Set the
-  # `market_orders` CPU pool to 1 here so the override is reproducible at deploy
-  # time rather than a one-off manual CLI call. Runs as `corpus` so it writes the
-  # corpus-owned instance DB under DAGSTER_HOME. Idempotent: re-setting the same
-  # limit is a no-op. See deploy/dagster.yaml for why this pool is limit 1.
+  # `market_orders` CPU pool and the `news_embed` memory pool to 1 here so the
+  # overrides are reproducible at deploy time rather than a one-off manual CLI
+  # call. Runs as `corpus` so it writes the corpus-owned instance DB under
+  # DAGSTER_HOME. Idempotent: re-setting the same limit is a no-op. See
+  # deploy/dagster.yaml for why each pool is limit 1.
   echo "==> Setting per-pool concurrency limits"
   run_as_user "cd '${REPO_DIR}' && DAGSTER_HOME='${DAGSTER_HOME}' \
     uv run dagster instance concurrency set market_orders 1"
+  run_as_user "cd '${REPO_DIR}' && DAGSTER_HOME='${DAGSTER_HOME}' \
+    uv run dagster instance concurrency set news_embed 1"
 
   # Install the systemd units from the repo (root-owned /etc/systemd/system) so
   # unit changes — env like RAYON_NUM_THREADS, ExecStart — ship with a redeploy

@@ -224,11 +224,167 @@ GOLD_ASSETS = (
     news_events_gold,
 )
 
-# Extension points (design §5/§7, corpus Phases 5-6): `news_embeddings_bronze/
-# silver/gold` (`corpus enrich embed` → archived vectors → `embeddings_v1` Gold)
-# and `news_annotations` (`corpus enrich annotate`). Neither subcommand exists in
-# the binary yet, so no asset is defined for them — they land here, downstream of
-# `news_sections_gold` (the embedding-input contract), once corpus ships them.
+# --- news-embeddings: enrich → Silver → Gold (corpus ADR-0053) --------------
+#
+# Its own corpus dataset (`kind: enrich`), not a news Gold derivative: the model
+# run is non-deterministic, so its output is archived verbatim like a fetch and
+# only the parse + join downstream of it are golden-gated. Same three-step shape
+# as the rest of the chain, on the same fetch date:
+#
+#   corpus enrich embed --dataset news-embeddings  → bronze (raw vectors)
+#   corpus ingest       --dataset news-embeddings  → silver
+#   corpus gold build   --dataset news-embeddings  → gold (`embeddings_v1`)
+#
+# Upstream is `news_sections_gold` — the `embed_text` column is the embedding-input
+# contract (ADR-0050) — so the assets sit in the `news` group and ride the existing
+# `news_daily_schedule` (group selection) with no new schedule. The daily increment
+# is a handful of new sections (seconds).
+#
+# `corpus enrich annotate` is deliberately NOT wired: it costs money and stays a
+# manual operator run.
+EMBEDDINGS_DATASET = "news-embeddings"
+
+# The embed step is the memory-heaviest thing on the box: measured 4.4 GB RSS at
+# 3.76 chunks/s (a full 11 320-chunk generation ≈ 50 min). It gets its OWN pool at
+# limit 1 (set in redeploy.sh — deploy/dagster.yaml carries only `default_limit`,
+# and the `heavy` pool's limit of 2 would let two embeds overlap and peak ~8.8 GB
+# on a 12 GB box). Limit 1 guarantees no two embed runs ever overlap, across every
+# launch path — schedule, UI, manual. A pool is per-asset and cannot span pools, so
+# this does NOT exclude a concurrent `heavy` Gold build (~3 GB floor): worst case
+# embed + heavy ≈ 7.4 GB, which fits. See deploy/dagster.yaml.
+_EMBED_POOL = "news_embed"
+
+
+class NewsEmbedConfig(dg.Config):
+    """Run-config for the embed step: fetch date plus an optional chunk cap.
+
+    ``limit`` caps how many chunks one run embeds so an operator can chunk the
+    ~50 min historical generation. The step is ledgered (``embedded_chunks``,
+    keyed chunk × ``model_rev``), so a capped, partial or interrupted run resumes
+    on the next run and a re-run with everything ledgered embeds nothing.
+    """
+
+    date: str | None = None
+    limit: int | None = None
+
+
+@dg.asset(
+    deps=[news_sections_gold],
+    group_name="news",
+    kinds={"corpus"},
+    pool=_EMBED_POOL,
+)
+def news_embeddings_bronze(
+    context: dg.AssetExecutionContext, corpus: CorpusResource, config: NewsEmbedConfig
+) -> dg.MaterializeResult:
+    """Embed the not-yet-ledgered section chunks; archive the raw vectors (ADR-0053).
+
+    Runs the pinned local ONNX model in-process (offline, CPU) over
+    ``gold/news-sections``'s ``embed_text`` and writes the vectors verbatim to a
+    keep-forever Bronze partition. The model artifact is located via
+    ``CORPUS_EMBEDDING_MODEL_DIR`` (:class:`CorpusResource`); an absent or
+    mismatched artifact fails the run loud, never falls back.
+    """
+    date = _target_date(NewsDateConfig(date=config.date))
+    args = [
+        "enrich",
+        "embed",
+        "--dataset",
+        EMBEDDINGS_DATASET,
+        "--date",
+        date,
+        "--sink-path",
+        corpus.sink_path,
+    ]
+    if config.limit is not None:
+        args += ["--limit", str(config.limit)]
+    corpus.run(context, *args)
+    return dg.MaterializeResult(
+        metadata={"dataset": EMBEDDINGS_DATASET, "tier": "bronze", "partition": date}
+    )
+
+
+@dg.asset(
+    deps=[news_embeddings_bronze],
+    group_name="news",
+    kinds={"corpus"},
+)
+def news_embeddings_silver(
+    context: dg.AssetExecutionContext, corpus: CorpusResource, config: NewsDateConfig
+) -> dg.MaterializeResult:
+    """Parse the archived vector shards into Silver (one row per archived vector)."""
+    date = _target_date(config)
+    corpus.run(
+        context,
+        "ingest",
+        "--dataset",
+        EMBEDDINGS_DATASET,
+        "--date",
+        date,
+        "--sink-path",
+        corpus.sink_path,
+    )
+    corpus.run(
+        context,
+        "verify",
+        "--dataset",
+        EMBEDDINGS_DATASET,
+        "--date",
+        date,
+        "--tier",
+        "silver",
+        "--sink-path",
+        corpus.sink_path,
+    )
+    return dg.MaterializeResult(
+        metadata={"dataset": EMBEDDINGS_DATASET, "tier": "silver", "partition": date}
+    )
+
+
+@dg.asset(
+    # `news_sections_gold` is a cross-dataset Gold input to this build (the join
+    # side: `published_at` / `available_at` / `heading_path`), fingerprinted into
+    # `_INDEX.json` — so it is a real upstream here too, not just via Bronze.
+    deps=[news_embeddings_silver, news_sections_gold],
+    group_name="news",
+    kinds={"corpus"},
+)
+def news_embeddings_gold(
+    context: dg.AssetExecutionContext, corpus: CorpusResource, config: NewsDateConfig
+) -> dg.MaterializeResult:
+    """Join the pinned generation's vectors to their section metadata (embeddings_v1).
+
+    Single-derivative dataset, so ``--derivative`` is left off and the Gold verify
+    keys on the dataset name. The join is total: a vector whose ``chunk_hash`` is
+    absent from the section tree fails the build.
+    """
+    date = _target_date(config)
+    corpus.run(
+        context,
+        "gold",
+        "build",
+        "--dataset",
+        EMBEDDINGS_DATASET,
+        "--date",
+        date,
+        "--sink-path",
+        corpus.sink_path,
+    )
+    corpus.run(
+        context,
+        "verify",
+        "--dataset",
+        EMBEDDINGS_DATASET,
+        "--date",
+        date,
+        "--tier",
+        "gold",
+        "--sink-path",
+        corpus.sink_path,
+    )
+    return dg.MaterializeResult(
+        metadata={"dataset": EMBEDDINGS_DATASET, "tier": "gold", "partition": date}
+    )
 
 
 # --- asset check: listed vs archived (design §1.4) --------------------------

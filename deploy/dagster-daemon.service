@@ -19,6 +19,13 @@ Environment=CORPUS_SINK_PATH=/mnt/eve
 # multi-day market-orders backfill cannot monopolise every core. Inherited by
 # the `corpus` subprocess via CorpusResource; no-op for non-rayon datasets.
 Environment=RAYON_NUM_THREADS=6
+# Local ONNX weights for `corpus enrich embed` (news-embeddings, corpus ADR-0053):
+# a ~558 MB HuggingFace snapshot dir (onnx/model_quantized.onnx + tokenizer.json)
+# the operator provisions on the host. Deployment, not contract — never in the
+# dataset YAML or the repo. Absent ⇒ the embed asset fails loud (no fallback
+# generation); every other dataset is unaffected. Reaches the `corpus` subprocess
+# via CorpusResource.embedding_model_dir.
+Environment=CORPUS_EMBEDDING_MODEL_DIR=/usr/local/share/corpus/models/bge-m3
 # Context-dataset secrets (corpus ADR-0047; Doppler retired, process env is the
 # source): SUPADATA_API_KEY (transcripts fetch + backfill) and YOUTUBE_API_KEY
 # (transcripts backfill). The `news` dataset needs no secret — its backfill

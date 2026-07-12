@@ -51,9 +51,20 @@ class CorpusResource(dg.ConfigurableResource):
     """Resolves dataset YAML configs; passed through as ``CORPUS_DATASETS_DIR``."""
     sink_path: str
     """NFS mount the contract is written to (e.g. ``/mnt/eve``)."""
+    embedding_model_dir: str = ""
+    """Local ONNX snapshot dir for ``corpus enrich embed`` (corpus ADR-0053).
+
+    Passed through as ``CORPUS_EMBEDDING_MODEL_DIR``; deployment, never contract —
+    the path is provisioned on the host (systemd unit), never hardcoded here. Empty
+    ⇒ not exported, and ``corpus enrich embed`` fails loud on the absent artifact
+    rather than falling back to an unlabeled generation.
+    """
 
     def _env(self) -> dict[str, str]:
-        return {**os.environ, "CORPUS_DATASETS_DIR": self.datasets_dir}
+        env = {**os.environ, "CORPUS_DATASETS_DIR": self.datasets_dir}
+        if self.embedding_model_dir:
+            env["CORPUS_EMBEDDING_MODEL_DIR"] = self.embedding_model_dir
+        return env
 
     def run(
         self,

@@ -334,6 +334,43 @@ def _do_context_backfill(args: list[str], sink: str) -> int:
     return 0
 
 
+def _do_enrich(args: list[str], sink: str) -> int:
+    """Mimics ``corpus enrich embed`` (ADR-0053): local ONNX run, archived as a fetch.
+
+    Fails when ``CORPUS_EMBEDDING_MODEL_DIR`` is absent, like the real binary (no
+    silent fallback to an unlabeled generation). ``--limit`` caps the chunks one
+    run embeds; the ledger makes a capped run resumable.
+    """
+    subcommand = args[1] if len(args) > 1 else ""
+    if subcommand != "embed":
+        print(f"enrich: unsupported subcommand {subcommand!r}", file=sys.stderr)
+        return 2
+    dataset = _pop_opt(args, "--dataset")
+    date = _pop_opt(args, "--date")
+    limit = _pop_opt(args, "--limit")
+    _pop_opt(args, "--model-dir")
+    if dataset is None:
+        print("enrich embed: --dataset required", file=sys.stderr)
+        return 2
+    if not os.environ.get("CORPUS_EMBEDDING_MODEL_DIR"):
+        print("enrich embed: no ONNX model artifact", file=sys.stderr)
+        return 1
+    chunks = int(limit) if limit is not None else 64
+    _write_bronze(sink, dataset, date or _FAKE_CONTEXT_DATE, objects=1)
+    print(
+        json.dumps(
+            {
+                "status": "ok",
+                "dataset": dataset,
+                "tier": "bronze",
+                "partition": _context_partition(date or _FAKE_CONTEXT_DATE),
+                "chunks_embedded": chunks,
+            }
+        )
+    )
+    return 0
+
+
 def _do_news(args: list[str], sink: str) -> int:
     """Mimics ``corpus news match-stats`` (ADR-0052): the entity-mention report.
 
@@ -892,6 +929,8 @@ def main(argv: list[str]) -> int:
         return _do_state(args, sink)
     if command == "news":
         return _do_news(args, sink)
+    if command == "enrich":
+        return _do_enrich(args, sink)
     print(f"fake corpus: unknown command {command!r}", file=sys.stderr)
     return 2
 

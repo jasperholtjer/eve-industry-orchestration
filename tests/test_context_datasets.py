@@ -9,14 +9,20 @@ job with a paid-work cap. No Silver, no Gold, no ready-dates sensor.
 from __future__ import annotations
 
 import dagster as dg
+import pytest
 
+from eve_industry_orchestration.defs.corpus_resource import CorpusResource
 from eve_industry_orchestration.defs.news import (
     GOLD_ASSETS,
     KNOWN_LISTED_NOT_ARCHIVED,
     NewsBackfillConfig,
     NewsDateConfig,
+    NewsEmbedConfig,
     news_backfill_job,
     news_bronze,
+    news_embeddings_bronze,
+    news_embeddings_gold,
+    news_embeddings_silver,
     news_entity_mentions_gold,
     news_listed_vs_archived,
     news_silver,
@@ -30,6 +36,7 @@ from eve_industry_orchestration.defs.transcripts import (
     transcripts_backfill_job,
     transcripts_bronze,
 )
+from tests.conftest import DATASETS_DIR
 
 # --- daily fetch asset -----------------------------------------------------
 
@@ -120,6 +127,67 @@ def test_entity_mentions_depends_on_the_sde_snapshot_gold() -> None:
     ]
     upstream = {key.to_user_string() for key in deps}
     assert upstream == {"news_silver", "sde_snapshot"}
+
+
+# --- news-embeddings: enrich → Silver → Gold (corpus ADR-0053) -------------
+
+
+def test_news_embeddings_chain_materialises(corpus) -> None:
+    bronze = news_embeddings_bronze(
+        dg.build_asset_context(), corpus, NewsEmbedConfig(date=_DATE, limit=100)
+    )
+    silver = news_embeddings_silver(
+        dg.build_asset_context(), corpus, NewsDateConfig(date=_DATE)
+    )
+    gold = news_embeddings_gold(
+        dg.build_asset_context(), corpus, NewsDateConfig(date=_DATE)
+    )
+
+    for result, tier in ((bronze, "bronze"), (silver, "silver"), (gold, "gold")):
+        assert result.metadata["dataset"] == "news-embeddings"
+        assert result.metadata["tier"] == tier
+        assert result.metadata["partition"] == _DATE
+
+
+def test_news_embeddings_bronze_holds_its_own_limit_one_pool() -> None:
+    # 4.4 GB RSS per embed run: its own pool (limit 1 in redeploy.sh) is what stops
+    # two embeds from ever overlapping. The `heavy` pool's limit of 2 would not.
+    assert news_embeddings_bronze.op.pool == "news_embed"
+    # The deterministic halves are cheap — no pool, global cap only.
+    assert news_embeddings_silver.op.pool is None
+    assert news_embeddings_gold.op.pool is None
+
+
+def test_news_embeddings_gold_depends_on_the_section_tree(corpus) -> None:
+    # Cross-dataset Gold input (ADR-0053): the join reads `gold/news-sections`, so
+    # it is a real upstream of the Gold build, not only of the embed step.
+    deps = news_embeddings_gold.asset_deps[dg.AssetKey(["news_embeddings_gold"])]
+    upstream = {key.to_user_string() for key in deps}
+    assert upstream == {"news_embeddings_silver", "news_sections_gold"}
+
+
+def test_news_embeddings_bronze_fails_without_the_model_artifact(
+    corpus_binary, tmp_path
+) -> None:
+    # No ONNX artifact ⇒ loud failure, never a silent fallback generation.
+    sink = tmp_path / "naked-sink"
+    sink.mkdir()
+    naked = CorpusResource(
+        binary_path=corpus_binary,
+        datasets_dir=str(DATASETS_DIR),
+        sink_path=str(sink),
+    )
+
+    with pytest.raises(dg.Failure):
+        news_embeddings_bronze(dg.build_asset_context(), naked, NewsEmbedConfig())
+
+
+def test_news_embeddings_ride_the_news_group_schedule() -> None:
+    # No new schedule: the group-targeted daily schedule picks them up in dep order.
+    embeddings = (news_embeddings_bronze, news_embeddings_silver, news_embeddings_gold)
+    for asset in embeddings:
+        assert asset.get_asset_spec().group_name == "news"
+        assert asset.partitions_def is None
 
 
 # --- asset check: listed vs archived (design §1.4) -------------------------

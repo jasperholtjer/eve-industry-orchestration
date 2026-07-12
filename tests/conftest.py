@@ -52,10 +52,15 @@ def corpus(corpus_binary: str, tmp_path: Path):
 
     sink = tmp_path / "sink"
     sink.mkdir()
+    model_dir = tmp_path / "bge-m3"
+    model_dir.mkdir()
     return CorpusResource(
         binary_path=corpus_binary,
         datasets_dir=str(DATASETS_DIR),
         sink_path=str(sink),
+        # `corpus enrich embed` (ADR-0053) fails loud without the ONNX artifact; the
+        # fake mirrors that, so the default fixture provisions a stand-in dir.
+        embedding_model_dir=str(model_dir),
     )
 
 
