@@ -9,6 +9,8 @@ from eve_industry_orchestration.defs import sde
 from eve_industry_orchestration.defs.config import sde_entities, sde_gold_derivatives
 from eve_industry_orchestration.defs.sde import (
     sde_changelog_gold,
+    sde_industry_facilities_gold,
+    sde_industry_hubs_gold,
     sde_industry_products_gold,
     sde_silver,
     sde_snapshot_gold,
@@ -54,6 +56,8 @@ def test_sde_gold_derivatives_from_config() -> None:
         ("sde-changelog", "entity-changelog"),
         ("sde-snapshot", "entity-snapshot"),
         ("sde-industry-products", "industry-products"),
+        ("sde-industry-facilities", "industry-facilities"),
+        ("sde-industry-hubs", "industry-hubs"),
     ]
 
 
@@ -146,6 +150,60 @@ def test_industry_products_skips_when_no_silver_committed(corpus) -> None:
 
     result = dg.materialize(
         [sde_industry_products_gold],
+        instance=instance,
+        resources={"corpus": corpus},
+    )
+
+    assert result.success
+    events = result.get_asset_materialization_events()
+    assert len(events) == 1
+    assert events[0].materialization.metadata["built"].value is False
+
+
+# --- industry-facilities + industry-hubs Gold (latest-only; ADR-0056) -------
+
+
+@pytest.mark.parametrize(
+    ("asset", "asset_key"),
+    [
+        (sde_industry_facilities_gold, "sde_industry_facilities"),
+        (sde_industry_hubs_gold, "sde_industry_hubs"),
+    ],
+)
+def test_industry_facility_assets_materialise_against_latest(
+    corpus,
+    monkeypatch: pytest.MonkeyPatch,
+    asset: dg.AssetsDefinition,
+    asset_key: str,
+) -> None:
+    monkeypatch.setenv("FAKE_SDE_BUILDS", BUILDS)
+    instance = _instance_with_builds(100)
+    _ingest_build(corpus, 100)
+
+    result = dg.materialize(
+        [asset],
+        instance=instance,
+        resources={"corpus": corpus},
+    )
+
+    assert result.success
+    events = result.get_asset_materialization_events()
+    assert len(events) == 1
+    assert events[0].asset_key.to_user_string() == asset_key
+    assert events[0].materialization.metadata["row_count"].value == 1
+
+
+@pytest.mark.parametrize(
+    "asset",
+    [sde_industry_facilities_gold, sde_industry_hubs_gold],
+)
+def test_industry_facility_assets_skip_when_no_silver_committed(
+    corpus, asset: dg.AssetsDefinition
+) -> None:
+    instance = dg.DagsterInstance.ephemeral()
+
+    result = dg.materialize(
+        [asset],
         instance=instance,
         resources={"corpus": corpus},
     )

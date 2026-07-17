@@ -34,3 +34,9 @@ gold:
   - name: sde-industry-products
     shape: industry-products
     sort_keys: [type_id]
+  - name: sde-industry-facilities
+    shape: industry-facilities
+    sort_keys: [facility_id]
+  - name: sde-industry-hubs
+    shape: industry-hubs
+    sort_keys: [region_id, solar_system_id]
