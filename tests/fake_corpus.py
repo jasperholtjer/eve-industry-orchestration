@@ -71,6 +71,11 @@ _DERIVATIVES: dict[str, list[str]] = {
         "news-entity-mentions",
         "news-events",
     ],
+    "transcripts": [
+        "transcripts-videos",
+        "transcripts-sections",
+        "transcripts-entity-mentions",
+    ],
 }
 # Per-derivative served_start, surfaced in `gold ready-dates` JSON.
 _SERVED_START: dict[str, str | None] = {
@@ -406,6 +411,41 @@ def _do_news(args: list[str], sink: str) -> int:
     return 0
 
 
+def _do_transcripts(args: list[str], sink: str) -> int:
+    """Mimics ``corpus transcripts match-stats`` (ADR-0055 §4c): the case-rule report.
+
+    The asset check reads ``report.videos`` (the videos Silver scanned = the *listed*
+    side of the scanned-vs-archived delta), ``report.corpus_basis`` and the
+    vocabulary fingerprint, so the fake reports those plus a token of the rest of the
+    real report's shape. ``FAKE_TRANSCRIPTS_VIDEOS`` injects the scanned-video count;
+    the archived side comes from the ledger (``state query`` over ``seen_documents``).
+    """
+    subcommand = args[1] if len(args) > 1 else ""
+    if subcommand != "match-stats":
+        print(f"transcripts: unsupported subcommand {subcommand!r}", file=sys.stderr)
+        return 2
+    videos = int(os.environ.get("FAKE_TRANSCRIPTS_VIDEOS", "12"))
+    print(
+        json.dumps(
+            {
+                "dependency_fingerprint": "sde-build-3021700",
+                "silver_partitions": 1,
+                "vocabulary_names": 1000,
+                "vocabulary_blocked": 10,
+                "report": {
+                    "videos": videos,
+                    "sections": videos * 8,
+                    "corpus_basis": "backfill measure (scope_hint=305 estimated channel)",
+                    "exact": {"total_matches": 40},
+                    "insensitive": {"total_matches": 44},
+                    "gained_by_insensitivity": [{"form": "Ishtar", "gained": 4}],
+                },
+            }
+        )
+    )
+    return 0
+
+
 def _do_live(args: list[str], sink: str) -> int:
     """Mimics ``corpus live build`` (ADR-0039): overwrite a flat ``current/``.
 
@@ -494,6 +534,8 @@ def _do_sde_gold_build(args: list[str], sink: str, derivative: str) -> int:
 
     if derivative == "sde-changelog":
         return _do_sde_changelog(args, sink, state, committed, build, release_date)
+    if derivative in ("sde-industry-facilities", "sde-industry-hubs"):
+        return _do_sde_industry(sink, state, derivative, build, release_date)
     return _do_sde_snapshot(sink, state, build, release_date)
 
 
@@ -568,6 +610,34 @@ def _do_sde_snapshot(sink: str, state: dict, build: int, release_date: str) -> i
                 "release_date": release_date,
                 "partition_key": "latest",
                 "entities_written": len(entities),
+            }
+        )
+    )
+    return 0
+
+
+def _do_sde_industry(
+    sink: str, state: dict, derivative: str, build: int, release_date: str
+) -> int:
+    # ADR-0056: latest-only industry derivatives, flat non-partitioned
+    # `gold/sde-industry-facilities|hubs/`, overwritten each build.
+    _write_flat(sink, "gold", derivative)
+
+    state["sde_gold"].setdefault(derivative, [])
+    if build not in state["sde_gold"][derivative]:
+        state["sde_gold"][derivative].append(build)
+        _save_state(sink, state)
+
+    print(
+        json.dumps(
+            {
+                "status": "written",
+                "dataset": derivative,
+                "derivative": derivative,
+                "build_id": build,
+                "release_date": release_date,
+                "partition_key": "latest",
+                "row_count": 1,
             }
         )
     )
@@ -873,9 +943,14 @@ def _do_state(args: list[str], sink: str) -> int:
     sql = _pop_opt(args, "--sql") or ""
     _pop_opt(args, "--format")
     state = _load_state(sink)
-    # The news listed-vs-archived asset check counts the seen-ledger (ADR-0045).
+    # The news/transcripts listed-vs-archived asset checks count the seen-ledger
+    # (ADR-0045), keyed on the dataset named in the WHERE clause.
     if "seen_documents" in sql:
-        dataset = "news" if "'news'" in sql else ""
+        dataset = ""
+        if "'news'" in sql:
+            dataset = "news"
+        elif "'transcripts'" in sql:
+            dataset = "transcripts"
         archived = int(state["seen_documents"].get(dataset, 0))
         print(json.dumps([{"archived": archived}]))
         return 0
@@ -929,6 +1004,8 @@ def main(argv: list[str]) -> int:
         return _do_state(args, sink)
     if command == "news":
         return _do_news(args, sink)
+    if command == "transcripts":
+        return _do_transcripts(args, sink)
     if command == "enrich":
         return _do_enrich(args, sink)
     print(f"fake corpus: unknown command {command!r}", file=sys.stderr)

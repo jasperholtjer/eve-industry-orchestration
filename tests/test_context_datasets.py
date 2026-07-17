@@ -29,12 +29,24 @@ from eve_industry_orchestration.defs.news import (
 )
 from eve_industry_orchestration.defs.sensors import (
     news_daily_schedule,
-    transcripts_bronze_schedule,
+    transcripts_daily_schedule,
 )
 from eve_industry_orchestration.defs.transcripts import (
+    GOLD_ASSETS as TRANSCRIPTS_GOLD_ASSETS,
+)
+from eve_industry_orchestration.defs.transcripts import (
+    KNOWN_SCANNED_NOT_ARCHIVED,
     TranscriptsBackfillConfig,
+    TranscriptsDateConfig,
+    TranscriptsEmbedConfig,
     transcripts_backfill_job,
     transcripts_bronze,
+    transcripts_embeddings_bronze,
+    transcripts_embeddings_gold,
+    transcripts_embeddings_silver,
+    transcripts_entity_mentions_gold,
+    transcripts_listed_vs_archived,
+    transcripts_silver,
 )
 from tests.conftest import DATASETS_DIR
 
@@ -78,11 +90,9 @@ def test_context_assets_join_no_pool() -> None:
 
 def test_schedules_are_daily_and_stopped() -> None:
     assert news_daily_schedule.cron_schedule == "0 22 * * *"
-    assert transcripts_bronze_schedule.cron_schedule == "30 22 * * *"
+    assert transcripts_daily_schedule.cron_schedule == "30 22 * * *"
     assert news_daily_schedule.default_status is dg.DefaultScheduleStatus.STOPPED
-    assert (
-        transcripts_bronze_schedule.default_status is dg.DefaultScheduleStatus.STOPPED
-    )
+    assert transcripts_daily_schedule.default_status is dg.DefaultScheduleStatus.STOPPED
 
 
 # --- news Silver + Gold chain (corpus ADR-0050/0052) ----------------------
@@ -266,3 +276,158 @@ def test_transcripts_backfill_job_runs_with_default_cap(corpus) -> None:
     result = transcripts_backfill_job.execute_in_process(resources={"corpus": corpus})
 
     assert result.success
+
+
+# --- transcripts Silver + Gold chain (corpus ADR-0055) --------------------
+
+
+def test_transcripts_silver_ingests_the_configured_fetch_date(corpus) -> None:
+    result = transcripts_silver(
+        dg.build_asset_context(), corpus, TranscriptsDateConfig(date=_DATE)
+    )
+
+    assert result.metadata["tier"] == "silver"
+    assert result.metadata["partition"] == _DATE
+
+
+def test_transcripts_silver_defaults_to_today(corpus) -> None:
+    # No run-config: the chain processes the fetch date `transcripts_bronze` archived.
+    assert TranscriptsDateConfig().date is None
+
+
+def test_transcripts_gold_builds_every_derivative(corpus) -> None:
+    transcripts_silver(
+        dg.build_asset_context(), corpus, TranscriptsDateConfig(date=_DATE)
+    )
+
+    for gold in TRANSCRIPTS_GOLD_ASSETS:
+        result = gold(
+            dg.build_asset_context(), corpus, TranscriptsDateConfig(date=_DATE)
+        )
+        assert result.metadata["tier"] == "gold"
+        assert result.metadata["partition"] == _DATE
+
+
+def test_transcripts_chain_is_not_partitioned() -> None:
+    # Fetch-date keyed like Bronze; a past date is re-run via run-config, never a
+    # Dagster partition matrix (transcripts.yaml declares no served_start).
+    assert transcripts_silver.partitions_def is None
+    for gold in TRANSCRIPTS_GOLD_ASSETS:
+        assert gold.partitions_def is None
+
+
+def test_transcripts_entity_mentions_depends_on_the_sde_snapshot_gold() -> None:
+    # Cross-dataset Gold input (ADR-0055): the vocabulary comes from the `sde-*`
+    # snapshot trees, so the SDE snapshot Gold is a real upstream.
+    deps = transcripts_entity_mentions_gold.asset_deps[
+        dg.AssetKey(["transcripts_entity_mentions_gold"])
+    ]
+    upstream = {key.to_user_string() for key in deps}
+    assert upstream == {"transcripts_silver", "sde_snapshot"}
+
+
+# --- transcripts-embeddings: enrich → Silver → Gold (corpus ADR-0053) ------
+
+
+def test_transcripts_embeddings_chain_materialises(corpus) -> None:
+    bronze = transcripts_embeddings_bronze(
+        dg.build_asset_context(), corpus, TranscriptsEmbedConfig(date=_DATE, limit=100)
+    )
+    silver = transcripts_embeddings_silver(
+        dg.build_asset_context(), corpus, TranscriptsDateConfig(date=_DATE)
+    )
+    gold = transcripts_embeddings_gold(
+        dg.build_asset_context(), corpus, TranscriptsDateConfig(date=_DATE)
+    )
+
+    for result, tier in ((bronze, "bronze"), (silver, "silver"), (gold, "gold")):
+        assert result.metadata["dataset"] == "transcripts-embeddings"
+        assert result.metadata["tier"] == tier
+        assert result.metadata["partition"] == _DATE
+
+
+def test_transcripts_embeddings_bronze_shares_the_news_embed_pool() -> None:
+    # Both datasets' embeds run the same ~4.4 GB ONNX model, so they share ONE
+    # limit-1 pool — no two embeds (news or transcripts) ever overlap on the box.
+    assert transcripts_embeddings_bronze.op.pool == "news_embed"
+    # The deterministic halves are cheap — no pool, global cap only.
+    assert transcripts_embeddings_silver.op.pool is None
+    assert transcripts_embeddings_gold.op.pool is None
+
+
+def test_transcripts_embeddings_gold_depends_on_the_section_tree(corpus) -> None:
+    # Cross-dataset Gold input (ADR-0053): the join reads `gold/transcripts-sections`,
+    # so it is a real upstream of the Gold build, not only of the embed step.
+    deps = transcripts_embeddings_gold.asset_deps[
+        dg.AssetKey(["transcripts_embeddings_gold"])
+    ]
+    upstream = {key.to_user_string() for key in deps}
+    assert upstream == {"transcripts_embeddings_silver", "transcripts_sections_gold"}
+
+
+def test_transcripts_embeddings_bronze_fails_without_the_model_artifact(
+    corpus_binary, tmp_path
+) -> None:
+    # No ONNX artifact ⇒ loud failure, never a silent fallback generation.
+    sink = tmp_path / "naked-sink"
+    sink.mkdir()
+    naked = CorpusResource(
+        binary_path=corpus_binary,
+        datasets_dir=str(DATASETS_DIR),
+        sink_path=str(sink),
+    )
+
+    with pytest.raises(dg.Failure):
+        transcripts_embeddings_bronze(
+            dg.build_asset_context(), naked, TranscriptsEmbedConfig()
+        )
+
+
+def test_transcripts_embeddings_ride_the_transcripts_group_schedule() -> None:
+    # No new schedule: the group-targeted daily schedule picks them up in dep order.
+    embeddings = (
+        transcripts_embeddings_bronze,
+        transcripts_embeddings_silver,
+        transcripts_embeddings_gold,
+    )
+    for asset in embeddings:
+        assert asset.get_asset_spec().group_name == "transcripts"
+        assert asset.partitions_def is None
+
+
+# --- asset check: scanned vs archived (plan §3) ---------------------------
+
+
+def test_transcripts_listed_vs_archived_reports_the_delta_without_failing(
+    corpus,
+) -> None:
+    # 12 scanned (fake match-stats) vs 12 archived (fake seen-ledger) = delta 0, the
+    # healthy ledger↔Silver reconciliation. Expected metadata, never a failure.
+    transcripts_bronze(dg.build_asset_context(), corpus)
+
+    result = transcripts_listed_vs_archived(dg.build_asset_check_context(), corpus)
+
+    assert result.passed
+    assert result.severity is dg.AssetCheckSeverity.WARN
+    assert result.metadata["listed"].value == 12
+    assert result.metadata["archived"].value == 12
+    assert result.metadata["scanned_not_archived"].value == KNOWN_SCANNED_NOT_ARCHIVED
+
+
+def test_transcripts_listed_vs_archived_passes_when_the_delta_grows(
+    corpus, monkeypatch
+) -> None:
+    monkeypatch.setenv("FAKE_TRANSCRIPTS_VIDEOS", "15")
+    transcripts_bronze(dg.build_asset_context(), corpus)
+
+    result = transcripts_listed_vs_archived(dg.build_asset_check_context(), corpus)
+
+    assert result.passed
+    assert result.metadata["scanned_not_archived"].value == 3
+
+
+def test_transcripts_listed_vs_archived_is_non_blocking() -> None:
+    assert (
+        transcripts_listed_vs_archived.check_specs_by_output_name["result"].blocking
+        is False
+    )

@@ -22,7 +22,7 @@ from eve_industry_orchestration.defs import industry_cost_indices_live as icil
 from eve_industry_orchestration.defs import market_orders as mo
 from eve_industry_orchestration.defs import market_orders_live as mol
 from eve_industry_orchestration.defs import market_prices_live as mpl
-from eve_industry_orchestration.defs import sde, transcripts
+from eve_industry_orchestration.defs import sde
 from eve_industry_orchestration.defs import system_jumps as sj
 from eve_industry_orchestration.defs import system_kills as sk
 from eve_industry_orchestration.defs.corpus_resource import CorpusResource
@@ -474,16 +474,21 @@ system_kills_pod_recent_schedule = _build_kills_recent_schedule(
 )
 
 
-# Daily rebuild of the latest-only SDE Gold catalogues (ADR-0032/0044). A
-# schedule, not a sensor: both are non-partitioned ("rebuild the latest"), like
+# Daily rebuild of the latest-only SDE Gold catalogues (ADR-0032/0044/0056). A
+# schedule, not a sensor: all are non-partitioned ("rebuild the latest"), like
 # the system-jumps recent asset. SDE only changes on a game patch (every few
-# days), so a daily cadence keeps the served catalogue + product universe fresh
-# without churn; the build-discovery + gold sensors already pick up new builds
-# for Silver and the changelog within the hour. Each asset self-skips when no
-# Silver is committed.
+# days), so a daily cadence keeps the served catalogue + product universe +
+# industry-facility/hub maps fresh without churn; the build-discovery + gold
+# sensors already pick up new builds for Silver and the changelog within the
+# hour. Each asset self-skips when no Silver is committed.
 sde_snapshot_schedule = dg.ScheduleDefinition(
     name="sde_snapshot_schedule",
-    target=[sde.sde_snapshot_gold, sde.sde_industry_products_gold],
+    target=[
+        sde.sde_snapshot_gold,
+        sde.sde_industry_products_gold,
+        sde.sde_industry_facilities_gold,
+        sde.sde_industry_hubs_gold,
+    ],
     cron_schedule="0 2 * * *",
     default_status=dg.DefaultScheduleStatus.STOPPED,
 )
@@ -558,9 +563,17 @@ news_daily_schedule = dg.ScheduleDefinition(
 )
 
 
-transcripts_bronze_schedule = dg.ScheduleDefinition(
-    name="transcripts_bronze_schedule",
-    target=transcripts.transcripts_bronze,
+# transcripts now carries a full Silver/Gold chain (ADR-0055), so its schedule
+# targets the whole `transcripts` group — fetch -> ingest -> videos/sections/
+# entity-mentions Gold (+ embeddings) — in one run, in dependency order, exactly
+# like `news_daily_schedule`. The embed step shares the `news_embed` limit-1 pool
+# with news-embeddings, so no two embeds overlap even though both schedules fire in
+# the same late-evening window (staggered 30 min apart). Annotations are NOT in this
+# group's scheduled chain: `transcripts-annotations` is a manual operator run via the
+# `annotate-transcripts` skill (contract `t2`), never a Dagster asset.
+transcripts_daily_schedule = dg.ScheduleDefinition(
+    name="transcripts_daily_schedule",
+    target=dg.AssetSelection.groups("transcripts"),
     cron_schedule="30 22 * * *",
     default_status=dg.DefaultScheduleStatus.STOPPED,
 )

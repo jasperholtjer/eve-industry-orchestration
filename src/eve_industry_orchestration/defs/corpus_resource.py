@@ -240,6 +240,20 @@ class CorpusResource(dg.ConfigurableResource):
         """
         return self._capture_json("news", "match-stats", "--sink-path", self.sink_path)
 
+    def transcripts_match_stats(self) -> dict[str, Any]:
+        """Returns the transcripts case-rule match report as a dict.
+
+        Wraps ``corpus transcripts match-stats`` (corpus ADR-0055 §4c), which scans
+        every ``_DONE``-sealed ``silver/transcripts`` partition against the SDE
+        snapshot vocabulary at the Gold root and prints its JSON report.
+        ``report.videos`` is the number of videos Silver scanned (each has an
+        archived transcript) — the *listed* side of the listed-vs-archived delta;
+        the ledger (``state query`` over ``seen_documents``) is the *archived* side.
+        """
+        return self._capture_json(
+            "transcripts", "match-stats", "--sink-path", self.sink_path
+        )
+
     def state_query(self, sql: str) -> list[dict[str, Any]]:
         """Runs a read-only ``corpus state query`` and returns the JSON rows."""
         return self._capture_json(

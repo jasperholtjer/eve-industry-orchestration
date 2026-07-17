@@ -57,20 +57,27 @@ The homelab deployment (LXC, NFS mount, build order) is documented in
   archival datasets keyed on the *fetch* date, the exception to the partition-matrix
   mould. Each shells `corpus context fetch` (raw CCP news RSS + article HTML, or the
   YouTube feed + Supadata transcripts) into a keep-forever
-  `bronze/<dataset>/year=/month=/day=/` partition. `transcripts` stops at Bronze;
-  `news` continues into Silver and four Gold trees (ADR-0050/0051/0052) —
-  `news-articles`, `news-sections`, `news-entity-mentions` (its SDE-name vocabulary
-  is a **cross-dataset Gold input**, so the asset also depends on
-  `sde_snapshot_gold`) and `news-events`. Every tier is **non-partitioned**: each
-  Gold derivative is a pure function of that fetch date's Silver alone (no
-  look-back, no coverage gate), so `news_daily_schedule` runs the whole chain in one
-  daily run and a past fetch date is re-processed via the `NewsDateConfig` run-config
-  instead of a partition matrix. The `news_listed_vs_archived` asset check surfaces
-  the listed-but-never-archived article delta (7 slugs that 500 at CCP) as metadata,
-  never as a failure. The historical sweep is a manually-triggered
-  `{news,transcripts}_backfill_job` with run-config caps (`max_articles` /
-  `max_videos`) over `corpus context backfill`. Neither dataset joins a concurrency
-  pool. Secrets ride the process env (ADR-0047) — see the deploy section.
+  `bronze/<dataset>/year=/month=/day=/` partition. Both continue into Silver and Gold:
+  `news` into four Gold trees (ADR-0050/0051/0052) — `news-articles`, `news-sections`,
+  `news-entity-mentions` and `news-events` — and `transcripts` into three (ADR-0055) —
+  `transcripts-videos`, `transcripts-sections`, `transcripts-entity-mentions` — plus a
+  single-derivative `*-embeddings` chain each (ADR-0053, `corpus enrich embed` → ingest
+  → gold). The `*-entity-mentions` and `*-embeddings` builds read the `sde-*` /
+  `*-sections` Gold trees as **cross-dataset Gold inputs**, so those assets also depend
+  on `sde_snapshot_gold` / the sections Gold. Every tier is **non-partitioned**: each
+  Gold derivative is a pure function of that fetch date's Silver alone (no look-back, no
+  coverage gate), so `news_daily_schedule` / `transcripts_daily_schedule` (group-targeted)
+  run the whole chain in one daily run and a past fetch date is re-processed via the
+  `{News,Transcripts}DateConfig` run-config instead of a partition matrix. Both embed
+  steps share the single `news_embed` limit-1 pool, so no two embeds ever overlap. The
+  `news_listed_vs_archived` / `transcripts_listed_vs_archived` asset checks surface the
+  listed-vs-archived delta as metadata, never as a failure. `transcripts-annotations` is
+  **never wired** — its generation is a manual operator run via the `annotate-transcripts`
+  skill (contract `t2`), like news keeps `corpus enrich annotate` out of Dagster. The
+  historical sweep is a manually-triggered `{news,transcripts}_backfill_job` with
+  run-config caps (`max_articles` / `max_videos`) over `corpus context backfill`. The
+  fetch/parse tiers join no concurrency pool. Secrets ride the process env (ADR-0047) —
+  see the deploy section.
 - **Availability sensors** (`defs/sensors.py`) and **schedules** — thin
   cap-and-dedup loops. A Silver sensor per dataset polls
   `corpus everef missing-partitions`; a Gold sensor per windowed derivative polls
