@@ -22,7 +22,7 @@ from eve_industry_orchestration.defs import industry_cost_indices_live as icil
 from eve_industry_orchestration.defs import market_orders as mo
 from eve_industry_orchestration.defs import market_orders_live as mol
 from eve_industry_orchestration.defs import market_prices_live as mpl
-from eve_industry_orchestration.defs import sde
+from eve_industry_orchestration.defs import mer, sde
 from eve_industry_orchestration.defs import system_jumps as sj
 from eve_industry_orchestration.defs import system_kills as sk
 from eve_industry_orchestration.defs.corpus_resource import CorpusResource
@@ -471,6 +471,74 @@ system_kills_npc_recent_schedule = _build_kills_recent_schedule(
 )
 system_kills_pod_recent_schedule = _build_kills_recent_schedule(
     sk.RECENT_DERIVATIVES[2], sk.system_kills_pod_recent_gold
+)
+
+
+# --- mer (monthly-archive, corpus ADR-0058) -------------------------------
+
+
+@dg.sensor(
+    target=[mer.mer_silver, mer.mer_killdump_silver],
+    minimum_interval_seconds=3600,
+    default_status=dg.DefaultSensorStatus.STOPPED,
+)
+def mer_report_discovery_sensor(
+    context: dg.SensorEvaluationContext, corpus: CorpusResource
+) -> dg.SensorResult:
+    """Discovers MER report-months, registers each partition, ingests both streams.
+
+    MER is monthly-archive: ``corpus everef list`` lists report-months (not days),
+    so the partition matrix is dynamic and grows here. New report-months
+    (``YYYY-MM-01``) are added to ``mer_report_months`` and one run per month is
+    requested — materialising **both** ``mer_silver`` and ``mer_killdump_silver``
+    from the same ZIP — oldest first, capped per tick. ``run_key`` dedup keeps an
+    already-requested month from re-queuing.
+
+    A late *revision* of an already-ingested month is not re-requested here (the
+    month key is already registered); revision re-latching is a manual operator
+    action until a corpus completeness/`Last-Modified` gate lands (ADR-0058
+    §Cadence), mirroring the SDE monotonic-discovery model.
+    """
+    reports = corpus.everef_list_reports(mer.DATASET)
+    discovered = sorted({r["report_month"] for r in reports})
+
+    existing = set(
+        mer.report_partitions.get_partition_keys(
+            dynamic_partitions_store=context.instance
+        )
+    )
+    new_months = [m for m in discovered if m not in existing]
+    selected = new_months[:MAX_PARTITIONS_PER_TICK]
+
+    deferred = len(new_months) - len(selected)
+    if deferred > 0:
+        context.log.info(
+            "mer-discovery: %d new report-months, requesting %d this tick, %d deferred",
+            len(new_months),
+            len(selected),
+            deferred,
+        )
+
+    run_requests = [
+        dg.RunRequest(run_key=f"mer-silver-{m}", partition_key=m) for m in selected
+    ]
+    return dg.SensorResult(
+        run_requests=run_requests,
+        dynamic_partitions_requests=[mer.report_partitions.build_add_request(selected)],
+    )
+
+
+# Daily rebuild of the five latest-only MER kern-series Gold trees (corpus
+# ADR-0058 §5). A schedule, not a sensor: each is a full cross-month point-in-time
+# merge over all committed Silver ("rebuild the merge"), with no per-date matrix
+# to diff. MER publishes monthly, so a daily cadence keeps the served history
+# fresh (picking up a new report-month within a day of the discovery sensor
+# ingesting it) without churn; each asset self-skips when no Silver is committed.
+mer_history_schedule = dg.ScheduleDefinition(
+    name="mer_history_schedule",
+    target=list(mer.HISTORY_GOLD_ASSETS),
+    cron_schedule="0 3 * * *",
+    default_status=dg.DefaultScheduleStatus.STOPPED,
 )
 
 

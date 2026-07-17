@@ -43,6 +43,14 @@ def _pop_flag(args: list[str], name: str) -> bool:
     return True
 
 
+def _peek_opt(args: list[str], name: str) -> str | None:
+    """Returns ``--name value`` without removing it (for dispatch on --dataset)."""
+    if name not in args:
+        return None
+    idx = args.index(name)
+    return args[idx + 1] if idx + 1 < len(args) else None
+
+
 # Known Gold derivatives per dataset (ADR-0025). A single-derivative dataset
 # resolves its lone derivative when `--derivative` is omitted; a multi-derivative
 # dataset is ambiguous without the selector, mirroring the real binary. The
@@ -64,6 +72,13 @@ _DERIVATIVES: dict[str, list[str]] = {
         "system-kills-pod-recent",
     ],
     "sde": ["sde-changelog", "sde-snapshot"],
+    "mer": [
+        "mer-money-supply",
+        "mer-economy-indices",
+        "mer-sinks-faucets",
+        "mer-commodity-sinks-faucets",
+        "mer-production-destruction",
+    ],
     "industry-cost-indices": ["industry-cost-indices-history"],
     "news": [
         "news-articles",
@@ -117,6 +132,7 @@ def _load_state(sink: str) -> dict:
             "skipped": [],
             "sde_silver": {},
             "sde_gold": {},
+            "mer_silver": [],
             "seen_documents": {},
         }
     state = json.loads(path.read_text(encoding="utf-8"))
@@ -128,6 +144,10 @@ def _load_state(sink: str) -> dict:
     # build -> release_date, and Gold built builds per derivative.
     state.setdefault("sde_silver", {})
     state.setdefault("sde_gold", {})
+    # MER monthly-archive state (corpus ADR-0058): committed `mer` blob-Silver
+    # report-months (`YYYY-MM-01`). `mer-killdump` Silver is written to disk but
+    # not tracked here (it has no Gold + no sensor keyed on its state).
+    state.setdefault("mer_silver", [])
     # Context-dataset seen-ledger (ADR-0045): documents actually archived, per
     # dataset — the `seen_documents` table the real binary keeps in run-state.
     state.setdefault("seen_documents", {})
@@ -644,10 +664,141 @@ def _do_sde_industry(
     return 0
 
 
+# --- MER monthly-archive path (corpus ADR-0058) ---------------------------
+
+
+def _mer_reports_env() -> list[str]:
+    """Upstream MER report-months, injected via ``FAKE_MER_REPORTS``.
+
+    A comma-separated list of ``YYYY-MM-01`` report-months (the partition
+    identity), e.g. ``2025-06-01,2025-07-01``.
+    """
+    raw = os.environ.get("FAKE_MER_REPORTS", "")
+    return sorted({m.strip() for m in raw.split(",") if m.strip()})
+
+
+def _resolve_months(args: list[str], available: list[str]) -> list[str] | None:
+    """Resolves ``--month`` / ``--range`` / ``--latest`` to report-months.
+
+    ``--month YYYY-MM`` → the matching ``YYYY-MM-01``; ``--range A..B`` → every
+    available report-month in ``[A-01, B-01]``; ``--latest`` → the newest.
+    """
+    month = _pop_opt(args, "--month")
+    rng = _pop_opt(args, "--range")
+    latest = _pop_flag(args, "--latest")
+    if latest:
+        return [available[-1]] if available else []
+    if month is not None:
+        return [f"{month}-01"]
+    if rng is not None:
+        lo, hi = rng.split("..")
+        lo, hi = f"{lo}-01", f"{hi}-01"
+        return [m for m in available if lo <= m <= hi]
+    return None
+
+
+def _do_mer_ingest(args: list[str], sink: str) -> int:
+    dataset = _pop_opt(args, "--dataset") or "mer"
+    available = _mer_reports_env()
+    months = _resolve_months(args, available)
+    if months is None:
+        print("ingest: --month/--range/--latest required for mer", file=sys.stderr)
+        return 2
+
+    written = []
+    for report_month in months:
+        if report_month not in available:
+            print(
+                f"ingest: report-month {report_month} not found upstream",
+                file=sys.stderr,
+            )
+            return 1
+        # corpus ADR-0058: Hive path year=/month=/day=01 under silver/<dataset>/.
+        _write_partition(sink, "silver", dataset, report_month, b"PAR1-fake")
+        written.append(report_month)
+
+    state = _load_state(sink)
+    if dataset == "mer":
+        for report_month in written:
+            if report_month not in state["mer_silver"]:
+                state["mer_silver"].append(report_month)
+        state["mer_silver"].sort()
+        _save_state(sink, state)
+
+    # The CLI prints one status object per report-month; the streaming resource
+    # keeps the last, so emit the last month's status.
+    last = written[-1]
+    print(
+        json.dumps(
+            {
+                "status": "written",
+                "dataset": dataset,
+                "report_month": last,
+                "partition_key": f"month={last}",
+                "rows": 1,
+            }
+        )
+    )
+    return 0
+
+
+def _do_mer_gold_build(args: list[str], sink: str, derivative: str) -> int:
+    # MER Gold takes no selector: a full cross-month merge over all committed
+    # `mer` Silver (corpus ADR-0058 §5), year-partitioned by history_date.
+    state = _load_state(sink)
+    if not state["mer_silver"]:
+        print("gold build: no committed mer Silver", file=sys.stderr)
+        return 1
+
+    concept = {
+        "mer-money-supply": "money_supply",
+        "mer-economy-indices": "economy_indices_details",
+        "mer-sinks-faucets": "sinks_and_faucets_history",
+        "mer-commodity-sinks-faucets": "commodity_sinks_and_faucets_history",
+        "mer-production-destruction": "produced_destroyed_mined",
+    }.get(derivative, "unknown")
+
+    # Year-partition the merge by the report-months' years (a stand-in for
+    # history_date years — enough to exercise the contract).
+    years = sorted({int(m[:4]) for m in state["mer_silver"]})
+    for year in years:
+        _write_partition(sink, "gold", derivative, f"{year}-01-01", b"PAR1-fake-gold")
+    state["gold"].setdefault(derivative, [])
+    _save_state(sink, state)
+
+    print(
+        json.dumps(
+            {
+                "status": "written",
+                "dataset": derivative,
+                "derivative": derivative,
+                "concept": concept,
+                "years": len(years),
+                "row_count": len(state["mer_silver"]),
+            }
+        )
+    )
+    return 0
+
+
 def _do_everef_list(args: list[str], sink: str) -> int:
+    dataset = _peek_opt(args, "--dataset")
     _pop_opt(args, "--dataset")
     _pop_opt(args, "--year")
     _pop_opt(args, "--format")
+    if dataset in ("mer", "mer-killdump"):
+        payload = [
+            {
+                "report_month": report_month,
+                "url": f"https://data.everef.net/ccp/mer/{report_month[:4]}/EVEOnline_MER_{report_month[:7]}.zip",
+                "filename": f"EVEOnline_MER_{report_month[:7]}.zip",
+                "size": 1,
+                "last_modified": f"{report_month}T00:00:00+00:00",
+            }
+            for report_month in _mer_reports_env()
+        ]
+        print(json.dumps(payload))
+        return 0
     builds = _sde_builds_env()
     payload = [
         {
@@ -663,6 +814,8 @@ def _do_everef_list(args: list[str], sink: str) -> int:
 
 
 def _do_ingest(args: list[str], sink: str) -> int:
+    if _peek_opt(args, "--dataset") in ("mer", "mer-killdump"):
+        return _do_mer_ingest(args, sink)
     if "--build" in args or "--latest" in args:
         return _do_sde_ingest(args, sink)
     dataset = _pop_opt(args, "--dataset")
@@ -795,6 +948,18 @@ def _do_gold_ready_dates(args: list[str], sink: str) -> int:
 
 
 def _do_gold_build(args: list[str], sink: str) -> int:
+    if _peek_opt(args, "--dataset") == "mer":
+        _pop_opt(args, "--dataset")
+        derivative_arg = _pop_opt(args, "--derivative")
+        derivative = _resolve_derivative("mer", derivative_arg)
+        if derivative is None:
+            print(
+                "gold build: mer declares multiple derivatives; pass --derivative",
+                file=sys.stderr,
+            )
+            return 2
+        return _do_mer_gold_build(args, sink, derivative)
+
     if "--build" in args or "--latest" in args:
         dataset = _pop_opt(args, "--dataset")
         derivative_arg = _pop_opt(args, "--derivative")
@@ -960,6 +1125,18 @@ def _do_state(args: list[str], sink: str) -> int:
         rows = [
             {"dataset": "sde", "tier": "silver", "partition_key": f"build={build}"}
             for build in sorted(int(b) for b in state["sde_silver"])
+        ]
+        print(json.dumps(rows))
+        return 0
+    # The MER Gold assets query committed `mer` blob Silver (corpus ADR-0058 §5).
+    if "dataset = 'mer'" in sql:
+        rows = [
+            {
+                "dataset": "mer",
+                "tier": "silver",
+                "partition_key": f"month={report_month}",
+            }
+            for report_month in sorted(state["mer_silver"])
         ]
         print(json.dumps(rows))
         return 0

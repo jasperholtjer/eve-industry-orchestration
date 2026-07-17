@@ -1,0 +1,61 @@
+name: mer
+schema_version: 1
+# Monthly Economic Report — macro aggregates (ADR-0058). NOT a daily time-series:
+# a partition is a report-month, one ZIP bundling ~13–20 heterogeneous CSVs
+# across three schema eras. The kill_dump CSV is the separate `mer-killdump`
+# dataset (grain + volume split, ADR-0058 §2).
+source:
+  kind: everef
+  layout: monthly-archive
+  base_url: https://data.everef.net/ccp/mer
+  # First report-month of the era-3 packaging (YYYYMM naming, data/ split).
+  # Consumed only to place a CSV's provenance `era`; a CSV's column schema is
+  # per-CSV header detection (a single ZIP mixes eras, filenames lie).
+  era3_start: 2025-08-01
+bronze:
+  # EVE Ref archives are idempotently re-downloadable; Bronze is a
+  # download-avoidance cache. MER macro volume is small; 30d spans a publish
+  # cycle for parser-bug discovery.
+  retention_days: 30
+silver:
+  # zstd-19 pinned by the committed golden hashes. Source-faithful (ADR-0007):
+  # every non-kill CSV row kept verbatim as a JSON object in `row_json`; column
+  # promotion happens at Gold. Uniform schema in `ingestor-mer/src/schema.rs`.
+  parquet_codec: zstd
+  parquet_codec_level: 19
+  # Coverage floor + discovery year floor (ADR-0027): the corpus 2021 era.
+  served_start: 2021-01-01
+  # Blob Silver `(concept, report_month, row_index, era, source_file, row_json)`,
+  # sorted `[concept, report_month, row_index]`. Validated against the builder.
+  sort_keys: [concept, report_month, row_index]
+# ADR-0058 §5 — five canonical point-in-time kern-series Gold trees. Each unions
+# its concept's blob-Silver rows across every report-month partition, canonical-
+# renames (era-agnostic, on the raw column name), and emits one observation per
+# (business key, history_date, report_month) carrying `available_at`. Year-
+# partitioned by history_date. `mer-history.concept` selects the concept.
+gold:
+  - name: mer-money-supply
+    shape: mer-history
+    sort_keys: [history_date, report_month]
+    mer-history:
+      concept: money_supply
+  - name: mer-economy-indices
+    shape: mer-history
+    sort_keys: [history_date, primary_index, sub_index, report_month]
+    mer-history:
+      concept: economy_indices_details
+  - name: mer-sinks-faucets
+    shape: mer-history
+    sort_keys: [history_date, entry_id, report_month]
+    mer-history:
+      concept: sinks_and_faucets_history
+  - name: mer-commodity-sinks-faucets
+    shape: mer-history
+    sort_keys: [history_date, group_id, report_month]
+    mer-history:
+      concept: commodity_sinks_and_faucets_history
+  - name: mer-production-destruction
+    shape: mer-history
+    sort_keys: [history_date, location_metagroup, report_month]
+    mer-history:
+      concept: produced_destroyed_mined

@@ -228,6 +228,27 @@ class CorpusResource(dg.ConfigurableResource):
             "json",
         )
 
+    def everef_list_reports(self, dataset: str) -> list[dict[str, Any]]:
+        """Returns discovered upstream report-months for a monthly-archive dataset.
+
+        Wraps ``corpus everef list`` (corpus ADR-0058), which lists report-months
+        (not days) for the ``monthly-archive`` layout (MER). Each row holds
+        ``report_month`` (``YYYY-MM-01``, the partition identity), ``url``,
+        ``filename``, ``size``, and ``last_modified``. Drives the MER
+        report-discovery sensor. ``--sink-path`` is accepted but unused by the
+        monthly-archive discovery (network-only), matching ``everef_list_builds``.
+        """
+        return self._capture_json(
+            "everef",
+            "list",
+            "--dataset",
+            dataset,
+            "--sink-path",
+            self.sink_path,
+            "--format",
+            "json",
+        )
+
     def news_match_stats(self) -> dict[str, Any]:
         """Returns the news entity-mention tuning report as a dict.
 

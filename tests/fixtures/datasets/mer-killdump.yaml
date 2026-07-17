@@ -1,0 +1,25 @@
+name: mer-killdump
+schema_version: 1
+# Monthly Economic Report — per-kill events (ADR-0058). The kill_dump CSV split
+# out of `mer` (its own dataset): 95% of MER volume, a per-kill grain (vs
+# monthly-aggregate), a 3-schema drift, and an overlap with a future `killmails`
+# dataset. Silver-only, no Gold (kept for CCP's own ISK valuations + pre-zKB
+# history). Same monthly-archive source as `mer` — the same ZIP, a different CSV.
+source:
+  kind: everef
+  layout: monthly-archive
+  base_url: https://data.everef.net/ccp/mer
+  era3_start: 2025-08-01
+bronze:
+  retention_days: 30
+silver:
+  # zstd-19 pinned by the committed golden hashes. Source-faithful (ADR-0007):
+  # typed era-superset — the union of all three eras' raw column names, nullable
+  # where an era lacks a column, no renames. Uniform across partitions so
+  # downstream joins never branch on era (ADR-0058 §4b).
+  parquet_codec: zstd
+  parquet_codec_level: 19
+  served_start: 2021-01-01
+  # No stable business key exists → `(report_month, row_index)` is a
+  # deterministic order. Validated against the builder.
+  sort_keys: [report_month, row_index]
