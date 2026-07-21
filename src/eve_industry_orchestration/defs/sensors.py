@@ -19,6 +19,7 @@ import dagster as dg
 
 from eve_industry_orchestration.defs import industry_cost_indices as ici
 from eve_industry_orchestration.defs import industry_cost_indices_live as icil
+from eve_industry_orchestration.defs import killmails as km
 from eve_industry_orchestration.defs import market_orders as mo
 from eve_industry_orchestration.defs import market_orders_live as mol
 from eve_industry_orchestration.defs import market_prices_live as mpl
@@ -394,6 +395,158 @@ structure_population_history_gold_sensor = _build_structures_gold_sensor(
     st.structure_population_history_gold,
     st.population_gold_partitions,
 )
+
+
+# --- killmails (consumption demand history, corpus ADR-0059/0060/0061) ----
+#
+# Four sensors, not two. The usual pair (availability + Gold readiness) covers the
+# normal forward path; the other two exist because killmail partitions are the
+# only **mutable** ones in the corpus. A day keeps growing upstream long after
+# first archival, and neither of the normal signals can see that: `everef
+# missing-partitions` reports only days with no partition at all, and `gold
+# ready-dates` only days whose Gold does not yet exist. Left alone, a day would be
+# frozen at its first-ingest count forever.
+
+
+@dg.sensor(
+    target=km.killmails_silver,
+    minimum_interval_seconds=3600,
+    default_status=dg.DefaultSensorStatus.STOPPED,
+)
+def killmails_availability_sensor(
+    context: dg.SensorEvaluationContext, corpus: CorpusResource
+) -> dg.SensorResult:
+    """Requests Silver runs for killmail dates newly available upstream."""
+    report = corpus.everef_missing_partitions(km.DATASET)
+    return request_partitions(
+        context,
+        reported=report.get("missing", []),
+        valid=set(km.silver_partitions.get_partition_keys()),
+        run_key_prefix=f"{km.DATASET}-silver",
+        asset_key=km.killmails_silver.key,
+        label="availability",
+    )
+
+
+@dg.sensor(
+    target=km.killmails_consumption_gold,
+    minimum_interval_seconds=3600,
+    default_status=dg.DefaultSensorStatus.STOPPED,
+)
+def killmails_consumption_gold_sensor(
+    context: dg.SensorEvaluationContext, corpus: CorpusResource
+) -> dg.SensorResult:
+    """Requests Gold runs for killmail dates whose Silver window is complete.
+
+    Polls ``corpus gold ready-dates --derivative killmails-consumption`` — the
+    binary owns the readiness decision (target-day Silver present, the 365-day
+    window at ``coverage_min_ratio``, Gold not yet built) — and stays a thin
+    cap-and-dedup loop.
+
+    It does not check the SDE snapshot or market-history Gold the build joins
+    against: the build reads both and fails loud when either is absent, and a
+    stale-but-present upstream is a fingerprint recorded in ``_INDEX.json``, never
+    a run this sensor triggers.
+    """
+    report = corpus.gold_ready_dates(km.DATASET, derivative=km.CONSUMPTION_DERIVATIVE)
+    return request_partitions(
+        context,
+        reported=report.get("ready", []),
+        valid=set(km.gold_partitions.get_partition_keys()),
+        run_key_prefix=f"{km.CONSUMPTION_DERIVATIVE}-gold",
+        asset_key=km.killmails_consumption_gold.key,
+        label="gold-readiness",
+    )
+
+
+@dg.sensor(
+    target=km.killmails_silver,
+    # Daily, not hourly. Drift is slow-moving — zKillboard surfaces old kills over
+    # days to years — and each tick costs an upstream `totals.json` fetch plus, on
+    # a hit, a re-ingest of the corpus's heaviest Silver. Hourly would buy nothing
+    # and re-parse a lot.
+    minimum_interval_seconds=86400,
+    default_status=dg.DefaultSensorStatus.STOPPED,
+)
+def killmails_freshness_sensor(
+    context: dg.SensorEvaluationContext, corpus: CorpusResource
+) -> dg.SensorResult:
+    """Re-proposes killmail days whose upstream kill count has changed (ADR-0060).
+
+    ``corpus killmails freshness`` diffs upstream's root ``totals.json`` against
+    the count each partition recorded at ingest. A day it reports has genuinely
+    grown upstream, so re-ingesting it is not a retry — it is the repair, and the
+    only path by which late-discovered destruction enters the corpus.
+
+    The binary is read-only; the *decision* to re-propose lives here, which is why
+    this is a sensor and not a corpus side effect. Rotating ``run_key`` tokens make
+    the re-request legal even though the date already materialised once, and the
+    shared in-flight guard keeps this and the availability sensor from putting two
+    writers on one partition. Self-limiting: once the repair ingest updates the
+    token the day stops being reported.
+    """
+    drifted = corpus.killmails_freshness(km.DATASET)
+    dates = [str(row["date"]) for row in drifted if row.get("date")]
+    if dates:
+        context.log.info(
+            "killmails-freshness: %d day(s) drifted upstream, re-proposing for "
+            "re-ingest (oldest first)",
+            len(dates),
+        )
+    return request_partitions(
+        context,
+        reported=dates,
+        valid=set(km.silver_partitions.get_partition_keys()),
+        run_key_prefix=f"{km.DATASET}-freshness",
+        asset_key=km.killmails_silver.key,
+        label="freshness",
+    )
+
+
+@dg.sensor(
+    target=km.killmails_consumption_gold,
+    minimum_interval_seconds=86400,
+    default_status=dg.DefaultSensorStatus.STOPPED,
+)
+def killmails_consumption_gold_repair_sensor(
+    context: dg.SensorEvaluationContext, corpus: CorpusResource
+) -> dg.SensorResult:
+    """Rebuilds Gold for killmail days whose Silver was re-ingested underneath it.
+
+    The other half of the drift repair. ``gold ready-dates`` reports only days with
+    no Gold yet, so a day repaired by
+    :func:`killmails_freshness_sensor` would keep serving Gold built from the
+    superseded Silver — sealed, sha-consistent, and wrong. This sensor asks
+    run-state which Gold partitions predate their own Silver
+    (``silver.last_seen_at > gold.last_seen_at``) and rebuilds exactly those.
+
+    Ordering is implicit and needs no cross-sensor bookkeeping: ``last_seen_at``
+    only moves once the repair ingest **commits**, so a day becomes eligible here
+    on the tick after its Silver settles, never before.
+
+    Scope is deliberately the repaired day itself, not its forward window. A
+    changed day D also feeds the window features of D+1..D+365, so those stay
+    marginally stale until independently rebuilt; rebuilding 366 partitions per
+    drifted day would put the corpus's heaviest build in a multi-day queue for a
+    handful of late-discovered kills. The day's own base columns
+    (``qty_destroyed``, ``isk_value_destroyed``) — the ones consumers read
+    directly — are made correct.
+    """
+    stale = corpus.stale_gold_dates(km.DATASET, km.CONSUMPTION_DERIVATIVE)
+    if stale:
+        context.log.info(
+            "killmails-gold-repair: %d Gold partition(s) predate their Silver, "
+            "rebuilding (oldest first)",
+            len(stale),
+        )
+    return request_partitions(
+        context,
+        reported=stale,
+        valid=set(km.gold_partitions.get_partition_keys()),
+        run_key_prefix=f"{km.CONSUMPTION_DERIVATIVE}-repair",
+        asset_key=km.killmails_consumption_gold.key,
+        label="gold-repair",
+    )
 
 
 # --- sde (build-versioned, ADR-0031) --------------------------------------

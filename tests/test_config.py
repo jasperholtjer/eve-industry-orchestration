@@ -262,3 +262,36 @@ def test_structures_silver_start_is_shared_and_floor_clamped(derivative: str) ->
 def test_structures_ambiguous_without_selector() -> None:
     with pytest.raises(PartitionConfigError):
         resolve_partition_starts(STRUCTURES, datasets_dir=str(DATASETS_DIR))
+
+
+# --- killmails: the kills-consumption shape (corpus ADR-0061) -------------
+
+KILLMAILS = "killmails"
+CONSUMPTION = "killmails-consumption"
+
+
+def test_kills_consumption_gold_start_is_its_served_start() -> None:
+    starts = resolve_partition_starts(
+        KILLMAILS, CONSUMPTION, datasets_dir=str(DATASETS_DIR)
+    )
+    assert starts.gold == "2022-01-01"
+
+
+def test_kills_consumption_silver_start_is_clamped_to_the_coverage_floor() -> None:
+    """The derived preload reaches a day before the floor; the floor wins.
+
+    2022-01-01 minus the 365-day max horizon is 2021-01-01 exactly — but 2021 is
+    not a leap year, so the derived preload lands on 2020-12-31 while the dataset
+    declares ``silver.served_start: 2021-01-01``. The ADR-0027 clamp is what keeps
+    the matrix off a day the Silver contract does not serve.
+    """
+    starts = resolve_partition_starts(
+        KILLMAILS, CONSUMPTION, datasets_dir=str(DATASETS_DIR)
+    )
+    assert starts.silver == "2021-01-01"
+
+
+def test_kills_consumption_resolves_without_the_selector() -> None:
+    """killmails declares exactly one derivative, so the selector is optional."""
+    starts = resolve_partition_starts(KILLMAILS, datasets_dir=str(DATASETS_DIR))
+    assert (starts.silver, starts.gold) == ("2021-01-01", "2022-01-01")

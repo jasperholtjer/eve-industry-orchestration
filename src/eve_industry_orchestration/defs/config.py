@@ -311,6 +311,13 @@ def _lookback_for_shape(name: str, shape: str, entry: dict[str, Any]) -> int | N
         return _ewma_lookback(name, entry.get("ewma"), key="ewma")
     if shape in ("orderbook-aggregate", "orderbook-delta", "orderbook-events"):
         return _ORDERBOOK_LOOKBACK_DAYS
+    if shape == "kills-consumption":
+        # The killmails demand history (corpus ADR-0061) carries the same `flat`
+        # block as flat-multi-horizon — a max horizon over a daily-rollup series —
+        # so its Silver preload is max(flat.horizons) too. It is a distinct shape
+        # only because its builder pins a composite key and two cross-dataset
+        # joins, none of which affect the window.
+        return _flat_lookback(name, entry.get("flat"), key="flat")
     if shape == "kills-flat":
         return _flat_lookback(name, entry.get("kills-flat"), key="kills-flat")
     if shape == "kills-recent":

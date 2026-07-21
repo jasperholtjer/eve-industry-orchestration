@@ -25,7 +25,8 @@ The homelab deployment (LXC, NFS mount, build order) is documented in
   `CORPUS_<DATASET>_<TIER>_START`, or per derivative with
   `CORPUS_<DATASET>_<DERIVATIVE>_GOLD_START`.
 - **Dataset assets** (`defs/market_history.py`, `defs/system_jumps.py`,
-  `defs/market_orders.py`, `defs/system_kills.py`, `defs/structures.py`) —
+  `defs/market_orders.py`, `defs/system_kills.py`, `defs/structures.py`,
+  `defs/killmails.py`) —
   daily-partitioned Silver and
   Gold assets, with **distinct** partition start dates (Silver reaches back one
   window before Gold). Gold depends on Silver via `deps=` (lineage only). A
@@ -46,6 +47,10 @@ The homelab deployment (LXC, NFS mount, build order) is documented in
   and `structure-population-history` (a 30-day churn window, so served a month
   later) — each with its own partition matrix and readiness sensor, and both
   depending on `sde_snapshot_gold` for the `type_id → facility_class` resolution.
+  `killmails` (ADR-0059/0061) has one daily-partitioned `kills-consumption`
+  derivative that depends on **two** other Gold trees — `sde_snapshot_gold` for
+  the region map and `market_history_gold` for the reference price — and is the
+  one dataset whose partitions **mutate**: see "Mutable partitions" below.
   Every derivative name
   differs from the dataset, so each Gold call passes `--derivative`; Gold verify
   keys on the derivative name (its own `gold/<derivative>/...` tree).
@@ -96,6 +101,23 @@ The homelab deployment (LXC, NFS mount, build order) is documented in
   committed Silver), and `sde_snapshot_schedule` (daily rematerialise of the
   non-partitioned latest snapshot and `sde-industry-products`). All key status on corpus run-state, never on
   globbing the NAS tree; `run_key` dedup prevents re-queuing in-flight work.
+- **Mutable partitions** (`killmails` only, corpus ADR-0060) — every other everef
+  partition is immutable once published, so `_DONE` plus the recorded source
+  sha256 is a complete freshness contract. Killmail days are not: zKillboard keeps
+  discovering old kills and EVE Ref re-archives the day with more members, months
+  or years later. Neither normal signal can see that — `missing-partitions` reports
+  only days with **no** partition, `ready-dates` only days with **no** Gold — so
+  the dataset carries two extra sensors. `killmails_freshness_sensor` polls
+  `corpus killmails freshness --json` (upstream's own `totals.json` diffed against
+  the count each partition recorded at ingest) and re-proposes the changed days for
+  re-ingest; `killmails_consumption_gold_repair_sensor` then rebuilds the Gold
+  those days feed, asking run-state which Gold partitions predate their own Silver
+  (`silver.last_seen_at > gold.last_seen_at`) — stateless, and correctly ordered
+  because `last_seen_at` only moves once the repair ingest commits. Both run daily.
+  Repair scope is the changed day itself, **not** its 365-day forward window: that
+  day's `qty_destroyed` / `isk_value_destroyed` become correct while downstream
+  window features stay marginally stale, a deliberate trade against queueing 366
+  heavy builds per drifted day.
 - **Serving-load assets** (`defs/serving.py`, `defs/serving_resource.py`) — the
   "when" of the serving tier. `ServingResource` shells the idempotent
   `eve-serving load` CLI on the DB-VM over SSH (the corpus account's existing key;

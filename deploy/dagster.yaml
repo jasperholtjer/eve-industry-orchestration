@@ -21,6 +21,14 @@
 #        coordinator mixes builds. system-jumps/system-kills/cost-indices Gold use
 #        the same 365d window but over ~5k-row/day narrow snapshots (measured peak
 #        ~90-97 MiB), so they omit `pool=` and stay on the global cap alone.
+#        killmails Gold (corpus ADR-0061) joins `heavy` PROVISIONALLY — the one
+#        member admitted on expectation rather than measurement, because it is the
+#        only 365-day window over the corpus's largest Silver (1-3M item-rows/day)
+#        and an unbounded 3-4 GB build would OOM the LXC mid-backfill. MEASURE IT
+#        with `/usr/bin/time -v` on a real day and drop `pool=` in defs/killmails.py
+#        if the peak lands with the narrow builds. killmails SILVER stays out: the
+#        day tar is a few MiB and the parse holds narrow rows, so it takes only
+#        `everef_download`.
 #      - `market_orders` (limit 1, set via CLI in redeploy.sh — see below): CPU.
 #        market-orders Silver is the ONLY ingestor that parses with rayon, so a
 #        single run saturates every core on the box; a second concurrent run only
@@ -44,8 +52,8 @@
 #        OOM-killed run resumes on the next materialisation with no data loss.
 #      - `everef_download` (limit 2 via `default_limit`): POLITENESS to
 #        data.everef.net. The light Silver fetches (market-history, system-jumps,
-#        system-kills, sde). EVE Ref endorses a small fan-out (its rclone example
-#        uses `--transfers 2`), so 2 concurrent.
+#        system-kills, killmails, sde). EVE Ref endorses a small fan-out (its
+#        rclone example uses `--transfers 2`), so 2 concurrent.
 #    `heavy` and `everef_download` want 2, so `default_limit: 2` covers them with
 #    no per-pool override. `market_orders` and `news_embed` need limit 1, which the
 #    yaml cannot express (only `default_limit` lives here) — redeploy.sh sets each
@@ -63,6 +71,12 @@
 # row diffs / blob passthroughs over a single build's Silver, not a windowed scan,
 # so they are light. SDE builds are rare (game patches), so neither pool is under
 # pressure from it.
+#
+# The two killmails drift sensors (corpus ADR-0060) run DAILY, not hourly: drift
+# is slow-moving and each hit costs a re-ingest of the heaviest Silver plus a
+# `heavy` Gold rebuild. They share the same caps as every other launch path, and
+# `MAX_PARTITIONS_PER_TICK` bounds a drift storm to 10 repairs per tick — so the
+# repair loop can slow a backfill but never stampede it.
 #
 # The hourly `system_jumps_recent_schedule` is deliberately NOT in the
 # `heavy` pool: the EWMA "recent" build spans only the short warmup, so it is

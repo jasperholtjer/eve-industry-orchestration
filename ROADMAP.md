@@ -24,6 +24,10 @@ Verified against `crates/corpus-cli/src/main.rs`. `--sink-path` is a global flag
   for Gold, `--dataset` is the **derivative** name (each derivative is its own
   Gold tree, `gold/<derivative>/...`).
 - `corpus state query --sql <sql> --format json` — read-only, JSON for sensors.
+- `corpus killmails freshness --dataset killmails --format json` — the mutable-
+  partition drift report (corpus ADR-0060). Emits a bare JSON **array** of
+  `{date, ingested_count, upstream_count}`, not an envelope. Read-only: it does
+  not re-ingest, it only names the days whose upstream kill count changed.
 - `corpus everef missing-partitions --dataset <name> --window-days <n> --format json`
   — diff EVE Ref availability against the local `partitions` table.
 - `corpus mirror --dataset <name> --year <y> --month <m>` — rsync NVMe Gold -> NAS.

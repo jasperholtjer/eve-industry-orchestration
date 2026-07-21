@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from collections import deque
 from typing import Any
@@ -14,6 +15,10 @@ import dagster as dg
 # error (e.g. `Error: parse / Caused by: schema mismatch ...`) surfaces in the
 # Dagster Failure instead of only the command line.
 _FAILURE_TAIL_LINES = 20
+
+# Dataset and Gold-derivative names as corpus spells them: lowercase, digits, and
+# hyphens. The only shape allowed into a state-query WHERE clause.
+_DATASET_NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
 
 
 def _parse_status_line(line: str) -> dict[str, Any] | None:
@@ -208,6 +213,73 @@ class CorpusResource(dg.ConfigurableResource):
         if derivative is not None:
             args += ["--derivative", derivative]
         return self._capture_json(*args)
+
+    def killmails_freshness(self, dataset: str = "killmails") -> list[dict[str, Any]]:
+        """Returns the served Silver days whose upstream kill count has changed.
+
+        Wraps ``corpus killmails freshness`` (corpus ADR-0060). Killmail days are
+        the corpus's only **mutable** partitions — zKillboard keeps discovering
+        old kills and EVE Ref re-archives the day with more members — so ``_DONE``
+        plus a source sha256 is not a complete freshness contract there. The
+        binary fetches upstream's root ``totals.json`` and diffs it against the
+        count each partition recorded at ingest; it is read-only and does **not**
+        re-ingest. Each row holds ``date``, ``ingested_count`` (``null`` for a
+        partition ingested before the token existed) and ``upstream_count``.
+
+        Returns a bare JSON array, not an envelope — that is the sensor contract.
+        """
+        return self._capture_json(
+            "killmails",
+            "freshness",
+            "--dataset",
+            dataset,
+            "--sink-path",
+            self.sink_path,
+            "--format",
+            "json",
+        )
+
+    def stale_gold_dates(self, dataset: str, derivative: str) -> list[str]:
+        """Returns dates whose Gold was built before its Silver was last written.
+
+        ``corpus gold ready-dates`` reports only dates whose Gold does **not yet**
+        exist, so a day whose Silver is re-ingested after its Gold was built is
+        never re-proposed — the Gold silently keeps serving the superseded Silver.
+        That is a real gap for ``killmails``, whose partitions mutate by design
+        (corpus ADR-0060), and it is invisible to every other signal.
+
+        The run-state ``partitions`` table already answers it: ``last_seen_at`` is
+        stamped on every upsert, so ``silver.last_seen_at > gold.last_seen_at``
+        means "Silver was rewritten after this Gold was built". On the normal path
+        Gold always follows its Silver, so nothing is reported; after a repair
+        ingest exactly the repaired days are. Self-healing and stateless — it also
+        catches a manual re-ingest or a parser-fix backfill, not just drift.
+
+        Read-only, through the sanctioned ``state query`` seam: the decision this
+        drives is *which run to request*, which is orchestration's job.
+        """
+        # `state query` takes a SQL string over a CLI boundary — there is no
+        # parameter binding to bind to — so the two interpolated names are
+        # validated as plain dataset/derivative identifiers first. Both are
+        # module constants today; the guard keeps that true if a caller ever
+        # threads a value through.
+        for name in (dataset, derivative):
+            if not _DATASET_NAME.fullmatch(name):
+                raise dg.Failure(
+                    description=f"refusing to build a state query for {name!r}: "
+                    "dataset and derivative names are [a-z0-9-] identifiers",
+                )
+        sql = (
+            # `substr(…, 6)` strips the `date=` partition-key prefix.
+            "SELECT substr(s.partition_key, 6) AS date "  # noqa: S608 — names validated above
+            "FROM partitions s JOIN partitions g "
+            "ON g.partition_key = s.partition_key "
+            f"WHERE s.dataset = '{dataset}' AND s.tier = 'silver' "
+            f"AND g.dataset = '{derivative}' AND g.tier = 'gold' "
+            "AND s.last_seen_at > g.last_seen_at "
+            "ORDER BY s.partition_key"
+        )
+        return [row["date"] for row in self.state_query(sql) if row.get("date")]
 
     def everef_list_builds(self, dataset: str) -> list[dict[str, Any]]:
         """Returns discovered upstream builds for a build-versioned dataset.

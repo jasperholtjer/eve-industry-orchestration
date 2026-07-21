@@ -80,6 +80,7 @@ _DERIVATIVES: dict[str, list[str]] = {
         "mer-production-destruction",
     ],
     "industry-cost-indices": ["industry-cost-indices-history"],
+    "killmails": ["killmails-consumption"],
     "structures": ["structures-snapshot", "structure-population-history"],
     "news": [
         "news-articles",
@@ -107,6 +108,7 @@ _SERVED_START: dict[str, str | None] = {
     "system-kills-npc-recent": None,
     "system-kills-pod-recent": None,
     "industry-cost-indices-history": "2022-01-01",
+    "killmails-consumption": "2022-01-01",
     # The two structures derivatives have different Gold starts: the dimension is
     # a pure per-day function (served from the first v2 archive), the covariate
     # needs its 30-day reference day inside the served window.
@@ -140,6 +142,9 @@ def _load_state(sink: str) -> dict:
             "sde_gold": {},
             "mer_silver": [],
             "seen_documents": {},
+            "seq": 0,
+            "silver_at": {},
+            "gold_at": {},
         }
     state = json.loads(path.read_text(encoding="utf-8"))
     state.setdefault("silver", [])
@@ -157,6 +162,12 @@ def _load_state(sink: str) -> dict:
     # Context-dataset seen-ledger (ADR-0045): documents actually archived, per
     # dataset — the `seen_documents` table the real binary keeps in run-state.
     state.setdefault("seen_documents", {})
+    # Monotonic write clock standing in for run-state `last_seen_at`. Only the
+    # ORDER matters: a Gold partition whose Silver was written after it is stale
+    # (corpus ADR-0060 drift repair), which is what `state query` reports.
+    state.setdefault("seq", 0)
+    state.setdefault("silver_at", {})
+    state.setdefault("gold_at", {})
     # Gold is keyed per derivative (each its own tree); tolerate the older flat
     # list shape by folding it under a dataset-named key on read.
     gold = state.get("gold", {})
@@ -893,7 +904,11 @@ def _do_ingest(args: list[str], sink: str) -> int:
     state = _load_state(sink)
     if date not in state["silver"]:
         state["silver"].append(date)
-        _save_state(sink, state)
+    # Always re-stamp: a re-ingest of an already-committed day (the ADR-0060
+    # drift repair) is exactly the case the staleness diff must see.
+    state["seq"] += 1
+    state["silver_at"][date] = state["seq"]
+    _save_state(sink, state)
 
     print(f"wrote 1 rows -> {pdir}", file=sys.stderr)
     print(
@@ -1039,7 +1054,9 @@ def _do_gold_build(args: list[str], sink: str) -> int:
     built = state["gold"].setdefault(derivative, [])
     if date not in built:
         built.append(date)
-        _save_state(sink, state)
+    state["seq"] += 1
+    state["gold_at"].setdefault(derivative, {})[date] = state["seq"]
+    _save_state(sink, state)
 
     print(f"wrote 1 gold rows -> {pdir}", file=sys.stderr)
     print(
@@ -1125,6 +1142,22 @@ def _do_state(args: list[str], sink: str) -> int:
         archived = int(state["seen_documents"].get(dataset, 0))
         print(json.dumps([{"archived": archived}]))
         return 0
+    # The killmails Gold-repair sensor asks which Gold partitions predate their
+    # own Silver (corpus ADR-0060): `silver.last_seen_at > gold.last_seen_at`.
+    if "s.last_seen_at > g.last_seen_at" in sql:
+        derivative = ""
+        for name in state.get("gold_at", {}):
+            if f"'{name}'" in sql:
+                derivative = name
+                break
+        gold_at = state["gold_at"].get(derivative, {})
+        rows = [
+            {"date": date}
+            for date, written in sorted(gold_at.items())
+            if state["silver_at"].get(date, 0) > written
+        ]
+        print(json.dumps(rows))
+        return 0
     # The SDE Gold sensor + snapshot asset query committed Silver builds
     # (dataset = 'sde', ADR-0032).
     if "dataset = 'sde'" in sql:
@@ -1151,6 +1184,42 @@ def _do_state(args: list[str], sink: str) -> int:
         for date in sorted(state["silver"])
     ]
     print(json.dumps(rows))
+    return 0
+
+
+def _do_killmails(args: list[str], sink: str) -> int:
+    """Mimics `corpus killmails freshness` (corpus ADR-0060): the drift report.
+
+    Upstream per-day counts come from `FAKE_KILLMAILS_TOTALS` (`date:count,...`);
+    a committed Silver day whose recorded token differs is reported drifted. The
+    fake stores the token the same way the real binary does — as the count the
+    ingest materialised — via `FAKE_KILLMAILS_INGESTED` (defaulting to 1), so a
+    test can make a day drift by raising only its upstream total.
+    """
+    subcommand = args[1] if len(args) > 1 else ""
+    if subcommand != "freshness":
+        print(f"killmails: unsupported subcommand {subcommand!r}", file=sys.stderr)
+        return 2
+    _pop_opt(args, "--dataset")
+    _pop_opt(args, "--format")
+
+    totals: dict[str, int] = {}
+    for pair in os.environ.get("FAKE_KILLMAILS_TOTALS", "").split(","):
+        pair = pair.strip()
+        if not pair:
+            continue
+        date, count = pair.split(":")
+        totals[date] = int(count)
+    ingested = int(os.environ.get("FAKE_KILLMAILS_INGESTED", "1"))
+
+    state = _load_state(sink)
+    drifted = [
+        {"date": date, "ingested_count": ingested, "upstream_count": totals[date]}
+        for date in sorted(state["silver"])
+        if date in totals and totals[date] != ingested
+    ]
+    print(f"[killmails] {len(drifted)} drifted", file=sys.stderr)
+    print(json.dumps(drifted))
     return 0
 
 
@@ -1185,6 +1254,8 @@ def main(argv: list[str]) -> int:
         return _do_context(args, sink)
     if command == "state":
         return _do_state(args, sink)
+    if command == "killmails":
+        return _do_killmails(args, sink)
     if command == "news":
         return _do_news(args, sink)
     if command == "transcripts":

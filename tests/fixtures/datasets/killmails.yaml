@@ -1,0 +1,51 @@
+name: killmails
+schema_version: 1
+source:
+  kind: everef
+  # ADR-0059 — a new packaging: ONE daily `.tar.bz2` whose members are N
+  # single-killmail JSON documents (verbatim ESI bodies). The tar IS the day and
+  # every member is kept, unlike `hourly-folder-tar` (a per-YEAR tar filtered by
+  # embedded date). Fetch stays one archive per day — a single source object per
+  # partition is what the ADR-0060 freshness token is recorded against — and the
+  # tar explosion is the parser's job.
+  layout: daily-tar-of-json
+  base_url: https://data.everef.net/killmails
+  # The year segment rides the template; there is no separate year-dir flag.
+  filename_template: "{year}/killmails-{year}-{month:02d}-{day:02d}.tar.bz2"
+bronze:
+  # EVE Ref archives are idempotently re-downloadable, so Bronze stays a
+  # download-avoidance cache. Short: this is the corpus's largest dataset by
+  # orders of magnitude and the raw day tars dwarf every other Bronze.
+  retention_days: 14
+silver:
+  # zstd-19 is pinned by the committed golden hash (tests/golden.rs).
+  parquet_codec: zstd
+  parquet_codec_level: 19
+  # Long-form exploded items (ADR-0059): one row per destroyed/dropped item
+  # stack plus one synthetic hull row per kill. Natural key is
+  # (killmail_id, item_seq); killmail_time leads so the partition is in time
+  # order for the Gold day-window scan.
+  sort_keys: [killmail_time, killmail_id, item_seq]
+  # Coverage floor (ADR-0027): Gold's 2022-01-01 minus the 365d look-back.
+  # Upstream is dense back to 2007, so this floor is set by the served contract,
+  # not an upstream gap — it caps a dataset that runs 1–3M item-rows per day.
+  served_start: 2021-01-01
+# ADR-0061 — one derivative: the demand history at (region_id, type_id, date).
+# The composite key, the SDE region join, and the market-history price join are
+# pinned in the builder, not declared here: cross-dataset dependencies are
+# builder-pinned so a config edit can never silently re-point them.
+gold:
+  - name: killmails-consumption
+    shape: kills-consumption
+    sort_keys: [region_id, type_id, date]
+    served_start: 2022-01-01
+    flat:
+      # Destroyed volume is a count, not a level — the day's rows sum.
+      daily_rollup: sum
+      horizons: [7, 30, 90, 365]
+      # No windowed sum: the trailing-Nd total is mean_Nd × N, and the shared
+      # ADR-0026 aggregator enum is not extended for one dataset.
+      aggregators: [mean, median, p95, max, std]
+      # Killmail archival is dense, but a single missing day must not block a
+      # year-long window; the same tolerance system-kills uses.
+      coverage_min_ratio: 0.5
