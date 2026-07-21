@@ -1,0 +1,73 @@
+name: structures
+schema_version: 1
+source:
+  # EVE Ref scrapes the public structure ESI endpoints and publishes ~4
+  # full-population snapshots per day under per-date subdirectories
+  # (structures-<date>_<HH-MM-SS>.v2.json.bz2, a JSON object keyed by
+  # structure_id). Daily history begins 2023-03-15; there is no per-year tar
+  # back-catalogue, so the layout is folder-only. A partition is one DAY: the
+  # day's snapshots are folded (last-write-wins per structure) into one Silver
+  # stream (ADR-0057).
+  kind: everef
+  layout: hourly-folder
+  base_url: https://data.everef.net/structures/history
+bronze:
+  # EVE Ref snapshots are idempotently re-downloadable; Bronze is a
+  # download-avoidance cache, not the source of truth. The population is small
+  # (~2 300 structures/snapshot, sub-MiB compressed), so 30d is cheap.
+  retention_days: 30
+silver:
+  # Authoritative Silver encoding + on-disk order, consumed by `corpus ingest`:
+  # codec + level drive the parquet writer; sort_keys is validated against the
+  # parser's natural key (mismatch fails the run). zstd-19 is pinned by the
+  # committed golden hashes (tests/golden.rs).
+  #
+  # Source-faithful (ADR-0007): the v2 payload's verbatim field names, one row
+  # per structure per day (the day's ~4 snapshots folded last-write-wins).
+  # Unfiltered — NO k-space filter — so wormhole refineries survive for the map
+  # consumer (ADR-0057). The k-space scope is a Gold concern.
+  parquet_codec: zstd
+  parquet_codec_level: 19
+  sort_keys: [structure_id]
+  # Coverage floor (ADR-0027): earliest date Silver serves — the first day the
+  # v2 payload exists (measured, ADR-0062). Daily archives do start 2023-03-15,
+  # but every file before 2024-03-31 is the v1 bare public-ID array, which
+  # carries no structure attributes and folds to zero rows. The `first_seen`
+  # enrichment is absent before 2024-05-06, so structure-age is unknown in the
+  # 2024-03-31 → 2024-05-05 window; presence and market/public flags (the
+  # population + churn signal) are complete throughout. `corpus ingest` rejects
+  # an earlier --date and the orchestrator clamps the Silver matrix to it.
+  served_start: 2024-03-31
+gold:
+  # The map's per-structure dimension (ADR-0057). Field-less: the projection,
+  # the "only rows with a solar_system_id" inclusion rule, and the soft
+  # structure_age_days guard are pinned in the ingestor-structures builder.
+  # k-space UNFILTERED — the map serves wormhole refineries. The
+  # type_id → facility_class map is read from the `sde` Gold snapshots at build
+  # time (never hard-coded, so Equinox/Metenox and future hulls classify without
+  # a code change) and fingerprinted into _INDEX.json.
+  - name: structures-snapshot
+    shape: structures-snapshot
+    sort_keys: [region_id, solar_system_id, structure_id]
+    # No Silver look-back: the dimension is a pure function of the target day.
+    served_start: 2024-03-31
+  # The predict region covariate (ADR-0057): per-region AND per-system class
+  # counts plus presence-diff churn, one long-form tree behind a `grain`
+  # discriminator. k-space FILTERED (predict is k-space region-level).
+  # `horizons` names the churn columns (new_30d / removed_30d / net_churn_30d)
+  # and sizes the Silver look-back the coverage gate spans.
+  #
+  # Two measured discontinuities the consumer must mask (ADR-0062): the
+  # 2026-05-20 upstream inventory reset (n_structures_total 20 419 → 876; only
+  # n_public and the class buckets survive it) and n_unknown_class, which EVE
+  # Ref only began emitting ~2026-06-20.
+  - name: structure-population-history
+    shape: structure-population-history
+    sort_keys: [grain, region_id, solar_system_id, date]
+    served_start: 2024-04-30
+    population:
+      horizons: [30]
+      # A day whose 30-day window is thin still builds: the churn columns are
+      # NULL without their reference day, which is honest, and the class counts
+      # are a pure function of the target day.
+      coverage_min_ratio: 0.5

@@ -41,6 +41,10 @@ _EWMA_WARMUP_HALF_LIVES = 10
 # 1``). The Silver preload is therefore exactly one day before the Gold start.
 _ORDERBOOK_LOOKBACK_DAYS = 1
 
+# ``structures-snapshot`` (corpus ADR-0057) reads only the target day's Silver
+# (``shape_window`` → ``lookback_days: 0``), so it needs no reach-back.
+_STRUCTURES_SNAPSHOT_LOOKBACK_DAYS = 0
+
 
 class PartitionConfigError(RuntimeError):
     """Raised when the dataset config cannot yield partition start dates."""
@@ -311,6 +315,17 @@ def _lookback_for_shape(name: str, shape: str, entry: dict[str, Any]) -> int | N
         return _flat_lookback(name, entry.get("kills-flat"), key="kills-flat")
     if shape == "kills-recent":
         return _ewma_lookback(name, entry.get("kills-recent"), key="kills-recent")
+    if shape == "structures-snapshot":
+        # The map's structure dimension (corpus ADR-0057) is a pure function of
+        # its own day's Silver — no window, so its Silver preload is the Gold
+        # start itself. Zero, not None: it still anchors Silver (unlike a
+        # `recency-weighted` derivative, which has no partition matrix at all).
+        return _STRUCTURES_SNAPSHOT_LOOKBACK_DAYS
+    if shape == "structure-population-history":
+        # The predict covariate (corpus ADR-0057) diffs presence against each
+        # horizon's reference day, so the preload is max(population.horizons) —
+        # the same max-horizon rule as the flat shapes, different block name.
+        return _flat_lookback(name, entry.get("population"), key="population")
     raise PartitionConfigError(f"gold derivative {name!r} has unknown shape {shape!r}")
 
 

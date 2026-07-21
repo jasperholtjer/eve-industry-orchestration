@@ -220,3 +220,45 @@ def test_kills_recent_has_no_gold_start(derivative: str) -> None:
 def test_kills_ambiguous_without_selector() -> None:
     with pytest.raises(PartitionConfigError):
         resolve_partition_starts(SYSTEM_KILLS, datasets_dir=str(DATASETS_DIR))
+
+
+# --- structures: dimension + population covariate (corpus ADR-0057/0062) ---
+
+STRUCTURES = "structures"
+STRUCTURES_SNAPSHOT = "structures-snapshot"
+STRUCTURE_POPULATION = "structure-population-history"
+
+
+def test_structures_snapshot_gold_start_is_served_start() -> None:
+    # The dimension is a pure per-day function, so it serves from the first v2
+    # archive — the same date as the Silver floor.
+    starts = resolve_partition_starts(
+        STRUCTURES, STRUCTURES_SNAPSHOT, datasets_dir=str(DATASETS_DIR)
+    )
+    assert starts.gold == "2024-03-31"
+
+
+def test_structures_population_gold_start_is_a_month_later() -> None:
+    # The covariate needs its 30-day reference day inside the served window, so
+    # its served_start is later than the dimension's — the two Gold matrices
+    # deliberately do not coincide.
+    starts = resolve_partition_starts(
+        STRUCTURES, STRUCTURE_POPULATION, datasets_dir=str(DATASETS_DIR)
+    )
+    assert starts.gold == "2024-04-30"
+
+
+@pytest.mark.parametrize("derivative", [STRUCTURES_SNAPSHOT, STRUCTURE_POPULATION])
+def test_structures_silver_start_is_shared_and_floor_clamped(derivative: str) -> None:
+    # Silver is shared: the earliest preload is the covariate's 2024-04-30 − 30d
+    # = 2024-03-31, which coincides with silver.served_start (the first v2
+    # archive, ADR-0062). The zero-look-back dimension imposes no earlier reach.
+    starts = resolve_partition_starts(
+        STRUCTURES, derivative, datasets_dir=str(DATASETS_DIR)
+    )
+    assert starts.silver == "2024-03-31"
+
+
+def test_structures_ambiguous_without_selector() -> None:
+    with pytest.raises(PartitionConfigError):
+        resolve_partition_starts(STRUCTURES, datasets_dir=str(DATASETS_DIR))

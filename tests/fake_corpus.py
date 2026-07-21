@@ -80,6 +80,7 @@ _DERIVATIVES: dict[str, list[str]] = {
         "mer-production-destruction",
     ],
     "industry-cost-indices": ["industry-cost-indices-history"],
+    "structures": ["structures-snapshot", "structure-population-history"],
     "news": [
         "news-articles",
         "news-sections",
@@ -106,6 +107,11 @@ _SERVED_START: dict[str, str | None] = {
     "system-kills-npc-recent": None,
     "system-kills-pod-recent": None,
     "industry-cost-indices-history": "2022-01-01",
+    # The two structures derivatives have different Gold starts: the dimension is
+    # a pure per-day function (served from the first v2 archive), the covariate
+    # needs its 30-day reference day inside the served window.
+    "structures-snapshot": "2024-03-31",
+    "structure-population-history": "2024-04-30",
 }
 
 

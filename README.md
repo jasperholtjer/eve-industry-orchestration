@@ -25,7 +25,8 @@ The homelab deployment (LXC, NFS mount, build order) is documented in
   `CORPUS_<DATASET>_<TIER>_START`, or per derivative with
   `CORPUS_<DATASET>_<DERIVATIVE>_GOLD_START`.
 - **Dataset assets** (`defs/market_history.py`, `defs/system_jumps.py`,
-  `defs/market_orders.py`, `defs/system_kills.py`) — daily-partitioned Silver and
+  `defs/market_orders.py`, `defs/system_kills.py`, `defs/structures.py`) —
+  daily-partitioned Silver and
   Gold assets, with **distinct** partition start dates (Silver reaches back one
   window before Gold). Gold depends on Silver via `deps=` (lineage only). A
   multi-derivative dataset (ADR-0025) gets one Gold asset per derivative, each
@@ -39,7 +40,13 @@ The homelab deployment (LXC, NFS mount, build order) is documented in
   delta), both a one-day look-back. `system-kills` (ADR-0037) fans its three
   measures into six derivatives — `system-kills-{ship,npc,pod}-history`
   (`kills-flat`, daily-partitioned + sensor) and `system-kills-{ship,npc,pod}-recent`
-  (`kills-recent` EWMA, non-partitioned + hourly schedule). Every derivative name
+  (`kills-recent` EWMA, non-partitioned + hourly schedule). `structures`
+  (ADR-0057/0062) has two daily-partitioned derivatives with **different** Gold
+  starts — `structures-snapshot` (no look-back, served from the first v2 archive)
+  and `structure-population-history` (a 30-day churn window, so served a month
+  later) — each with its own partition matrix and readiness sensor, and both
+  depending on `sde_snapshot_gold` for the `type_id → facility_class` resolution.
+  Every derivative name
   differs from the dataset, so each Gold call passes `--derivative`; Gold verify
   keys on the derivative name (its own `gold/<derivative>/...` tree).
 - **Build-versioned assets** (`defs/sde.py`, ADR-0032) — the SDE static

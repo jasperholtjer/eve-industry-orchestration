@@ -23,6 +23,7 @@ from eve_industry_orchestration.defs import market_orders as mo
 from eve_industry_orchestration.defs import market_orders_live as mol
 from eve_industry_orchestration.defs import market_prices_live as mpl
 from eve_industry_orchestration.defs import mer, sde
+from eve_industry_orchestration.defs import structures as st
 from eve_industry_orchestration.defs import system_jumps as sj
 from eve_industry_orchestration.defs import system_kills as sk
 from eve_industry_orchestration.defs.corpus_resource import CorpusResource
@@ -316,6 +317,82 @@ system_kills_npc_history_gold_sensor = _build_kills_history_gold_sensor(
 )
 system_kills_pod_history_gold_sensor = _build_kills_history_gold_sensor(
     sk.HISTORY_DERIVATIVES[2], sk.system_kills_pod_history_gold
+)
+
+
+# --- structures (dimension + population covariate, corpus ADR-0057) -------
+
+
+@dg.sensor(
+    target=st.structures_silver,
+    minimum_interval_seconds=3600,
+    default_status=dg.DefaultSensorStatus.STOPPED,
+)
+def structures_availability_sensor(
+    context: dg.SensorEvaluationContext, corpus: CorpusResource
+) -> dg.SensorResult:
+    """Requests Silver runs for structures dates newly available upstream."""
+    report = corpus.everef_missing_partitions(st.DATASET)
+    return request_partitions(
+        context,
+        reported=report.get("missing", []),
+        valid=set(st.silver_partitions.get_partition_keys()),
+        run_key_prefix=f"{st.DATASET}-silver",
+        asset_key=st.structures_silver.key,
+        label="availability",
+    )
+
+
+def _build_structures_gold_sensor(
+    derivative: str,
+    asset: dg.AssetsDefinition,
+    partitions: dg.DailyPartitionsDefinition,
+) -> dg.SensorDefinition:
+    """Builds a Gold readiness sensor for one structures derivative.
+
+    Polls ``corpus gold ready-dates --derivative <derivative>`` — the binary owns
+    the readiness decision (target-day Silver present, the 30-day window at
+    ``coverage_min_ratio`` for the covariate, Gold not yet built) — and stays a
+    thin cap-and-dedup loop. The two derivatives have **different** Gold starts
+    (the dimension serves a month earlier than the covariate), so each sensor
+    validates against its own partition matrix.
+
+    Neither sensor checks the SDE snapshot Gold: the build reads it and fails
+    loud when it is absent, and a stale-but-present snapshot is a fingerprint
+    recorded in ``_INDEX.json``, never a run this sensor triggers.
+    """
+
+    @dg.sensor(
+        name=f"{derivative.replace('-', '_')}_gold_sensor",
+        target=asset,
+        minimum_interval_seconds=3600,
+        default_status=dg.DefaultSensorStatus.STOPPED,
+    )
+    def _sensor(
+        context: dg.SensorEvaluationContext, corpus: CorpusResource
+    ) -> dg.SensorResult:
+        report = corpus.gold_ready_dates(st.DATASET, derivative=derivative)
+        return request_partitions(
+            context,
+            reported=report.get("ready", []),
+            valid=set(partitions.get_partition_keys()),
+            run_key_prefix=f"{derivative}-gold",
+            asset_key=asset.key,
+            label="gold-readiness",
+        )
+
+    return _sensor
+
+
+structures_snapshot_gold_sensor = _build_structures_gold_sensor(
+    st.SNAPSHOT_DERIVATIVE,
+    st.structures_snapshot_gold,
+    st.snapshot_gold_partitions,
+)
+structure_population_history_gold_sensor = _build_structures_gold_sensor(
+    st.POPULATION_DERIVATIVE,
+    st.structure_population_history_gold,
+    st.population_gold_partitions,
 )
 
 
