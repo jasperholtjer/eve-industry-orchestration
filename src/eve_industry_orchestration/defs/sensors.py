@@ -440,13 +440,16 @@ def killmails_consumption_gold_sensor(
 
     Polls ``corpus gold ready-dates --derivative killmails-consumption`` — the
     binary owns the readiness decision (target-day Silver present, the 365-day
-    window at ``coverage_min_ratio``, Gold not yet built) — and stays a thin
-    cap-and-dedup loop.
+    window at ``coverage_min_ratio``, the same-day ``market-history`` Gold built,
+    Gold not yet built) — and stays a thin cap-and-dedup loop.
 
-    It does not check the SDE snapshot or market-history Gold the build joins
-    against: the build reads both and fails loud when either is absent, and a
-    stale-but-present upstream is a fingerprint recorded in ``_INDEX.json``, never
-    a run this sensor triggers.
+    The market-history gate is the binary's, not this sensor's: EVE Ref settles a
+    day's market-history file hours after that day's killmail tar, so without it
+    every fresh date would be proposed into a build that fails on the unsealed
+    price input. The SDE snapshot is deliberately *not* gated — it is a
+    date-independent tree whose absence is a configuration error the build should
+    surface. A stale-but-present upstream is likewise never a run this sensor
+    triggers; it is a fingerprint recorded in ``_INDEX.json``.
     """
     report = corpus.gold_ready_dates(km.DATASET, derivative=km.CONSUMPTION_DERIVATIVE)
     return request_partitions(
