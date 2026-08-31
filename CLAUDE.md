@@ -68,6 +68,37 @@ The full rationale lives in [ROADMAP.md](ROADMAP.md); the load-bearing rules:
     here: `pct set 211 --cores 4 --memory 12288 --swap 2048`. Authoritative host
     provisioning lives in `homelab_docs` (`docs/howto/deploy-dagster-lxc.md`).
 
+## How a change is worked
+
+**One row is one OpenSpec change, one worktree, one merge.** The row comes from
+[`roadmap.yaml`](roadmap.yaml); its `depends_on` may point into a sister repo as
+`<repo>:<id>`. `ROADMAP.md` stays what it is — the corpus CLI surface, the
+decisions, and the work items behind them. The `roadmap-next` skill carries a
+row from picked to merged and is the procedure; what to work on next across all
+six repos is the platform-level `next` skill, one directory up.
+
+- **A row is built in `.worktrees/<id>`**, on `feature/<id>`, branched from
+  `develop`. The root checkout stays on `develop` and belongs to the person; a
+  command that means the worktree says so (`git -C`, `uv run --project`).
+- **A question for the person goes to [`docs/questions/`](docs/questions/README.md)**
+  on `develop`, never to the terminal and never onto the row's branch. It is
+  answered by hand, then resolved into an ADR or deleted.
+- **The roles are definitions, not prompts.** `row-scout`, `row-builder`,
+  `row-reviewer` and `row-fixer` live in `.claude/agents/`, each with its own
+  model, effort and turn budget. Dispatch one by name with the task and the
+  paths; do not restate what its definition or this file already says.
+- **Verify before you commit**, not through a failing hook:
+
+  ```bash
+  uv run ruff check . && uv run ruff format --check . && uv run pytest -q
+  ```
+
+- **`openspec/config.yaml` carries the repository context** every change is
+  written against. When a row changes what it claims, the same change updates
+  that paragraph.
+- **No CHANGELOG** until this repo has a version. The specs and the decisions
+  are the record.
+
 ## Testing without the Rust build
 
 `uv run pytest` exercises the Silver path against a fake `corpus` binary
