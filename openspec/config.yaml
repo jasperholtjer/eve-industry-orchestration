@@ -1,0 +1,121 @@
+schema: spec-driven
+
+context: |
+  # eve-industry-orchestration
+
+  The *when* of the EVE Industry platform. A thin Dagster project that decides
+  which partitions are materialised and records that they were. It is one of six
+  independent repositories; the platform-level rules live in `../CLAUDE.md`,
+  this repo's in `CLAUDE.md`.
+
+  ## The boundary everything else is subordinate to
+
+  **Thin orchestration.** An asset invokes the `corpus` binary and records the
+  run. No compute, no run-state, no data validation, and no parquet ever opened
+  in this process — no pandas, no pyarrow. If a shim grows past a trivial
+  dispatch, the logic belongs in a Rust subcommand in `eve-industry-corpus`, not
+  in a longer asset.
+
+  Three more follow from it:
+
+  - **Storage boundary.** Corpus owns the contract — the
+    `parquet + _INDEX.json + _DONE` shape, the `year=/month=/day=` layout,
+    sha256, schema. This repo owns *placement*: it selects roots through flags
+    and `CORPUS_*` env and triggers contract-aware operations. It never
+    constructs a path layout and never moves contract bytes from Python.
+  - **Config is the source of truth.** Partition start dates come from the
+    corpus dataset YAML through `defs/config.py`, never from a literal. Silver
+    and Gold have distinct starts.
+  - **Status is keyed on the run-state**, the SQLite `partitions` table read
+    through `corpus state query`, never on globbing the NAS tree. Globbing is
+    slow and racy; the run-state is neither.
+
+  ## State of the repository
+
+  Twenty-odd asset modules under `src/eve_industry_orchestration/defs/`, one per
+  dataset family, all reaching corpus through `corpus_resource`. Availability is
+  driven by `market_history_availability_sensor` rather than a fixed cron: EVE
+  Ref publishes one file per calendar day with a variable intraday lag, so a
+  daily cron would structurally miss yesterday.
+
+  The first downstream consumer has landed: `defs/serving.py` and
+  `defs/serving_resource.py` shell the idempotent `eve-serving load` CLI over
+  SSH, four non-partitioned load assets hung off their source Gold availability
+  with `deps=`, with `serving_load_sde` upstream of the three market loads
+  because an SDE rebuild truncates `market.*`. Documented in
+  `docs/serving-seam.md`. It is on an hourly schedule rather than a per-target
+  sensor, because the loads are latest-only and the loader's `parquet_sha256`
+  idempotency makes an unchanged hour a no-op.
+
+  Still open: `market_history_gold` raises `NotImplementedError`, and
+  materialisation metadata is static rather than read from `_INDEX.json`. Both
+  are rows in `roadmap.yaml`.
+
+  ## Concurrency, which is where this repo is easiest to get wrong
+
+  Two layers in `deploy/dagster.yaml`. `max_concurrent_runs: 4` is the global
+  I/O cap — the single-HDD NAS spindle is the real limiter and every run taps
+  it. Per-class limits are concurrency **pools** keyed on the assets' `pool=`,
+  not run tags: a pool gates every launch path — sensor, UI backfill, manual —
+  where a sensor-set run tag gates only the sensor.
+
+  `heavy` membership is by **measured peak RSS**, not by whether a build is
+  windowed. The wide-window Gold builds peak around 3-4 GiB and belong there;
+  the narrow ones use the same 365-day k-way merge over ~5k-row days and peak
+  under 100 MiB, so they take no pool and obey only the global cap. Putting them
+  in `heavy` only starved the big backfills of scarce slots. Measure with
+  `/usr/bin/time -v` before adding a build, and put the number in the change.
+
+  ## Stack
+
+  Python 3.10-3.14, `src/` layout, uv (never pip), Dagster pinned exactly
+  (`dagster==1.13.10`), PyYAML, ruff, pytest. No pyright here.
+
+  `uv run pytest` exercises the Silver path against a fake `corpus` binary in
+  `tests/fake_corpus.py` that mimics the contract and the `missing-partitions`
+  and `state query` JSON. Point `CORPUS_BINARY_PATH` at it and `CORPUS_SINK_PATH`
+  at a throwaway directory: no Rust build, no compute repo and no NAS needed.
+
+  **Consult the `dagster-expert` skill before touching any Dagster definition.**
+  It is the upstream-maintained skill and tracks the installed version; a
+  definition written from memory is written against a different one. Do not
+  hand-edit it — refresh it from upstream.
+
+  ## Decisions
+
+  The decisions live in the Decisions section of `ROADMAP.md` and in
+  `docs/serving-seam.md`. This repo has no `docs/adr/` yet; the first decision
+  that outgrows a roadmap paragraph starts one, and ADRs here are not
+  append-only — a superseded record is rewritten or deleted.
+
+  ## How a change is worked
+
+  One roadmap row is one OpenSpec change, one worktree under `.worktrees/`, one
+  merge into `develop`. A question that cannot be settled inside the change goes
+  to `docs/questions/` as a dated file, not to the terminal.
+
+rules:
+  proposal:
+    - State which roadmap.yaml row this change implements, by id.
+    - Say what the asset shells out to and what it records. If the proposal puts
+      compute, parsing or validation in Python, stop - that belongs in
+      eve-industry-corpus.
+    - If an asset joins the heavy pool, give the measured peak RSS that earns it.
+  tasks:
+    - Every task is verifiable by a command or by reading one named file.
+    - A task that adds or changes a Dagster definition says that it consults the
+      dagster-expert skill first.
+
+operations:
+  apply:
+    guidance:
+      - Verify with `uv run ruff check .`, `uv run ruff format --check .` and
+        `uv run pytest -q` against the fake corpus binary. Report only what
+        failed.
+      - Tick tasks in tasks.md as they finish; that is the progress signal.
+  archive:
+    guidance:
+      - If the change settled a question in docs/questions/, resolve that file -
+        into an ADR if the answer is a decision, deleted if it was not.
+      - Set the roadmap.yaml row's `status` to `done` in the same commit, and
+        mark the matching work item in ROADMAP.md.
