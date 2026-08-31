@@ -168,9 +168,6 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
-# Project-specific
-.tmp/
-
 # Dagster dg CLI cache / local state
 .dg/
 
@@ -207,3 +204,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local scratch: throwaway plans, prototypes, exploration. Never committed.
+tmp/
