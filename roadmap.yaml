@@ -1,0 +1,48 @@
+# roadmap.yaml — the backlog for eve-industry-orchestration.
+#
+# An item states a goal and what it waits on. The reasoning lands in the
+# OpenSpec change that implements it and in the ADR it may produce; this file
+# only fixes the order. Work the first item whose `depends_on` are all done.
+#
+# `depends_on` takes a bare id for an item in this file, or `<repo>:<id>` for an
+# item in a sister repository's roadmap.yaml — corpus, orchestration, serving,
+# predict, map, calc. The platform-level `next` skill resolves both and reports
+# what is ready across all six.
+#
+# `areas` doubles as a parallelism guard: two items sharing an exclusive area
+# should not run side by side. Exclusive across the platform: gold-contract,
+# api-contract, calc.
+#
+# The corpus CLI surface this repo shells out to, and the decisions behind the
+# sensor and the storage boundary, are ROADMAP.md — not this file.
+#
+# Status vocabulary: todo | doing | done | parked
+
+repo: orchestration
+
+items:
+  - id: gold-asset-wiring
+    title: Wire the Silver -> Gold corpus subcommand into the asset
+    goal: >
+      `market_history_gold` still raises `NotImplementedError`. Wire `corpus gold
+      build` followed by `corpus verify --tier gold`, dropping the old `build
+      --tier gold` guess and the per-tier `--sink-path` pattern. The binary
+      enforces the coverage gate; the sensor pre-checks it via `corpus state
+      query` so no doomed run is queued.
+    areas: [orchestration]
+    priority: 2
+    status: todo
+    notes: >
+      ROADMAP.md marks this blocked on a half-built corpus Gold builder. That
+      caveat predates the Gold trees corpus has since shipped — confirm the
+      builder's state before treating the block as live.
+
+  - id: materialisation-metadata
+    title: Populate materialisation metadata from the partition itself
+    goal: >
+      Make the overview/logging purpose of this repo real: fill
+      `MaterializeResult` metadata from `_INDEX.json` and `corpus state query
+      --format json` (rows, retention_class) instead of the current static fields.
+    areas: [orchestration]
+    priority: 4
+    status: todo
