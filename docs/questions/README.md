@@ -64,10 +64,10 @@ Not a question — decide, and note the choice in the commit body:
 
 It does not linger. An answer that is a decision becomes an ADR in
 `../adr/` and the question file is deleted in the same commit; the ADR is the
-record, and keeping both means two places to read and one to forget. This repo
-has no `docs/adr/` yet - the first decision that outgrows a paragraph in
-`ROADMAP.md` starts it. An answer that changed nothing structural is deleted
-outright once it is applied.
+record, and keeping both means two places to read and one to forget. `docs/adr/`
+was started by ADR-0001; a decision that outgrows a paragraph in `ROADMAP.md`
+joins it there. An answer that changed nothing structural is deleted outright
+once it is applied.
 
 The directory should be short. A pile of resolved questions is a second,
 worse ADR log.
