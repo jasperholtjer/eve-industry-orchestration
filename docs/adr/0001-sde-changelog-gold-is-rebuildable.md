@@ -3,7 +3,9 @@
 ## Status
 
 Accepted (2026-09-01). Decided by the `sde-build-sequence-integrity` row, which
-resolved [the question on holes in the SDE build sequence](../questions/2026-09-01-sde-build-sequence-holes.md).
+resolved the 2026-09-01 question on holes in the SDE build sequence. That
+question file is deleted once its answer lands here: this record replaces it,
+and git holds what it said.
 
 ## Context
 

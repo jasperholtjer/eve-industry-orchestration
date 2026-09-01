@@ -296,9 +296,18 @@ class CorpusResource(dg.ConfigurableResource):
         Gold whose ``last_seen_at`` predates that of the **nearest** lower
         committed ``sde`` Silver was built against a different predecessor than
         the binary would pick now. Only the nearest one matters, which makes the
-        set exact rather than a superset — no rebuild storm when an old build is
-        re-ingested, and no cascade. A baseline build has no lower Silver, so the
-        subquery yields NULL and the row drops out on its own.
+        set exact against false positives on commit ordering — no cascade — but
+        not exact against content: a plain re-ingest of an unchanged lower
+        Silver re-stamps ``last_seen_at`` and flags the changelog above it too,
+        even though nothing it diffs against actually changed; the resulting
+        rebuild is idempotent and self-clearing. It also isn't exact against
+        false negatives from run-timing: the comparison is against Gold's own
+        *write* time, while the binary picks its predecessor at Gold *run
+        start*, so a lower Silver that commits mid-run leaves Gold's
+        ``last_seen_at`` newer and the hole undetected here — the deferral rule
+        that gates when a build is proposed is what closes that window, not
+        this query. A baseline build has no lower Silver, so the subquery
+        yields NULL and the row drops out on its own.
 
         Repair is a plain rematerialise: Gold overwrites in place and the binary
         recomputes the predecessor from currently committed Silver.
