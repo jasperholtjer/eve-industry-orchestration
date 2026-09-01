@@ -1,23 +1,23 @@
 ## 1. Fake corpus binary
 
-- [ ] 1.1 Confirm `tests/fake_corpus.py` already answers `gold build --derivative`
+- [x] 1.1 Confirm `tests/fake_corpus.py` already answers `gold build --derivative`
   and `gold ready-dates --derivative` for all five sovereignty derivative names,
   and add whatever is missing; verify by driving each of the five names through the
   fake binary in a test that asserts a written partition
-- [ ] 1.2 Make the fake binary able to report a skipped day for the panel — the
+- [x] 1.2 Make the fake binary able to report a skipped day for the panel — the
   `status: "skipped"` build result with a reason — under a fixture switch, and
   verify a test can obtain both a written partition and a skipped day for the same
   derivative
 
 ## 2. Per-dataset Gold assets
 
-- [ ] 2.1 Add `sovereignty_adm_gold` to `defs/sovereignty_structures.py`: its own
+- [x] 2.1 Add `sovereignty_adm_gold` to `defs/sovereignty_structures.py`: its own
   daily partitions from `resolve_partition_starts(DATASET, ADM_DERIVATIVE).gold`,
   `output_required=False`, the skipped-day observation branch, Gold-tier verify,
   and a derivative-keyed `MaterializeResult`; verify the asset materialises a date
   against the fake binary and that its partition start matches the derivative's
   configured served start
-- [ ] 2.2 Add `sovereignty_contests_gold` to `defs/sovereignty_campaigns.py` in the
+- [x] 2.2 Add `sovereignty_contests_gold` to `defs/sovereignty_campaigns.py` in the
   same shape; verify the same two ways
 - [ ] 2.3 Add `sovereignty_ownership_gold` and `sovereignty_changes_gold` to
   `defs/sovereignty_map.py`, each with its own derivative constant and partitions

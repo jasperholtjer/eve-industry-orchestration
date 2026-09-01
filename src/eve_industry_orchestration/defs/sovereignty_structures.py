@@ -1,9 +1,10 @@
 """sovereignty-structures: hourly Silver feeding one flat-multi-horizon Gold tree.
 
-This module wires the Silver tier only. The dataset declares a single Gold
-derivative, ``sovereignty-adm`` (``shape: sov-adm``, ``flat.horizons: [7, 30,
-90]``), so ``resolve_partition_starts`` needs no derivative selector; that build
-lands in a later row.
+The dataset declares a single Gold derivative, ``sovereignty-adm`` (``shape:
+sov-adm``, ``flat.horizons: [7, 30, 90]``), so ``resolve_partition_starts``
+needs no derivative selector for Silver; the Gold asset names it anyway, because
+a derivative's served start is the derivative's own and nothing here may assume
+a dataset has just one.
 
 The asset is a thin shim over the ``corpus`` binary: the binary owns the compute,
 the ``parquet + _INDEX.json + _DONE`` contract, and the on-disk layout — including
@@ -19,6 +20,7 @@ from eve_industry_orchestration.defs.config import resolve_partition_starts
 from eve_industry_orchestration.defs.corpus_resource import CorpusResource, date_key
 
 DATASET = "sovereignty-structures"
+ADM_DERIVATIVE = "sovereignty-adm"
 
 # The single derivative's widest horizon (90d) before its served_start
 # 2022-01-01 derives Silver's start as 2021-10-03, above the dataset YAML's
@@ -92,4 +94,95 @@ def sovereignty_structures_silver(
     yield dg.MaterializeResult(
         metadata={"dataset": DATASET, "tier": "silver", "partition": date}
         | corpus.partition_metadata(DATASET, "silver", date_key(date))
+    )
+
+
+_gold_starts = resolve_partition_starts(DATASET, ADM_DERIVATIVE)
+if _gold_starts.gold is None:
+    raise ValueError(
+        f"{DATASET} resolved no Gold served_start for {ADM_DERIVATIVE}; every "
+        "sovereignty derivative declares one"
+    )
+# The derivative's own served_start, resolved by name. Two derivatives of one
+# dataset need not share a start (the sovereignty panel does not), so the Gold
+# matrix is never derived from the Silver one.
+adm_gold_partitions = dg.DailyPartitionsDefinition(start_date=_gold_starts.gold)
+
+
+@dg.asset(
+    name="sovereignty_adm_gold",
+    partitions_def=adm_gold_partitions,
+    deps=[sovereignty_structures_silver],
+    group_name="sovereignty_structures",
+    kinds={"corpus"},
+    # No `pool=`: membership of a memory-bearing pool is by measured peak and
+    # this build has none yet (see deploy/dagster.yaml). The global cap applies.
+    #
+    # A day whose prerequisite can never arrive is reported by corpus as
+    # "skipped" with exit 0 and no partition written (ADR-0065), so the asset
+    # must be allowed to complete without materialising.
+    output_required=False,
+)
+def sovereignty_adm_gold(
+    context: dg.AssetExecutionContext, corpus: CorpusResource
+) -> Iterator[dg.MaterializeResult | dg.AssetObservation]:
+    """Gold partition: the ADM flat-horizon aggregates for one day.
+
+    ``deps=`` is lineage only; the readiness sensor drives this. The build reads
+    the ``[date - 90d, date]`` Silver window and owns its own coverage gate — an
+    incomplete window is the binary's decision to make, never a Python
+    pre-check.
+    """
+    date = context.partition_key
+    status = corpus.run(
+        context,
+        "gold",
+        "build",
+        "--dataset",
+        DATASET,
+        "--derivative",
+        ADM_DERIVATIVE,
+        "--date",
+        date,
+        "--sink-path",
+        corpus.sink_path,
+    )
+    if status is not None and status.get("status") == "skipped":
+        context.log.info(
+            "%s %s: prerequisite permanently absent, leaving partition missing",
+            ADM_DERIVATIVE,
+            date,
+        )
+        yield dg.AssetObservation(
+            asset_key=context.asset_key,
+            partition=date,
+            metadata={
+                "skip_reason": "upstream_gap",
+                "detail": str(status.get("reason", "")),
+            },
+        )
+        return
+    corpus.run(
+        context,
+        "verify",
+        "--dataset",
+        ADM_DERIVATIVE,
+        "--date",
+        date,
+        "--tier",
+        "gold",
+        "--sink-path",
+        corpus.sink_path,
+    )
+    # `corpus gold build` writes both the partition tree and the run-state row
+    # under the *derivative* name, not the dataset, so Gold verify and the
+    # run-state read both key on ADM_DERIVATIVE.
+    yield dg.MaterializeResult(
+        metadata={
+            "dataset": DATASET,
+            "derivative": ADM_DERIVATIVE,
+            "tier": "gold",
+            "partition": date,
+        }
+        | corpus.partition_metadata(ADM_DERIVATIVE, "gold", date_key(date))
     )
