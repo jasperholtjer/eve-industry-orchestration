@@ -97,10 +97,14 @@ The homelab deployment (LXC, NFS mount, build order) is documented in
   `kills-recent` "recent" assets have no sensor — `system_jumps_recent_schedule`
   and the three `system_kills_{ship,npc,pod}_recent_schedule` rematerialise them
   hourly. SDE instead has `sde_build_discovery_sensor` (registers build partitions
-  from `corpus everef list`), `sde_gold_sensor` (the changelog for builds with
-  committed Silver), and `sde_snapshot_schedule` (daily rematerialise of the
+  from `corpus everef list`), `sde_gold_sensor` (the changelog for builds whose
+  Silver is committed and whose changelog Gold is not — minus the baseline build,
+  which has no predecessor to diff against and which the binary skips), and
+  `sde_snapshot_schedule` (daily rematerialise of the
   non-partitioned latest snapshot and `sde-industry-products`). All key status on corpus run-state, never on
-  globbing the NAS tree; `run_key` dedup prevents re-queuing in-flight work.
+  globbing the NAS tree; the `run_key` carries a per-tick token so a partition
+  corpus still reports actionable is retried, and an in-flight guard keeps that
+  rotation from putting a second writer on one contract directory.
 - **Mutable partitions** (`killmails` only, corpus ADR-0060) — every other everef
   partition is immutable once published, so `_DONE` plus the recorded source
   sha256 is a complete freshness contract. Killmail days are not: zKillboard keeps

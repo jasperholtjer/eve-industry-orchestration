@@ -3,8 +3,10 @@
 Every dataset's Silver and Gold sensor is the same thin loop: diff the corpus
 run-state report (``missing`` for Silver, ``ready`` for Gold) against the valid
 partition matrix, cap the fan-out per tick, and request one run per eligible
-date. This module owns the two non-obvious parts of that loop so they stay
-identical across datasets:
+partition. A partition key is a date for every daily dataset and a build number
+for SDE, which is why the ordering is a parameter rather than a literal sort.
+This module owns the two non-obvious parts of that loop so they stay identical
+across datasets:
 
 - **Retry-safe run keys.** Silver's ``output_required=False`` (ADR-0041) means an
   upstream-incomplete day finishes as a green no-op *without* materialising, and
@@ -24,7 +26,8 @@ identical across datasets:
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
+from typing import Any
 
 import dagster as dg
 
@@ -89,23 +92,29 @@ def request_partitions(
     run_key_prefix: str,
     asset_key: dg.AssetKey,
     label: str,
+    sort_key: Callable[[str], Any] | None = None,
 ) -> dg.SensorResult:
-    """Builds retry-safe run requests for the dates corpus reports actionable.
+    """Builds retry-safe run requests for the partitions corpus reports actionable.
 
     Args:
         context: The sensor evaluation context (for the cursor, log, instance).
-        reported: Dates corpus reports actionable (``missing`` or ``ready``).
+        reported: Partition keys corpus reports actionable (``missing`` or
+            ``ready``), or that the sensor derived from run-state.
         valid: The dataset's valid partition keys for this tier.
         run_key_prefix: Stable per-partition ``run_key`` stem, e.g.
-            ``market-history-silver``; the date and a rotating token are appended.
+            ``market-history-silver``; the key and a rotating token are appended.
         asset_key: The sensor's target asset, used by the in-flight guard.
         label: Log prefix (``availability`` / ``gold-readiness``).
+        sort_key: Ordering applied before the per-tick cap, so the cap takes the
+            oldest partitions. The default (``None``) sorts lexically, which is
+            what an ISO date wants; SDE passes :class:`int` because its keys are
+            build numbers and ``"99"`` sorts after ``"100"`` as text.
 
     Returns:
         A :class:`dagster.SensorResult` carrying the run requests and the advanced
         cursor token.
     """
-    eligible = sorted(date for date in reported if date in valid)
+    eligible = sorted((key for key in reported if key in valid), key=sort_key)
     selected = eligible[:MAX_PARTITIONS_PER_TICK]
 
     deferred = len(eligible) - len(selected)
@@ -121,8 +130,8 @@ def request_partitions(
     token = _next_token(context.cursor)
     in_flight = _in_flight_partitions(context, asset_key)
     run_requests = [
-        dg.RunRequest(run_key=f"{run_key_prefix}-{date}-{token}", partition_key=date)
-        for date in selected
-        if date not in in_flight
+        dg.RunRequest(run_key=f"{run_key_prefix}-{key}-{token}", partition_key=key)
+        for key in selected
+        if key not in in_flight
     ]
     return dg.SensorResult(run_requests=run_requests, cursor=str(token))

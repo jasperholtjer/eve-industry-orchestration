@@ -566,6 +566,28 @@ def _parse_build_key(partition_key: str) -> int | None:
         return None
 
 
+# Committed SDE partitions, by tier. Both trees key run-state on ``build=<n>``
+# (corpus `sde.rs`: Silver commits `dataset = 'sde'`, the changelog commits
+# `dataset = 'sde-changelog'`), so one parser serves both.
+_SDE_SILVER_BUILDS_SQL = (
+    "SELECT DISTINCT partition_key FROM partitions "
+    "WHERE tier = 'silver' AND dataset = 'sde'"
+)
+_SDE_CHANGELOG_BUILDS_SQL = (
+    "SELECT DISTINCT partition_key FROM partitions "
+    "WHERE tier = 'gold' AND dataset = 'sde-changelog'"
+)
+
+
+def _committed_builds(corpus: CorpusResource, sql: str) -> set[int]:
+    """Build numbers whose run-state partition ``sql`` reports committed."""
+    return {
+        build
+        for row in corpus.state_query(sql)
+        if (build := _parse_build_key(row["partition_key"])) is not None
+    }
+
+
 @dg.sensor(
     target=sde.sde_silver,
     minimum_interval_seconds=3600,
@@ -619,53 +641,49 @@ def sde_build_discovery_sensor(
 def sde_gold_sensor(
     context: dg.SensorEvaluationContext, corpus: CorpusResource
 ) -> dg.SensorResult:
-    """Requests the unified changelog for builds whose Silver is committed.
+    """Requests the unified changelog for the builds that still owe one.
 
     There is no ``ready-dates`` for SDE (no coverage window); readiness is keyed
-    on corpus run-state (ADR-0032) — a build whose unified Silver partition
-    (``dataset = sde``) is committed. The binary owns the predecessor lookup and
-    the baseline skip, so this stays a thin cap-and-dedup loop: one changelog run
-    per build, ``run_key``-deduped. A baseline build's run is requested once and
-    writes nothing (the binary skips it). The snapshot is not driven here — it is
-    a non-partitioned, latest-only asset on :data:`sde_snapshot_schedule`.
+    on corpus run-state (ADR-0032). A build is **outstanding** when its unified
+    Silver partition (``dataset = 'sde'``) is committed and its changelog Gold
+    partition (``dataset = 'sde-changelog'``) is not. Subtracting the Gold before
+    the per-tick cap is the whole point: cap the committed set instead and the
+    oldest builds hold every slot for good, so no build past the cap is ever
+    requested.
+
+    The **baseline** build is left out. The binary's predecessor rule is "largest
+    committed Silver build < target", so the lowest committed build has none: it
+    is skipped, writes nothing, and can therefore never leave the outstanding set
+    on its own. The binary still owns that decision — the sensor only declines to
+    queue a run it knows is a no-op, the pre-check the Gold gate already does.
+
+    The remainder goes through :func:`request_partitions` for the rotating,
+    retry-safe ``run_key`` and the in-flight guard, so a changelog run that failed
+    or finished as a green no-op (``output_required=False``) is asked for again on
+    the next tick. ``sort_key=int`` because build keys are numbers: the helper's
+    default sort is lexical, where ``"99"`` lands after ``"100"``.
+
+    The snapshot is not driven here — it is a non-partitioned, latest-only asset
+    on :data:`sde_snapshot_schedule`.
     """
-    rows = corpus.state_query(
-        "SELECT DISTINCT partition_key FROM partitions "
-        "WHERE tier = 'silver' AND dataset = 'sde'"
-    )
-    committed = sorted(
-        {
-            build
-            for row in rows
-            if (build := _parse_build_key(row["partition_key"])) is not None
-        }
-    )
+    committed = _committed_builds(corpus, _SDE_SILVER_BUILDS_SQL)
+    built = _committed_builds(corpus, _SDE_CHANGELOG_BUILDS_SQL)
+    baseline = {min(committed)} if committed else set()
+    outstanding = committed - built - baseline
 
-    valid = set(
-        sde.build_partitions.get_partition_keys(
-            dynamic_partitions_store=context.instance
-        )
+    return request_partitions(
+        context,
+        reported=[str(build) for build in outstanding],
+        valid=set(
+            sde.build_partitions.get_partition_keys(
+                dynamic_partitions_store=context.instance
+            )
+        ),
+        run_key_prefix=sde.CHANGELOG_DERIVATIVE,
+        asset_key=sde.sde_changelog_gold.key,
+        label="sde-gold",
+        sort_key=int,
     )
-    eligible = [b for b in committed if str(b) in valid]
-    selected = eligible[:MAX_PARTITIONS_PER_TICK]
-
-    deferred = len(eligible) - len(selected)
-    if deferred > 0:
-        context.log.info(
-            "sde-gold: %d builds with committed Silver, requesting %d, %d deferred",
-            len(eligible),
-            len(selected),
-            deferred,
-        )
-
-    run_requests = [
-        dg.RunRequest(
-            run_key=f"{sde.CHANGELOG_DERIVATIVE}-{build}",
-            partition_key=str(build),
-        )
-        for build in selected
-    ]
-    return dg.SensorResult(run_requests=run_requests)
 
 
 # Hourly navigate-now refresh of the EWMA "recent" heat. A schedule, not a

@@ -1158,6 +1158,19 @@ def _do_state(args: list[str], sink: str) -> int:
         ]
         print(json.dumps(rows))
         return 0
+    # The SDE Gold sensor subtracts the changelog builds it has already built
+    # (dataset = 'sde-changelog', tier = gold) from the committed Silver set.
+    if "dataset = 'sde-changelog'" in sql:
+        rows = [
+            {
+                "dataset": "sde-changelog",
+                "tier": "gold",
+                "partition_key": f"build={build}",
+            }
+            for build in sorted(state["sde_gold"].get("sde-changelog", []))
+        ]
+        print(json.dumps(rows))
+        return 0
     # The SDE Gold sensor + snapshot asset query committed Silver builds
     # (dataset = 'sde', ADR-0032).
     if "dataset = 'sde'" in sql:
