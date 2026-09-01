@@ -40,11 +40,13 @@ touches none of those.
 ## Proving it
 
 Re-run only what the fix could have broken: the test that covers the finding,
-then ruff and pyright.
+then ruff — lint and format. There is no type checker in this repository; see
+the Stack section of `openspec/config.yaml` for why.
 
 ```bash
 uv run --project <worktree> pytest -q <the narrowest path that covers it>
 uv run --project <worktree> ruff check .
+uv run --project <worktree> ruff format --check .
 ```
 
 Naming a narrow test path is the whole skill here — one module rather than the

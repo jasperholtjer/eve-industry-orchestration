@@ -69,7 +69,16 @@ context: |
   ## Stack
 
   Python 3.10-3.14, `src/` layout, uv (never pip), Dagster pinned exactly
-  (`dagster==1.13.10`), PyYAML, ruff, pytest. No pyright here.
+  (`dagster==1.13.10`), PyYAML, ruff, pytest.
+
+  **No type checker, deliberately.** The sister repositories (`serving`,
+  `predict`, `calc`) run pyright and should; this one does not, because almost
+  everything here is Dagster surface and pyright fights it. Calling a
+  `@dg.sensor`-decorated object — which is how every sensor test in
+  `tests/` drives one — types as a five-way union, so each assertion needs an
+  `isinstance` narrowing that buys no safety. The gate is `ruff check`,
+  `ruff format --check` and `pytest`. Do not add pyright back, and do not treat
+  its absence as an oversight.
 
   `uv run pytest` exercises the Silver path against a fake `corpus` binary in
   `tests/fake_corpus.py` that mimics the contract and the `missing-partitions`
