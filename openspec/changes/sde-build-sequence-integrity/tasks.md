@@ -117,6 +117,6 @@
 
 ## 6. Verification
 
-- [ ] 6.1 `uv run ruff check .`, `uv run ruff format --check .` and
+- [x] 6.1 `uv run ruff check .`, `uv run ruff format --check .` and
   `uv run pytest -q` are all green in the worktree.
-- [ ] 6.2 `openspec validate sde-build-sequence-integrity --strict` passes.
+- [x] 6.2 `openspec validate sde-build-sequence-integrity --strict` passes.
