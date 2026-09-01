@@ -707,7 +707,8 @@ def _do_sde_snapshot(sink: str, state: dict, build: int, release_date: str) -> i
     state["sde_gold"].setdefault("sde-snapshot", [])
     if build not in state["sde_gold"]["sde-snapshot"]:
         state["sde_gold"]["sde-snapshot"].append(build)
-    _record_partition(state, "sde-snapshot", "gold", "latest")
+    # No run-state row for `sde-snapshot`: the real binary registers one row per
+    # entity as `sde-<entity>` and uses `sde-snapshot` only as a status label.
     _save_state(sink, state)
 
     print(

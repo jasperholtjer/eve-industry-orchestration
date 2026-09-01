@@ -273,8 +273,10 @@ def sde_snapshot_gold(
         "--sink-path",
         corpus.sink_path,
     )
-    # A latest-only tree is flat and overwritten each build, so its run-state
-    # key is the literal `latest` and its dataset is the derivative name.
+    # No run-state enrichment here: the snapshot build fans out over entities and
+    # registers one row per entity as `sde-<entity>`, while `sde-snapshot` is only
+    # a label in the status JSON and is never a run-state dataset. So there is no
+    # single `(dataset, tier, partition_key)` row whose facts describe the result.
     return dg.MaterializeResult(
         metadata={
             "dataset": DATASET,
@@ -285,7 +287,6 @@ def sde_snapshot_gold(
             "release_date": (status or {}).get("release_date"),
             "entities_written": (status or {}).get("entities_written"),
         }
-        | corpus.partition_metadata(SNAPSHOT_DERIVATIVE, "gold", LATEST_KEY)
     )
 
 

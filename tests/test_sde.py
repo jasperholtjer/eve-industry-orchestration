@@ -943,10 +943,20 @@ def test_changelog_metadata_carries_the_derivative_run_state_facts(
     assert metadata["build"].value == "200"
 
 
-def test_snapshot_metadata_carries_the_latest_run_state_facts(
+def test_snapshot_metadata_is_deliberately_unenriched(
     corpus, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # A flat latest-only tree is keyed on the literal `latest`.
+    # The snapshot build fans out per entity and registers `sde-<entity>` rows;
+    # `sde-snapshot` is only a status label and never a run-state dataset, so no
+    # single row describes this result and the asset leaves itself unenriched.
+    # Pin that: a later drive-by `partition_metadata` call here would match no
+    # row and warn on every scheduled run.
+    from eve_industry_orchestration.defs.corpus_resource import CorpusResource
+
+    def _fail(self, dataset, tier, partition_key):  # pragma: no cover - never runs
+        raise AssertionError(f"snapshot enriched against {dataset}/{tier}")
+
+    monkeypatch.setattr(CorpusResource, "partition_metadata", _fail)
     monkeypatch.setenv("FAKE_SDE_BUILDS", BUILDS)
     monkeypatch.setenv("FAKE_PARTITION_ROWS", "5")
     instance = _instance_with_builds(100)
@@ -960,9 +970,12 @@ def test_snapshot_metadata_carries_the_latest_run_state_facts(
 
     assert result.success
     metadata = result.get_asset_materialization_events()[0].materialization.metadata
-    assert metadata["rows"].value == 5
-    assert metadata["retention_class"].value == "validated"
+    # The identifying fields are exactly what the asset itself reports.
+    assert metadata["derivative"].value == sde.SNAPSHOT_DERIVATIVE
     assert metadata["built"].value is True
+    assert metadata["entities_written"].value == 3
+    assert "retention_class" not in metadata
+    assert "rows" not in metadata
 
 
 @pytest.mark.parametrize(

@@ -68,9 +68,9 @@ def test_latest_key_partition_is_found(corpus, monkeypatch) -> None:
     _run(corpus, "ingest", "--dataset", "sde", "--build", "100")
     _run(
         corpus, "gold", "build", "--dataset", "sde",
-        "--derivative", "sde-snapshot", "--build", "100",
+        "--derivative", "sde-industry-products", "--build", "100",
     )  # fmt: skip
-    metadata = corpus.partition_metadata("sde-snapshot", "gold", LATEST_KEY)
+    metadata = corpus.partition_metadata("sde-industry-products", "gold", LATEST_KEY)
     assert metadata["rows"] == 1
     assert metadata["retention_class"] == "validated"
 
