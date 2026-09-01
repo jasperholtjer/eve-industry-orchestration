@@ -141,7 +141,7 @@ items:
     areas: [orchestration]
     depends_on: [corpus:corpus-gold-sovereignty]
     priority: 2
-    status: todo
+    status: doing
     notes: >
       The `add-dataset-to-orchestration` skill is the procedure. All three
       serve Silver from 2021-07-01 while the everef folder era starts
