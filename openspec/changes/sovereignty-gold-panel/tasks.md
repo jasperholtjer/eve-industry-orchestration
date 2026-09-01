@@ -66,9 +66,11 @@
 
 ## 6. Records and checks
 
-- [ ] 6.1 Verify a successful sovereignty Gold materialisation records the
-  run-state row count, retention class and checksum read under the derivative's
-  name, and that a missing or failing run-state read still succeeds and warns
+- [ ] 6.1 Verify the run-state lookup is keyed on the derivative, not the source
+  dataset: a test in which the two derivatives sharing a dataset have different
+  registered facts for one date and each materialisation records its own. The rest
+  of the metadata contract is the `materialisation-metadata` capability's and needs
+  no new assertion here
 - [ ] 6.2 Verify `tests/test_concurrency_pools.py` is still green with no edit —
   no sovereignty Gold asset declares a pool and the declared pool set is unchanged
 - [ ] 6.3 Run `uv run ruff check .`, `uv run ruff format --check .` and

@@ -225,28 +225,28 @@ dropping them.
 - **THEN** it reaches corpus through the binary and performs no listing of the
   storage tree
 
-### Requirement: A sovereignty Gold materialisation records what corpus measured
+### Requirement: A sovereignty Gold partition is identified by its derivative
 
-A successful sovereignty Gold materialisation SHALL record the facts corpus
-registered for the partition it wrote — the row count, the retention class and the
-partition checksum — read from the corpus run-state for that derivative rather
-than for its source dataset, and rather than from anything the asset computed.
-That read SHALL be advisory: when the run-state has no row for the partition, or
-the read fails, the materialisation SHALL still succeed and record its identifying
-fields alone.
+What a materialisation records, where those facts come from and what happens when
+they cannot be read are governed by the `materialisation-metadata` capability and
+are not restated here. This capability constrains only which partition is looked
+up: corpus registers a Gold partition under the derivative that produced it, not
+under the source dataset, so a sovereignty Gold materialisation SHALL address
+run-state by its own derivative's name. Two derivatives of one dataset SHALL
+therefore record different facts for the same date.
 
-#### Scenario: Run-state facts are recorded against the derivative
+#### Scenario: The lookup is keyed on the derivative
 
-- **WHEN** a sovereignty Gold partition materialises successfully and corpus has
-  registered a run-state row for it
-- **THEN** the materialisation records that row's row count, retention class and
-  partition checksum, read under the derivative's own name
+- **WHEN** a sovereignty Gold partition materialises successfully
+- **THEN** the run-state lookup addresses the partition under the derivative's own
+  name rather than under its source dataset's
 
-#### Scenario: A missing run-state row does not fail the run
+#### Scenario: Two derivatives of one dataset do not share a record
 
-- **WHEN** a sovereignty Gold partition materialises successfully but the run-state
-  read returns no row or fails
-- **THEN** the materialisation succeeds, records its identifying fields, and warns
+- **WHEN** the two derivatives sharing a source dataset both materialise the same
+  date and corpus has registered different facts for each
+- **THEN** each materialisation records the facts registered for its own
+  derivative
 
 ### Requirement: Sovereignty Gold builds introduce no new concurrency bound
 
