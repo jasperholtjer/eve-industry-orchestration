@@ -62,6 +62,6 @@
 
 ## 5. Verification
 
-- [ ] 5.1 Run `uv run --project <worktree> ruff check .`, `ruff format --check .`
+- [x] 5.1 Run `uv run --project <worktree> ruff check .`, `ruff format --check .`
   and `pytest -q` — all three green, with `tests/test_concurrency_pools.py`
   unchanged and passing, since no pool is added.
