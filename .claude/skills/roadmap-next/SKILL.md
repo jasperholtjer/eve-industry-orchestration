@@ -409,8 +409,8 @@ is step 8.
 2. `roadmap.yaml`: set the row to `status: done`.
 3. `README.md`, `ROADMAP.md` and the **State of the repository** paragraph in
    `openspec/config.yaml`, only where the row changed what they claim — a work
-   item in `ROADMAP.md` moving to done is exactly such a change. Do not touch
-   `CHANGELOG.md`: it is not being kept until this repository has a version.
+   item in `ROADMAP.md` moving to done is exactly such a change. This
+   repository keeps no `CHANGELOG.md`.
 4. One commit for the adoption, in the shape `git log` already uses.
 5. Merge, and do not push.
 

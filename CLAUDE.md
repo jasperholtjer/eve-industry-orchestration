@@ -96,8 +96,7 @@ six repos is the platform-level `next` skill, one directory up.
 - **`openspec/config.yaml` carries the repository context** every change is
   written against. When a row changes what it claims, the same change updates
   that paragraph.
-- **No CHANGELOG** until this repo has a version. The specs and the decisions
-  are the record.
+- **No CHANGELOG.** The specs and the decisions are the record.
 
 ## Testing without the Rust build
 
