@@ -160,12 +160,26 @@ Per the decision above. The pull is folded into the existing flow (`git pull` +
 `uv sync` + binary pull + systemd restart); downloading from the private repo
 needs `gh` authenticated as root (`gh auth login`, or `GH_TOKEN`).
 
-### 5. Enrich materialisation metadata
+### 5. Enrich materialisation metadata — done
 
 Makes the "overview / logging" purpose of the repo real.
 
-- Populate `MaterializeResult` metadata from `_INDEX.json` / `corpus state query
-  --format json` (rows, retention_class) instead of the current static fields.
+- `MaterializeResult` metadata carries `rows`, `retention_class` and
+  `parquet_sha256` for the partition just written, read from run-state through
+  `corpus state query --format json`. Not from `_INDEX.json`: opening that file
+  means building the `year=/month=/day=` path in Python, which the storage
+  boundary reserves to corpus, and the fields the row wanted are run-state
+  columns anyway.
+- The lookup is keyed on the run-state partition key, which prefixes its scheme
+  (`date=`, `build=`, `month=`, `latest`) and is not the Dagster partition key.
+  `defs/corpus_resource.py` names one helper per scheme so a call site cannot
+  pass the bare key, match nothing, and enrich nothing in silence.
+- Enrichment is advisory: no row, a failed query or unparseable output warns and
+  returns an empty mapping. It never fails a materialisation corpus reported as
+  successful.
+- Bronze, the `*_live.py` snapshots and MER's history Gold are deliberately not
+  enriched — corpus registers no single run-state row describing what they
+  wrote. Each site says so where it is.
 
 ## Future phases
 

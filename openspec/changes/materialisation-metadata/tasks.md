@@ -60,7 +60,7 @@ serving-load assets in `serving.py` are left alone. Every group consults the
   shows no change to `defs/config.py`, `defs/sensors.py`, any partition
   definition or `deploy/dagster.yaml`, and
   `pytest -q tests/test_concurrency_pools.py` passes.
-- [ ] 3.2 Update `openspec/config.yaml`'s **State of the repository** paragraph,
+- [x] 3.2 Update `openspec/config.yaml`'s **State of the repository** paragraph,
   which currently reads "Still open: materialisation metadata is static rather
   than read from `_INDEX.json`", and the matching work item in `ROADMAP.md`.
   Verify by reading both.

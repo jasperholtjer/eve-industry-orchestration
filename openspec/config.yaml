@@ -54,8 +54,16 @@ context: |
   `sde-changelog` Gold rebuildable in place, which is the first record under
   `docs/adr/` (ADR-0001).
 
-  Still open: materialisation metadata is static rather than read from
-  `_INDEX.json`. That is a row in `roadmap.yaml`.
+  A materialisation now records what corpus measured, not what the asset was
+  asked for: every partitioned asset merges the run-state `rows`,
+  `retention_class` and `parquet_sha256` for the partition it just wrote over
+  its identifying fields, read through `corpus state query`. Run-state keys are
+  scheme-prefixed (`date=`, `build=`, `month=`, `latest`) and built by named
+  helpers, never handed the bare Dagster key. The read is advisory — a missing
+  row or a failed query warns and yields nothing rather than failing a run
+  corpus passed. The tiers and trees corpus registers no row for (Bronze, the
+  live snapshots, MER's multi-year history Gold) record their identifying
+  fields as before, each with the reason in place.
 
   ## Concurrency, which is where this repo is easiest to get wrong
 
