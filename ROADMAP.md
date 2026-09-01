@@ -2,9 +2,11 @@
 
 Planned work for the orchestrator, ordered by dependency. The repo currently
 materialises `market-history` partitions by hand; the goal is automated,
-interval-driven materialisation against a pinned `corpus` release. Compute, data
-config, and ADRs live in [eve-industry-corpus](https://github.com/jasperholtjer/eve-industry-corpus);
-this repo owns only the partition matrix, scheduling, and the materialisation log.
+interval-driven materialisation against a pinned `corpus` release. Compute and
+data config live in [eve-industry-corpus](https://github.com/jasperholtjer/eve-industry-corpus)
+along with their ADRs, while this repo records its own orchestration decisions
+under [`docs/adr/`](docs/adr/); this repo owns only the partition matrix,
+scheduling, and the materialisation log.
 
 ## Confirmed corpus CLI surface
 

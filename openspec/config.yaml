@@ -47,6 +47,13 @@ context: |
   sensor, because the loads are latest-only and the loader's `parquet_sha256`
   idempotency makes an unchanged hour a no-op.
 
+  The SDE sensors key readiness on corpus run-state rather than on what has
+  already been registered: `sde_build_discovery_sensor` re-proposes a build
+  whose Silver never committed, and `sde_gold_sensor` additionally requests any
+  changelog partition whose predecessor changed underneath it. That made
+  `sde-changelog` Gold rebuildable in place, which is the first record under
+  `docs/adr/` (ADR-0001).
+
   Still open: `market_history_gold` raises `NotImplementedError`, and
   materialisation metadata is static rather than read from `_INDEX.json`. Both
   are rows in `roadmap.yaml`.
@@ -92,9 +99,9 @@ context: |
 
   ## Decisions
 
-  The decisions live in the Decisions section of `ROADMAP.md` and in
-  `docs/serving-seam.md`. This repo has no `docs/adr/` yet; the first decision
-  that outgrows a roadmap paragraph starts one, and ADRs here are not
+  The decisions live in the Decisions section of `ROADMAP.md`, in
+  `docs/serving-seam.md`, and — since ADR-0001 — under `docs/adr/`, which a
+  decision that outgrows a roadmap paragraph joins. ADRs here are not
   append-only — a superseded record is rewritten or deleted.
 
   ## How a change is worked
