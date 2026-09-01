@@ -1,0 +1,22 @@
+name: sovereignty-campaigns
+schema_version: 1
+source:
+  kind: everef
+  layout: hourly-folder-tar
+  base_url: https://data.everef.net/sovereignty-campaigns/history
+  folder_era_start: 2022-12-16
+  tar_filename_template: "sovereignty-campaigns-{year}.tar.bz2"
+bronze:
+  retention_days: 30
+silver:
+  parquet_codec: zstd
+  parquet_codec_level: 19
+  sort_keys: [campaign_id]
+  served_start: 2021-07-01
+# ADR-0066 — the forward-looking contest series: each day independent, so no
+# look-back and no coverage gate.
+gold:
+  - name: sovereignty-contests
+    shape: sov-contests
+    sort_keys: [campaign_id, date]
+    served_start: 2022-01-01

@@ -1,0 +1,26 @@
+name: sovereignty-structures
+schema_version: 1
+source:
+  kind: everef
+  layout: hourly-folder-tar
+  base_url: https://data.everef.net/sovereignty-structures/history
+  folder_era_start: 2022-12-16
+  tar_filename_template: "sovereignty-structures-{year}.tar.bz2"
+bronze:
+  retention_days: 30
+silver:
+  parquet_codec: zstd
+  parquet_codec_level: 19
+  sort_keys: [structure_id]
+  served_start: 2021-07-01
+# ADR-0066 — one flat-horizon derivative over the ADM series.
+gold:
+  - name: sovereignty-adm
+    shape: sov-adm
+    sort_keys: [system_id, date]
+    served_start: 2022-01-01
+    flat:
+      daily_rollup: mean
+      horizons: [7, 30, 90]
+      aggregators: [mean, median, p95, max, std]
+      coverage_min_ratio: 0.5

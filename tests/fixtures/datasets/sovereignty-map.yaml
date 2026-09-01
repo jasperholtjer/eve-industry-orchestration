@@ -1,0 +1,42 @@
+name: sovereignty-map
+schema_version: 1
+source:
+  kind: everef
+  layout: hourly-folder-tar
+  base_url: https://data.everef.net/sovereignty-map/history
+  folder_era_start: 2022-12-16
+  tar_filename_template: "sovereignty-map-{year}.tar.bz2"
+bronze:
+  retention_days: 30
+silver:
+  parquet_codec: zstd
+  parquet_codec_level: 19
+  sort_keys: [system_id]
+  # Silver coverage floor (ADR-0027): same dense hourly EVE Ref era as
+  # system-jumps / system-kills.
+  served_start: 2021-07-01
+# ADR-0066 — three Gold trees off one Silver fold. Mirrors the real corpus
+# config shape; the tenure pair sets the Silver reach-back.
+gold:
+  - name: sovereignty-ownership
+    shape: sov-ownership
+    sort_keys: [date, system_id]
+    served_start: 2022-01-01
+    tenure:
+      tenure_lookback_days: 180
+      coverage_min_ratio: 1.0
+  - name: sovereignty-changes
+    shape: sov-events
+    sort_keys: [changed_on, system_id]
+    served_start: 2022-01-01
+    tenure:
+      tenure_lookback_days: 180
+      coverage_min_ratio: 1.0
+  # Gold-over-Gold: reads sibling Gold trees, never a Silver window, so it
+  # imposes no Silver reach-back despite carrying a flip window.
+  - name: sovereignty-panel
+    shape: sov-panel
+    sort_keys: [date, system_id]
+    served_start: 2022-01-31
+    panel:
+      flip_window_days: 30

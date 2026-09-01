@@ -45,6 +45,12 @@ _ORDERBOOK_LOOKBACK_DAYS = 1
 # (``shape_window`` → ``lookback_days: 0``), so it needs no reach-back.
 _STRUCTURES_SNAPSHOT_LOOKBACK_DAYS = 0
 
+# ``sov-contests`` and ``sov-panel`` (corpus ADR-0066) reach back no further than
+# their own Gold date. ``sov-contests`` treats every day as independent; ``sov-panel``
+# assembles sibling *Gold* trees plus a trailing ``sov-events`` window over Gold,
+# so its ``panel.flip_window_days`` constrains no Silver start.
+_SOVEREIGNTY_SNAPSHOT_LOOKBACK_DAYS = 0
+
 
 class PartitionConfigError(RuntimeError):
     """Raised when the dataset config cannot yield partition start dates."""
@@ -302,10 +308,11 @@ def _derivative_from_list_entry(entry: dict[str, Any]) -> _Derivative:
 def _lookback_for_shape(name: str, shape: str, entry: dict[str, Any]) -> int | None:
     if shape == "rolling":
         return _rolling_lookback(entry.get("rolling"))
-    if shape in ("flat-multi-horizon", "cost-index-history"):
-        # cost-index-history (ADR-0043) carries the same `flat` block — a max
-        # horizon over a daily-rollup series — so its Silver preload is the max
-        # of `flat.horizons`, exactly like flat-multi-horizon.
+    if shape in ("flat-multi-horizon", "cost-index-history", "sov-adm"):
+        # cost-index-history (ADR-0043) and sov-adm (ADR-0066) carry the same
+        # `flat` block — a max horizon over a daily-rollup series — so their
+        # Silver preload is the max of `flat.horizons`, exactly like
+        # flat-multi-horizon.
         return _flat_lookback(name, entry.get("flat"), key="flat")
     if shape == "recency-weighted":
         return _ewma_lookback(name, entry.get("ewma"), key="ewma")
@@ -333,6 +340,15 @@ def _lookback_for_shape(name: str, shape: str, entry: dict[str, Any]) -> int | N
         # horizon's reference day, so the preload is max(population.horizons) —
         # the same max-horizon rule as the flat shapes, different block name.
         return _flat_lookback(name, entry.get("population"), key="population")
+    if shape in ("sov-ownership", "sov-events"):
+        # The sovereignty tenure pair (corpus ADR-0066) censors tenure columns at
+        # the left edge of a fixed trailing window, so the Silver preload is
+        # `tenure.tenure_lookback_days`.
+        return _tenure_lookback(name, entry.get("tenure"))
+    if shape in ("sov-contests", "sov-panel"):
+        # No Silver window at all — same "no reach-back" rule as
+        # structures-snapshot. Zero, not None: both still anchor Silver.
+        return _SOVEREIGNTY_SNAPSHOT_LOOKBACK_DAYS
     raise PartitionConfigError(f"gold derivative {name!r} has unknown shape {shape!r}")
 
 
@@ -360,6 +376,23 @@ def _flat_lookback(name: str, flat: Any, key: str = "flat") -> int:
     if not isinstance(horizons, list) or not horizons:
         raise PartitionConfigError(f"gold derivative {name!r} has no `{key}.horizons`")
     return max(horizons)
+
+
+def _tenure_lookback(name: str, tenure: Any) -> int:
+    """Look-back days of a ``tenure`` block (corpus ADR-0066).
+
+    Fails loudly rather than defaulting to zero: a mistyped key would otherwise
+    silently pull the Silver start forward by half a year.
+    """
+    if not isinstance(tenure, dict):
+        raise PartitionConfigError(f"gold derivative {name!r} has no `tenure` block")
+    days = tenure.get("tenure_lookback_days")
+    if not isinstance(days, int) or isinstance(days, bool) or days <= 0:
+        raise PartitionConfigError(
+            f"gold derivative {name!r} has no positive integer "
+            "`tenure.tenure_lookback_days`"
+        )
+    return days
 
 
 def _ewma_lookback(name: str, ewma: Any, key: str = "ewma") -> int:

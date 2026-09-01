@@ -8,6 +8,7 @@ import pytest
 
 from eve_industry_orchestration.defs.config import (
     PartitionConfigError,
+    _lookback_for_shape,
     resolve_partition_starts,
 )
 
@@ -295,3 +296,70 @@ def test_kills_consumption_resolves_without_the_selector() -> None:
     """killmails declares exactly one derivative, so the selector is optional."""
     starts = resolve_partition_starts(KILLMAILS, datasets_dir=str(DATASETS_DIR))
     assert (starts.silver, starts.gold) == ("2021-01-01", "2022-01-01")
+
+
+# --- sovereignty: the five sov-* shapes (corpus ADR-0066) -----------------
+
+SOV_MAP = "sovereignty-map"
+SOV_STRUCTURES = "sovereignty-structures"
+SOV_CAMPAIGNS = "sovereignty-campaigns"
+SOV_OWNERSHIP = "sovereignty-ownership"
+
+
+def test_sovereignty_map_silver_start_is_one_tenure_window_back() -> None:
+    """2022-01-01 − 180d = 2021-07-05, above the 2021-07-01 floor.
+
+    The tenure pair (``sov-ownership`` / ``sov-events``) sets the reach-back; the
+    panel contributes none. The clamp does not bite here, so this pins the
+    derived date rather than the floor.
+    """
+    starts = resolve_partition_starts(
+        SOV_MAP, SOV_OWNERSHIP, datasets_dir=str(DATASETS_DIR)
+    )
+    assert (starts.silver, starts.gold) == ("2021-07-05", "2022-01-01")
+
+
+def test_sovereignty_map_ambiguous_without_selector() -> None:
+    """Three derivatives, so `_select_derivative` demands a name."""
+    with pytest.raises(PartitionConfigError):
+        resolve_partition_starts(SOV_MAP, datasets_dir=str(DATASETS_DIR))
+
+
+def test_sovereignty_panel_imposes_no_silver_reach_back() -> None:
+    """`panel.flip_window_days` is a Gold-over-Gold window, not a Silver one.
+
+    Asserted on the lookback directly: ``_silver_start`` takes the *minimum*
+    preload, and the tenure pair already reaches 2021-07-05, so a wrong panel
+    value of 30 (2022-01-31 − 30 = 2022-01-01) is discarded by the ``min`` and
+    would move no resolved date.
+    """
+    assert _lookback_for_shape("sovereignty-panel", "sov-panel", {}) == 0
+
+
+def test_sovereignty_structures_silver_start_is_the_max_flat_horizon() -> None:
+    """sov-adm reuses the flat rule: 2022-01-01 − max([7, 30, 90]) = 2021-10-03."""
+    starts = resolve_partition_starts(SOV_STRUCTURES, datasets_dir=str(DATASETS_DIR))
+    assert (starts.silver, starts.gold) == ("2021-10-03", "2022-01-01")
+
+
+def test_sovereignty_campaigns_silver_start_has_no_reach_back() -> None:
+    """sov-contests treats each day as independent, so Silver starts at Gold."""
+    starts = resolve_partition_starts(SOV_CAMPAIGNS, datasets_dir=str(DATASETS_DIR))
+    assert (starts.silver, starts.gold) == ("2022-01-01", "2022-01-01")
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {},
+        {"tenure": None},
+        {"tenure": {"coverage_min_ratio": 1.0}},
+        {"tenure": {"tenure_lookback_days": "180"}},
+        {"tenure": {"tenure_lookback_days": 0}},
+    ],
+    ids=["absent", "null", "no-key", "not-an-int", "not-positive"],
+)
+def test_tenure_lookback_rejects_a_malformed_block(entry: dict[str, object]) -> None:
+    """A mistyped tenure key must fail loudly, never default to zero."""
+    with pytest.raises(PartitionConfigError):
+        _lookback_for_shape("sovereignty-ownership", "sov-ownership", entry)
