@@ -79,12 +79,37 @@ Both declare no look-back. `sov-contests` has no coverage gate at all;
 window over Gold, never a Silver window, so it constrains no Silver start. They
 take the rule `structures-snapshot` already carries.
 
-This is worth stating because it is the one place a plausible mistake changes a
-number rather than raising: giving `sov-panel` its `panel.flip_window_days: 30` as
-a Silver reach-back would pull `sovereignty-map`'s Silver start 30 days earlier
-than the configuration asks for. The clamp to the `2021-07-01` coverage floor
-happens to hide it today, which is exactly why it needs a test rather than a
-reader's confidence.
+This is worth pinning with a test rather than a reader's confidence, because the
+mistake it guards against is invisible in the resolved dates. Reading
+`sov-panel`'s `panel.flip_window_days: 30` as a Silver reach-back would give it a
+preload of `2022-01-31 - 30 = 2022-01-01`, and `_silver_start` takes the **minimum**
+preload across the dataset's derivatives — `sovereignty-map`'s tenure pair already
+reaches back to `2022-01-01 - 180 = 2021-07-05`, so the wrong panel value is
+discarded by the `min` and moves nothing. The shape rule therefore has to be
+asserted directly, on the lookback, not inferred from a start date that would look
+identical either way.
+
+### `sovereignty-map` needs a derivative selector; the other two do not
+
+`resolve_partition_starts` resolves a Gold start as well as a Silver one, and
+`_select_derivative` raises unless a multi-derivative dataset is given a name.
+`sovereignty-map` declares three (`sovereignty-ownership`, `sovereignty-changes`,
+`sovereignty-panel`), so its Silver asset must pass one —
+`sovereignty-ownership`, the tenure derivative that sets the Silver reach-back —
+and use only `.silver` from the result, exactly as `system_jumps.py` passes
+`HISTORY_DERIVATIVE`. `sovereignty-structures` and `sovereignty-campaigns` declare
+one derivative each and need no selector.
+
+The choice of selector does not affect the Silver start: `_silver_start` runs over
+every derivative regardless of which one was selected. It is named for the Gold
+half of the return value, which this row does not use.
+
+The resolved Silver starts this row pins are therefore `2021-07-05` for
+`sovereignty-map` (`2022-01-01 - 180`, above the `2021-07-01` floor, so the clamp
+does not bite), `2021-10-03` for `sovereignty-structures` (`2022-01-01 - 90`) and
+`2022-01-01` for `sovereignty-campaigns` (no reach-back). All three are before the
+`2022-12-16` layout-era boundary, so the boundary test has real dates on both
+sides.
 
 ### `pool="everef_download"`, and no measurement
 
@@ -96,13 +121,23 @@ memory-bearing pool; `everef_download` is not one, so the row's note to measure
 before joining one is a constraint on the **Gold** row, not this one. No number is
 needed here, and inventing one would be worse than omitting it.
 
-### The `incomplete` branch is not copied
+### The `skipped` branch is copied; the `incomplete` branch is not
 
-`market_history_silver` branches on an `incomplete` ingest status under ADR-0041,
-which is specific to the daily-file layout where a day can be published partially.
-The sovereignty datasets are `hourly-folder-tar`; the `system-jumps` Silver asset
-is the closer precedent and carries no such branch. Copying it would add a Python
-decision about a state the binary does not report for these datasets.
+Two different absent-day stories, and only one of them applies here.
+
+`system_jumps_silver` carries `output_required=False` and branches on an ingest
+that exits zero with `status: "skipped"` — an interior day EVE Ref never published
+(corpus ADR-0028). It skips the verify, which would fail against a partition that
+was deliberately not written, yields an `AssetObservation` recording why, and
+leaves the partition Missing rather than materialising an empty one. The
+sovereignty datasets are the same `hourly-folder-tar` shape over the same
+archive, and their first backfill is four years wide, so gap days are not an edge
+case — an asset without this branch fails on the first one. All three copy it.
+
+`market_history_silver` branches on `incomplete` under ADR-0041, which is specific
+to the daily-file layout where a single day's file can be published partially.
+That state does not arise for `hourly-folder-tar`, and copying the branch would add
+a Python decision about something the binary does not report for these datasets.
 
 ## Risks / Trade-offs
 

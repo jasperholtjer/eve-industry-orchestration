@@ -95,6 +95,32 @@ which the binary resolves from the dataset configuration.
 - **WHEN** the ingest for a date exits non-zero
 - **THEN** verification is not invoked and the materialisation fails
 
+### Requirement: A day the upstream never published leaves its partition missing
+
+When the ingest for a date succeeds while reporting that it wrote no partition
+because the upstream published nothing for that day, the orchestrator SHALL NOT
+verify that date, SHALL NOT record a materialisation for it, and SHALL NOT fail
+the run. The partition SHALL be left unmaterialised, and the run SHALL record an
+observation naming the reason so the absence is distinguishable from a partition
+that was never attempted.
+
+The orchestrator SHALL NOT itself decide that a day is absent upstream; it acts
+only on what the ingest reports.
+
+#### Scenario: An absent upstream day is observed, not materialised
+
+- **WHEN** the ingest for a date succeeds and reports that it wrote no partition
+  because the upstream day is absent
+- **THEN** verification is not invoked, the partition is left unmaterialised, the
+  run succeeds, and an observation records the reason
+
+#### Scenario: An absent day does not fail a backfill
+
+- **WHEN** a range of dates is materialised and one interior date is absent
+  upstream
+- **THEN** that date's run succeeds without materialising it, and the remaining
+  dates materialise as normal
+
 #### Scenario: A date before the layout change is requested like any other
 
 - **WHEN** a date earlier than the dataset's on-disk layout change is

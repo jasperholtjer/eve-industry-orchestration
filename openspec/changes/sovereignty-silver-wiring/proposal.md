@@ -36,8 +36,10 @@ Gold trees are the next row's work.
   `sovereignty_campaigns_silver`. Each shells out to `corpus ingest --dataset
   <name> --date <date>`, then `corpus verify --tier silver` for the same date on
   success, and records the run-state `rows`, `retention_class` and
-  `parquet_sha256` for the partition it wrote. No JSON, tar or parquet is opened
-  in Python.
+  `parquet_sha256` for the partition it wrote. A day the upstream never published
+  — reported by the ingest, never decided in Python — skips the verify and leaves
+  its partition Missing with an observation, so a four-year backfill is not
+  stopped by a gap. No JSON, tar or parquet is opened in Python.
 - Three availability sensors keyed on `corpus everef missing-partitions`, one per
   dataset, mirroring `market_history_availability_sensor`: run-state driven, never
   NAS globbing, capped at the shared per-tick fan-out limit.
