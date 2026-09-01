@@ -24,6 +24,7 @@ from eve_industry_orchestration.defs import market_orders as mo
 from eve_industry_orchestration.defs import market_orders_live as mol
 from eve_industry_orchestration.defs import market_prices_live as mpl
 from eve_industry_orchestration.defs import mer, sde, sensor_util
+from eve_industry_orchestration.defs import public_contracts_live as pcl
 from eve_industry_orchestration.defs import sovereignty_campaigns as sc
 from eve_industry_orchestration.defs import sovereignty_map as sm
 from eve_industry_orchestration.defs import sovereignty_structures as ss
@@ -1125,6 +1126,21 @@ sde_snapshot_schedule = dg.ScheduleDefinition(
 market_orders_live_schedule = dg.ScheduleDefinition(
     name="market_orders_live_schedule",
     target=mol.market_orders_live_gold,
+    cron_schedule="*/30 * * * *",
+    default_status=dg.DefaultScheduleStatus.STOPPED,
+)
+
+
+# Half-hourly refresh of the live open-contract snapshot (corpus ADR-0068). Same
+# schedule-not-sensor rationale as `market_orders_live_schedule`: the tree is a
+# current-overwrite `current/` partition, so there is no per-date availability to
+# diff — only "grab whatever EVE Ref published last". The cadence matches the
+# upstream ~30-min publish rhythm (~47 snapshots a day). The source is EVE Ref, so
+# the asset joins the `everef_download` pool (one fetch per run), not `heavy`, and
+# cannot starve the windowed backfills under max_concurrent_runs.
+public_contracts_live_schedule = dg.ScheduleDefinition(
+    name="public_contracts_live_schedule",
+    target=pcl.public_contracts_live_gold,
     cron_schedule="*/30 * * * *",
     default_status=dg.DefaultScheduleStatus.STOPPED,
 )

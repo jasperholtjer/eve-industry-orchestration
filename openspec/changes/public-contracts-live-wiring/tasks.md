@@ -1,27 +1,27 @@
 ## 1. The live asset
 
-- [ ] 1.1 Consult the `dagster-expert` skill before writing the asset and the
+- [x] 1.1 Consult the `dagster-expert` skill before writing the asset and the
   schedule below — both are Dagster definitions and must be written against the
   installed version, not from memory.
-- [ ] 1.2 Add `src/eve_industry_orchestration/defs/public_contracts_live.py`
+- [x] 1.2 Add `src/eve_industry_orchestration/defs/public_contracts_live.py`
   with a non-partitioned `public_contracts_live_gold` asset mirroring
   `defs/market_orders_live.py`: `kinds={"corpus"}`, its own `group_name`, and
   `pool=` the EVE Ref download politeness pool. Verify by reading the file that
   it declares no `partitions_def` and no `deps=`.
-- [ ] 1.3 Shell `corpus live build --dataset public-contracts-live --sink-path
+- [x] 1.3 Shell `corpus live build --dataset public-contracts-live --sink-path
   <sink>` through `CorpusResource.run` and return a `dg.MaterializeResult`
   carrying `dataset`, `tier` and `partition` plus the freshness keys the binary
   reports — `snapshot_at`, `snapshot_file`, `date`, `rows` — copied only when
   present. Verify no path is constructed and no parquet is opened by reading the
   module: it imports neither `pathlib` for the tree nor any parquet library.
-- [ ] 1.4 Carry the two reasons in the module docstring and at the point they
+- [x] 1.4 Carry the two reasons in the module docstring and at the point they
   bind, as the sibling does: why a schedule replaces the availability sensor for
   a current-overwrite tree, and why no `partition_metadata` enrichment and no
   `corpus verify` call happen here. Verify by reading the file.
 
 ## 2. The schedule
 
-- [ ] 2.1 Add a default-stopped `dg.ScheduleDefinition` at `*/30 * * * *` in
+- [x] 2.1 Add a default-stopped `dg.ScheduleDefinition` at `*/30 * * * *` in
   `defs/sensors.py`, targeting the new asset, beside
   `market_orders_live_schedule`. Verify by reading the definition that its
   cadence and `default_status` match the sibling's.
