@@ -33,7 +33,7 @@ production), not a wide window — no ``heavy`` pool.
 
 import dagster as dg
 
-from eve_industry_orchestration.defs.corpus_resource import CorpusResource
+from eve_industry_orchestration.defs.corpus_resource import CorpusResource, month_key
 
 # The macro-aggregate blob dataset. Gold reads across all its Silver partitions.
 DATASET = "mer"
@@ -106,6 +106,9 @@ def mer_silver(
         "--sink-path",
         corpus.sink_path,
     )
+    # The run-state key is the report-month as corpus spells it — the
+    # `YYYY-MM-01` partition key, not the `YYYY-MM` ingest selector above. The
+    # read is advisory and yields {} rather than failing a completed run.
     return dg.MaterializeResult(
         metadata={
             "dataset": DATASET,
@@ -113,6 +116,7 @@ def mer_silver(
             "report_month": report_month,
             "rows": (status or {}).get("rows"),
         }
+        | corpus.partition_metadata(DATASET, "silver", month_key(context.partition_key))
     )
 
 
@@ -156,6 +160,9 @@ def mer_killdump_silver(
         "--sink-path",
         corpus.sink_path,
     )
+    # The run-state key is the report-month as corpus spells it — the
+    # `YYYY-MM-01` partition key, not the `YYYY-MM` ingest selector above. The
+    # read is advisory and yields {} rather than failing a completed run.
     return dg.MaterializeResult(
         metadata={
             "dataset": KILLDUMP_DATASET,
@@ -163,6 +170,9 @@ def mer_killdump_silver(
             "report_month": report_month,
             "rows": (status or {}).get("rows"),
         }
+        | corpus.partition_metadata(
+            KILLDUMP_DATASET, "silver", month_key(context.partition_key)
+        )
     )
 
 
@@ -200,6 +210,9 @@ def _history_gold(
         "--sink-path",
         corpus.sink_path,
     )
+    # No run-state enrichment here: this build writes one partition per
+    # `year=YYYY` covered by the merge, so there is no single
+    # `(dataset, tier, partition_key)` row whose facts describe the result.
     return dg.MaterializeResult(
         metadata={
             "dataset": derivative,

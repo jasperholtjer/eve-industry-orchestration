@@ -42,7 +42,7 @@ serving-load assets in `serving.py` are left alone. Every group consults the
 - [ ] 2.2 `market_orders.py`, `system_jumps.py`, `system_kills.py`,
   `structures.py`, `industry_cost_indices.py`. Verify with `pytest -q -k
   "market_orders or system_jumps or system_kills or structures or cost_indices"`.
-- [ ] 2.3 `sde.py`, `mer.py` — the multi-derivative and per-build sites, whose
+- [x] 2.3 `sde.py`, `mer.py` — the multi-derivative and per-build sites, whose
   key is a build number or a derivative name rather than a date. Verify with
   `pytest -q -k "sde or mer"`.
 - [ ] 2.4 `news.py`, `killmails.py`, `transcripts.py` — including the sites that

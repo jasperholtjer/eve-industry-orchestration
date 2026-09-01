@@ -171,3 +171,36 @@ def test_mer_gold_build_without_derivative_fails(
             "--sink-path",
             corpus.sink_path,
         )
+
+
+# --- run-state metadata enrichment (month= key) ----------------------------
+
+
+@pytest.mark.parametrize(
+    ("asset", "dataset"),
+    [(mer_silver, "mer"), (mer_killdump_silver, "mer-killdump")],
+)
+def test_silver_metadata_carries_the_run_state_facts(
+    corpus, monkeypatch: pytest.MonkeyPatch, asset, dataset: str
+) -> None:
+    # The run-state key is `month=YYYY-MM-01` — the partition key itself, not
+    # the `YYYY-MM` ingest selector. Getting that wrong matches no row and
+    # enriches nothing, so assert the facts are actually present.
+    monkeypatch.setenv("FAKE_MER_REPORTS", REPORTS)
+    monkeypatch.setenv("FAKE_PARTITION_ROWS", "11")
+    instance = _instance_with_months("2025-06-01")
+
+    result = dg.materialize(
+        [asset],
+        partition_key="2025-06-01",
+        instance=instance,
+        resources={"corpus": corpus},
+    )
+
+    assert result.success
+    metadata = result.get_asset_materialization_events()[0].materialization.metadata
+    assert metadata["rows"].value == 11
+    assert metadata["retention_class"].value == "validated"
+    assert metadata["parquet_sha256"].value
+    assert metadata["dataset"].value == dataset
+    assert metadata["report_month"].value == "2025-06-01"

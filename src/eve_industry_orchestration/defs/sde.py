@@ -50,7 +50,11 @@ from collections.abc import Iterator
 import dagster as dg
 
 from eve_industry_orchestration.defs.config import sde_entities
-from eve_industry_orchestration.defs.corpus_resource import CorpusResource
+from eve_industry_orchestration.defs.corpus_resource import (
+    LATEST_KEY,
+    CorpusResource,
+    build_key,
+)
 
 DATASET = "sde"
 CHANGELOG_DERIVATIVE = "sde-changelog"
@@ -132,13 +136,17 @@ def sde_silver(
         corpus.sink_path,
     )
 
+    # A build is the run-state partition identity (`build=<n>`), not the
+    # release date the Hive path carries; the facts corpus just recorded merge
+    # over the identifying fields. The read is advisory and yields {} rather
+    # than failing a materialisation corpus already completed.
     metadata: dict[str, object] = {
         "dataset": DATASET,
         "tier": "silver",
         "build": build,
         "release_date": release_date,
         "rows": (status or {}).get("rows"),
-    }
+    } | corpus.partition_metadata(DATASET, "silver", build_key(build))
     listed_date = context.run.tags.get(RELEASE_DATE_TAG)
     if listed_date is not None:
         metadata["listed_release_date"] = listed_date
@@ -207,6 +215,9 @@ def sde_changelog_gold(
         "--sink-path",
         corpus.sink_path,
     )
+    # The changelog Gold tree is its own run-state dataset, keyed on the same
+    # build axis as Silver (`build=<n>`), so the enrichment reads the derivative
+    # name rather than DATASET.
     yield dg.MaterializeResult(
         metadata={
             "dataset": DATASET,
@@ -215,6 +226,7 @@ def sde_changelog_gold(
             "build": build,
             "release_date": release_date,
         }
+        | corpus.partition_metadata(CHANGELOG_DERIVATIVE, "gold", build_key(build))
     )
 
 
@@ -261,6 +273,8 @@ def sde_snapshot_gold(
         "--sink-path",
         corpus.sink_path,
     )
+    # A latest-only tree is flat and overwritten each build, so its run-state
+    # key is the literal `latest` and its dataset is the derivative name.
     return dg.MaterializeResult(
         metadata={
             "dataset": DATASET,
@@ -271,6 +285,7 @@ def sde_snapshot_gold(
             "release_date": (status or {}).get("release_date"),
             "entities_written": (status or {}).get("entities_written"),
         }
+        | corpus.partition_metadata(SNAPSHOT_DERIVATIVE, "gold", LATEST_KEY)
     )
 
 
@@ -319,6 +334,8 @@ def sde_industry_products_gold(
         "--sink-path",
         corpus.sink_path,
     )
+    # A latest-only tree is flat and overwritten each build, so its run-state
+    # key is the literal `latest` and its dataset is the derivative name.
     return dg.MaterializeResult(
         metadata={
             "dataset": DATASET,
@@ -329,6 +346,7 @@ def sde_industry_products_gold(
             "release_date": (status or {}).get("release_date"),
             "row_count": (status or {}).get("row_count"),
         }
+        | corpus.partition_metadata(INDUSTRY_PRODUCTS_DERIVATIVE, "gold", LATEST_KEY)
     )
 
 
@@ -377,6 +395,8 @@ def sde_industry_facilities_gold(
         "--sink-path",
         corpus.sink_path,
     )
+    # A latest-only tree is flat and overwritten each build, so its run-state
+    # key is the literal `latest` and its dataset is the derivative name.
     return dg.MaterializeResult(
         metadata={
             "dataset": DATASET,
@@ -387,6 +407,7 @@ def sde_industry_facilities_gold(
             "release_date": (status or {}).get("release_date"),
             "row_count": (status or {}).get("row_count"),
         }
+        | corpus.partition_metadata(INDUSTRY_FACILITIES_DERIVATIVE, "gold", LATEST_KEY)
     )
 
 
@@ -433,6 +454,8 @@ def sde_industry_hubs_gold(
         "--sink-path",
         corpus.sink_path,
     )
+    # A latest-only tree is flat and overwritten each build, so its run-state
+    # key is the literal `latest` and its dataset is the derivative name.
     return dg.MaterializeResult(
         metadata={
             "dataset": DATASET,
@@ -443,4 +466,5 @@ def sde_industry_hubs_gold(
             "release_date": (status or {}).get("release_date"),
             "row_count": (status or {}).get("row_count"),
         }
+        | corpus.partition_metadata(INDUSTRY_HUBS_DERIVATIVE, "gold", LATEST_KEY)
     )

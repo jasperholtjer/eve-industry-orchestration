@@ -887,3 +887,93 @@ def test_sde_gold_build_without_derivative_fails(
             "--sink-path",
             corpus.sink_path,
         )
+
+
+# --- run-state metadata enrichment (build= / latest keys) ------------------
+
+
+def test_silver_metadata_carries_the_run_state_facts(
+    corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The SDE axis is the build, so the run-state key is `build=<n>` — a bare
+    # Dagster key would match no row and silently enrich nothing.
+    monkeypatch.setenv("FAKE_SDE_BUILDS", BUILDS)
+    monkeypatch.setenv("FAKE_PARTITION_ROWS", "7")
+    instance = _instance_with_builds(100)
+
+    result = dg.materialize(
+        [sde_silver],
+        partition_key="100",
+        instance=instance,
+        resources={"corpus": corpus},
+    )
+
+    assert result.success
+    metadata = result.get_asset_materialization_events()[0].materialization.metadata
+    assert metadata["rows"].value == 7
+    assert metadata["retention_class"].value == "validated"
+    assert metadata["parquet_sha256"].value
+    # The identifying fields survive the merge.
+    assert metadata["build"].value == "100"
+    assert metadata["dataset"].value == DATASET
+
+
+def test_changelog_metadata_carries_the_derivative_run_state_facts(
+    corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The changelog Gold row is keyed on the derivative name, not on `sde`.
+    monkeypatch.setenv("FAKE_SDE_BUILDS", BUILDS)
+    monkeypatch.setenv("FAKE_PARTITION_ROWS", "3")
+    instance = _instance_with_builds(100, 200)
+    _ingest_build(corpus, 100)
+    _ingest_build(corpus, 200)
+
+    result = dg.materialize(
+        [sde_changelog_gold],
+        partition_key="200",
+        instance=instance,
+        resources={"corpus": corpus},
+    )
+
+    assert result.success
+    metadata = result.get_asset_materialization_events()[0].materialization.metadata
+    assert metadata["rows"].value == 3
+    assert metadata["retention_class"].value == "validated"
+    assert metadata["derivative"].value == sde.CHANGELOG_DERIVATIVE
+    assert metadata["build"].value == "200"
+
+
+def test_snapshot_metadata_carries_the_latest_run_state_facts(
+    corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A flat latest-only tree is keyed on the literal `latest`.
+    monkeypatch.setenv("FAKE_SDE_BUILDS", BUILDS)
+    monkeypatch.setenv("FAKE_PARTITION_ROWS", "5")
+    instance = _instance_with_builds(100)
+    _ingest_build(corpus, 100)
+
+    result = dg.materialize(
+        [sde_snapshot_gold],
+        instance=instance,
+        resources={"corpus": corpus},
+    )
+
+    assert result.success
+    metadata = result.get_asset_materialization_events()[0].materialization.metadata
+    assert metadata["rows"].value == 5
+    assert metadata["retention_class"].value == "validated"
+    assert metadata["built"].value is True
+
+
+def test_skipped_snapshot_records_no_run_state_facts(corpus) -> None:
+    # A skipped build wrote no partition, so there is nothing to enrich.
+    result = dg.materialize(
+        [sde_snapshot_gold],
+        instance=dg.DagsterInstance.ephemeral(),
+        resources={"corpus": corpus},
+    )
+
+    assert result.success
+    metadata = result.get_asset_materialization_events()[0].materialization.metadata
+    assert metadata["built"].value is False
+    assert "rows" not in metadata
