@@ -42,14 +42,14 @@
 
 ## 4. Readiness sensors
 
-- [ ] 4.1 Add a Gold sensor factory for the sovereignty family to `defs/sensors.py`,
+- [x] 4.1 Add a Gold sensor factory for the sovereignty family to `defs/sensors.py`,
   parameterised on dataset, derivative, asset and partitions definition, mirroring
   `_build_orderbook_gold_sensor`; verify one sensor built from it requests the
   dates corpus reports ready
-- [ ] 4.2 Build the five sensors from it; verify each polls with its own
+- [x] 4.2 Build the five sensors from it; verify each polls with its own
   `--derivative`, targets only its own asset, and requests nothing when corpus
   reports no ready dates
-- [ ] 4.3 Verify the shared per-tick fan-out cap and the partition-range filter
+- [x] 4.3 Verify the shared per-tick fan-out cap and the partition-range filter
   hold for a sovereignty Gold sensor: a backlog longer than the cap is truncated
   and carried, and a ready date before the derivative's start is not requested
 

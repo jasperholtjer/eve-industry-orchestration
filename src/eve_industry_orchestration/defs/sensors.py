@@ -557,13 +557,12 @@ def killmails_consumption_gold_repair_sensor(
 
 # --- sovereignty (map / structures / campaigns, corpus ADR-0066) ----------
 #
-# Silver only: the three datasets' Gold trees land in a later row, so each has an
-# availability sensor and no readiness sensor. All three are hourly-folder-tar
-# datasets whose days settle with the usual EVE Ref lag, so availability is the
-# same thin cap-and-dedup loop as every other Silver sensor — the missing set
-# comes from corpus run-state, never from listing the NAS tree, and the
-# `everef_download` pool on the assets throttles the fetches across every launch
-# path, so no sensor tag is set here.
+# Three availability sensors and five Gold readiness sensors. All three datasets
+# are hourly-folder-tar datasets whose days settle with the usual EVE Ref lag, so
+# availability is the same thin cap-and-dedup loop as every other Silver sensor —
+# the missing set comes from corpus run-state, never from listing the NAS tree,
+# and the `everef_download` pool on the assets throttles the fetches across every
+# launch path, so no sensor tag is set here.
 
 
 @dg.sensor(
@@ -624,6 +623,92 @@ def sovereignty_campaigns_availability_sensor(
         asset_key=sc.sovereignty_campaigns_silver.key,
         label="availability",
     )
+
+
+def _build_sovereignty_gold_sensor(
+    dataset: str,
+    derivative: str,
+    asset: dg.AssetsDefinition,
+    partitions: dg.DailyPartitionsDefinition,
+) -> dg.SensorDefinition:
+    """Builds a Gold readiness sensor for one sovereignty derivative.
+
+    Parameterised on the **dataset** as well as the derivative, unlike the
+    market-orders and structures factories: this family's five Gold trees span
+    three source datasets (``sovereignty-map`` owns ownership / changes / panel,
+    ``sovereignty-structures`` owns adm, ``sovereignty-campaigns`` owns
+    contests), so the poll target cannot be a module constant.
+
+    Polls ``corpus gold ready-dates --derivative <derivative>`` and stays a thin
+    cap-and-dedup loop. The binary owns every readiness decision — the Silver
+    window at ``coverage_min_ratio`` for the four per-dataset trees, and for the
+    panel the same day's three sibling Gold partitions plus the trailing flip
+    window (ADR-0052 sibling read, ADR-0066 decision 8). A sibling that skipped
+    its day simply never becomes ready here, so the panel's build order needs no
+    cross-sensor bookkeeping on top of the asset-graph edge.
+
+    Each derivative validates against **its own** partition matrix: the panel
+    serves one flip window later than the tenure pair, so a date that is ready
+    for a sibling can be outside the panel's own range.
+
+    No sensor gates the SDE snapshot the panel reads: it is a date-independent
+    tree whose absence is a configuration error the build surfaces, and a
+    stale-but-present one is a fingerprint recorded in ``_INDEX.json``, never a
+    run this sensor triggers.
+    """
+
+    @dg.sensor(
+        name=f"{derivative.replace('-', '_')}_gold_sensor",
+        target=asset,
+        minimum_interval_seconds=3600,
+        default_status=dg.DefaultSensorStatus.STOPPED,
+    )
+    def _sensor(
+        context: dg.SensorEvaluationContext, corpus: CorpusResource
+    ) -> dg.SensorResult:
+        report = corpus.gold_ready_dates(dataset, derivative=derivative)
+        return request_partitions(
+            context,
+            reported=report.get("ready", []),
+            valid=set(partitions.get_partition_keys()),
+            run_key_prefix=f"{derivative}-gold",
+            asset_key=asset.key,
+            label="gold-readiness",
+        )
+
+    return _sensor
+
+
+sovereignty_ownership_gold_sensor = _build_sovereignty_gold_sensor(
+    sm.DATASET,
+    sm.OWNERSHIP_DERIVATIVE,
+    sm.sovereignty_ownership_gold,
+    sm.ownership_gold_partitions,
+)
+sovereignty_changes_gold_sensor = _build_sovereignty_gold_sensor(
+    sm.DATASET,
+    sm.CHANGES_DERIVATIVE,
+    sm.sovereignty_changes_gold,
+    sm.changes_gold_partitions,
+)
+sovereignty_adm_gold_sensor = _build_sovereignty_gold_sensor(
+    ss.DATASET,
+    ss.ADM_DERIVATIVE,
+    ss.sovereignty_adm_gold,
+    ss.adm_gold_partitions,
+)
+sovereignty_contests_gold_sensor = _build_sovereignty_gold_sensor(
+    sc.DATASET,
+    sc.CONTESTS_DERIVATIVE,
+    sc.sovereignty_contests_gold,
+    sc.contests_gold_partitions,
+)
+sovereignty_panel_gold_sensor = _build_sovereignty_gold_sensor(
+    sm.DATASET,
+    sm.PANEL_DERIVATIVE,
+    sm.sovereignty_panel_gold,
+    sm.panel_gold_partitions,
+)
 
 
 # --- sde (build-versioned, ADR-0031) --------------------------------------
