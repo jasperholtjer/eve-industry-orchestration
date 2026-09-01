@@ -89,3 +89,35 @@ items:
       rejected, and the one-off check to run against the NAS run-state before
       this lands. The ADR must record that `sde-changelog` Gold is no longer
       write-once.
+
+  - id: pool-memory-budget
+    title: Give the concurrency pools one honest memory budget
+    goal: >
+      Three pools now carry memory — `heavy` (limit 2), `market_orders` (1) and
+      `news_embed` (1) — and `max_concurrent_runs: 4` equals their combined slot
+      count, so no combination is forbidden and the paper worst case exceeds the
+      12 GiB box. The budget is stated in three places that have already drifted:
+      `CLAUDE.md` counts only `heavy` and still lists market-orders Silver as a
+      member (`fc594e2` moved it out) and prescribes `--cores 4` (the LXC has 8);
+      `deploy/dagster.yaml` counts two pools and argues at line 40 that a limit-1
+      CPU pool bounds memory, which holds only against itself. Make the deploy
+      config the single source of the arithmetic, reduce `CLAUDE.md` to the
+      invariant plus a pointer, and pin the set of declared pools in a test so a
+      fourth memory-bearing pool cannot arrive unaccounted the way `news_embed`
+      did. Set `CORPUS_PARSE_CONCURRENCY` explicitly in both unit files: corpus
+      v0.9.0 made market-orders Silver's resident-snapshot window
+      `available_parallelism` clamped to `[2, 8]`, so its peak is currently a
+      function of the core count and `RAYON_NUM_THREADS` does not bound it.
+    areas: [orchestration]
+    priority: 3
+    status: todo
+    notes: >
+      Raised in docs/questions/2026-09-01-heavy-pool-market-orders-silver.md,
+      which carries the measurements. Not urgent: the six OOM kills on the LXC
+      all predate corpus v0.7.0/v0.9.0 and the pool split, and the current
+      architecture has run 68 days clean. `memory.peak` counts since boot and is
+      drawn from that same superseded window, so no measurement of the current
+      configuration exists — reset it (`echo > /sys/fs/cgroup/memory.peak`,
+      kernel >= 6.9) before any RAM decision. The ADR, if one lands, records that
+      every memory-bearing pool counts against one box budget and that
+      market-orders Silver's peak is pinned rather than discovered.
