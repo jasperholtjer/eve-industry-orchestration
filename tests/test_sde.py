@@ -965,6 +965,44 @@ def test_snapshot_metadata_carries_the_latest_run_state_facts(
     assert metadata["built"].value is True
 
 
+@pytest.mark.parametrize(
+    ("asset", "derivative"),
+    [
+        (sde_industry_products_gold, sde.INDUSTRY_PRODUCTS_DERIVATIVE),
+        (sde_industry_facilities_gold, sde.INDUSTRY_FACILITIES_DERIVATIVE),
+        (sde_industry_hubs_gold, sde.INDUSTRY_HUBS_DERIVATIVE),
+    ],
+)
+def test_industry_metadata_carries_the_latest_run_state_facts(
+    corpus,
+    monkeypatch: pytest.MonkeyPatch,
+    asset: dg.AssetsDefinition,
+    derivative: str,
+) -> None:
+    # Each industry derivative owns its own flat `latest` tree, so the enrichment
+    # read is keyed on the derivative name — enriching against `sde` or
+    # `sde-snapshot` would silently return an empty mapping.
+    monkeypatch.setenv("FAKE_SDE_BUILDS", BUILDS)
+    monkeypatch.setenv("FAKE_PARTITION_ROWS", "9")
+    instance = _instance_with_builds(100)
+    _ingest_build(corpus, 100)
+
+    result = dg.materialize(
+        [asset],
+        instance=instance,
+        resources={"corpus": corpus},
+    )
+
+    assert result.success
+    metadata = result.get_asset_materialization_events()[0].materialization.metadata
+    assert metadata["rows"].value == 9
+    assert metadata["retention_class"].value == "validated"
+    assert metadata["parquet_sha256"].value
+    # The identifying fields survive the merge.
+    assert metadata["derivative"].value == derivative
+    assert metadata["built"].value is True
+
+
 def test_skipped_snapshot_records_no_run_state_facts(corpus) -> None:
     # A skipped build wrote no partition, so there is nothing to enrich.
     result = dg.materialize(

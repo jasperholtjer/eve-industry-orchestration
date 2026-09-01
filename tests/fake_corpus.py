@@ -253,6 +253,14 @@ def _partition_dir(sink: str, tier: str, dataset: str, date: str) -> Path:
 
 # --- SDE build-versioned path (ADR-0030/0031) -----------------------------
 
+# Latest-only industry Gold derivatives: each its own flat tree, keyed on the
+# literal `latest` in the run-state (ADR-0044 products, ADR-0056 the other two).
+_SDE_INDUSTRY_DERIVATIVES = (
+    "sde-industry-products",
+    "sde-industry-facilities",
+    "sde-industry-hubs",
+)
+
 
 def _sde_entities() -> list[str]:
     """Reads the SDE entity names from the fixture ``sde.yaml`` config.
@@ -630,7 +638,7 @@ def _do_sde_gold_build(args: list[str], sink: str, derivative: str) -> int:
 
     if derivative == "sde-changelog":
         return _do_sde_changelog(args, sink, state, committed, build, release_date)
-    if derivative in ("sde-industry-facilities", "sde-industry-hubs"):
+    if derivative in _SDE_INDUSTRY_DERIVATIVES:
         return _do_sde_industry(sink, state, derivative, build, release_date)
     return _do_sde_snapshot(sink, state, build, release_date)
 
@@ -721,14 +729,19 @@ def _do_sde_snapshot(sink: str, state: dict, build: int, release_date: str) -> i
 def _do_sde_industry(
     sink: str, state: dict, derivative: str, build: int, release_date: str
 ) -> int:
-    # ADR-0056: latest-only industry derivatives, flat non-partitioned
-    # `gold/sde-industry-facilities|hubs/`, overwritten each build.
+    # ADR-0044/0056: latest-only industry derivatives, flat non-partitioned
+    # `gold/sde-industry-products|facilities|hubs/`, overwritten each build.
     _write_flat(sink, "gold", derivative)
 
+    rows = int(os.environ.get("FAKE_PARTITION_ROWS", "1"))
     state["sde_gold"].setdefault(derivative, [])
     if build not in state["sde_gold"][derivative]:
         state["sde_gold"][derivative].append(build)
-        _save_state(sink, state)
+    # The tree is flat and overwritten each build, so its run-state key is the
+    # literal `latest` under the derivative's own dataset name — the row the
+    # asset's enrichment read looks for.
+    _record_partition(state, derivative, "gold", "latest", rows=rows)
+    _save_state(sink, state)
 
     print(
         json.dumps(
@@ -739,7 +752,7 @@ def _do_sde_industry(
                 "build_id": build,
                 "release_date": release_date,
                 "partition_key": "latest",
-                "row_count": 1,
+                "row_count": rows,
             }
         )
     )
