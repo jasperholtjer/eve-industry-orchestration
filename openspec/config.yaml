@@ -54,9 +54,8 @@ context: |
   `sde-changelog` Gold rebuildable in place, which is the first record under
   `docs/adr/` (ADR-0001).
 
-  Still open: `market_history_gold` raises `NotImplementedError`, and
-  materialisation metadata is static rather than read from `_INDEX.json`. Both
-  are rows in `roadmap.yaml`.
+  Still open: materialisation metadata is static rather than read from
+  `_INDEX.json`. That is a row in `roadmap.yaml`.
 
   ## Concurrency, which is where this repo is easiest to get wrong
 

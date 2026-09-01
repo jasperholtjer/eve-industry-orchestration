@@ -36,7 +36,7 @@ are version-specific.
 
 ## 2. Retire the stale claims
 
-- [ ] 2.1 Rewrite work item 2 of `ROADMAP.md` to describe the shipped path:
+- [x] 2.1 Rewrite work item 2 of `ROADMAP.md` to describe the shipped path:
       `corpus gold build` then `corpus verify --tier gold`, the binary as the
       coverage authority, the sensor pre-checking through
       `corpus gold ready-dates`. Drop the "blocked upstream" framing, the
@@ -44,18 +44,18 @@ are version-specific.
       sentence. Keep the "Gold on the NAS (decided)" paragraph intact — it is
       still live and recorded nowhere else. Verify with
       `grep -n 'NotImplementedError\|blocked upstream' ROADMAP.md`: no match.
-- [ ] 2.1a In the same file's **Decisions** section, correct the one stale
+- [x] 2.1a In the same file's **Decisions** section, correct the one stale
       sentence in the **Gold coverage gate** bullet: the sensor pre-checks via
       `corpus gold ready-dates`, not `corpus state query`. Change nothing else in
       that bullet - "binary authoritative" and "the orchestration check is an
       optimisation, not a correctness dependency" are both still true. Verify
       with `grep -n 'state query' ROADMAP.md`: no match inside the Gold coverage
       gate bullet.
-- [ ] 2.2 Correct the **State of the repository** paragraph in
+- [x] 2.2 Correct the **State of the repository** paragraph in
       `openspec/config.yaml`: `market_history_gold` is no longer open work, so
       only the materialisation-metadata row remains in that sentence. Verify with
       `grep -n 'NotImplementedError' openspec/config.yaml`: no match.
-- [ ] 2.3 Check no other tracked file still claims the asset is unimplemented.
+- [x] 2.3 Check no other tracked file still claims the asset is unimplemented.
       Verify with
       `git grep -n 'NotImplementedError' -- '*.md' '*.yaml' ':!roadmap.yaml' ':!openspec/changes/gold-asset-wiring/'`:
       no match. `roadmap.yaml` is excluded deliberately - the phrase survives

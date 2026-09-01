@@ -52,8 +52,8 @@ Verified against `crates/corpus-cli/src/main.rs`. `--sink-path` is a global flag
 - **Gold coverage gate: binary authoritative, sensor pre-checks.** The binary must
   always enforce `gold.coverage_min_ratio: 1.0` (a by-hand `corpus gold` must not be
   able to corrupt Gold). The sensor additionally pre-checks coverage via `corpus
-  state query` so it does not queue runs that immediately fail. The orchestration
-  check is an optimisation, not a correctness dependency.
+  gold ready-dates` so it does not queue runs that immediately fail. The
+  orchestration check is an optimisation, not a correctness dependency.
 - **Cadence: sensor over fixed cron.** EVE Ref publishes one file per calendar day
   with ~1 day lag, and the intraday publish time is not fixed (the `2026-06-19` file
   appeared `2026-06-20 16:56 UTC`). A fixed daily cron would miss "yesterday"
@@ -98,20 +98,18 @@ both Silver and Gold — a placeholder that contradicts the config source of tru
 - Prefer reading the dates from config (dataset YAML / env) over hardcoding, so the
   corpus config stays the single source of truth.
 
-### 2. Wire the Silver -> Gold corpus subcommand (blocked upstream)
+### 2. Wire the Silver -> Gold corpus subcommand — done
 
-`market_history_gold` raises `NotImplementedError`. The CLI command now exists, but:
+> [!NOTE]
+> Implemented in `defs/market_history.py`: `market_history_gold` shells
+> `corpus gold build --dataset market-history --date <d>` followed by
+> `corpus verify --dataset market-history --date <d> --tier gold`, passing only
+> the global `--sink-path` — the binary derives the tier roots itself.
 
-- **Upstream caveat:** `corpus gold` documents *"full rolling-window implementation
-  deferred to plan 07 follow-up"* — the builder is not yet complete. Wiring it now
-  would invoke a half-built builder. Track the corpus-side completion before
-  enabling this asset; until then keep it failing loudly.
-- When ready, wire `corpus gold --dataset market-history --date <d>` followed by
-  `corpus verify --dataset market-history --date <d> --tier gold`. Drop the old
-  `build --tier gold` guess and the per-tier `--sink-path` pattern.
 - **Gold coverage gate** (decided): binary authoritative + sensor pre-check — see
-  Decisions. The asset relies on `corpus gold` enforcing `coverage_min_ratio: 1.0`;
-  the sensor pre-checks via `corpus state query` to avoid queuing doomed runs.
+  Decisions. The asset relies on `corpus gold build` enforcing
+  `coverage_min_ratio: 1.0` and never pre-validates the window in Python; the
+  sensor pre-checks via `corpus gold ready-dates` to avoid queuing doomed runs.
 - **Gold on the NAS** (decided): the canonical Gold lives on the NAS — it is the
   single source of truth that downstream consumers fan out from (see Future phases).
   Default is option (a): point `corpus gold --gold-path` at the NAS directly (the
