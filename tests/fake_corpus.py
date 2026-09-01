@@ -112,6 +112,17 @@ _DERIVATIVES: dict[str, list[str]] = {
         "transcripts-sections",
         "transcripts-entity-mentions",
     ],
+    # Sovereignty (corpus ADR-0066): three `hourly-folder-tar` datasets, packaged
+    # exactly like system-jumps / system-kills, carrying five Gold trees off one
+    # Silver fold each. Only `sovereignty-map` is multi-derivative, so the other
+    # two resolve their lone derivative when `--derivative` is omitted.
+    "sovereignty-map": [
+        "sovereignty-ownership",
+        "sovereignty-changes",
+        "sovereignty-panel",
+    ],
+    "sovereignty-structures": ["sovereignty-adm"],
+    "sovereignty-campaigns": ["sovereignty-contests"],
 }
 # Per-derivative served_start, surfaced in `gold ready-dates` JSON.
 _SERVED_START: dict[str, str | None] = {
@@ -133,6 +144,14 @@ _SERVED_START: dict[str, str | None] = {
     # needs its 30-day reference day inside the served window.
     "structures-snapshot": "2024-03-31",
     "structure-population-history": "2024-04-30",
+    # All five sovereignty derivatives serve from one 180d tenure window past the
+    # 2021-07-01 Silver floor; the panel sits one further 30d flip window in, so
+    # its flip counts are never permanently NULL (corpus ADR-0066 decision 7/8).
+    "sovereignty-ownership": "2022-01-01",
+    "sovereignty-changes": "2022-01-01",
+    "sovereignty-panel": "2022-01-31",
+    "sovereignty-adm": "2022-01-01",
+    "sovereignty-contests": "2022-01-01",
 }
 
 

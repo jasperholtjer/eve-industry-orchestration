@@ -10,8 +10,8 @@
 
 ## 2. Teach the fake corpus binary the three datasets
 
-- [ ] 2.1 Add `sovereignty-map`, `sovereignty-structures` and `sovereignty-campaigns` to the dataset tables in `tests/fake_corpus.py` — the `_DERIVATIVES` mapping with their five Gold derivative names, and the dataset-name lists that drive `ingest`, `verify`, `everef missing-partitions` and `state query`. Verify with `uv run pytest tests/ -q -k fake_corpus` and by materialising one partition in task 3.4.
-- [ ] 2.2 Verify the fake binary answers `everef missing-partitions --dataset sovereignty-map --format json` and `state query` for a `date=` key of each of the three datasets, in the same JSON shape the landed datasets use. Verify by the sensor tests in 4.2.
+- [x] 2.1 Add `sovereignty-map`, `sovereignty-structures` and `sovereignty-campaigns` to the dataset tables in `tests/fake_corpus.py` — the `_DERIVATIVES` mapping with their five Gold derivative names, and the dataset-name lists that drive `ingest`, `verify`, `everef missing-partitions` and `state query`. Verify with `uv run pytest tests/ -q -k fake_corpus` and by materialising one partition in task 3.4.
+- [x] 2.2 Verify the fake binary answers `everef missing-partitions --dataset sovereignty-map --format json` and `state query` for a `date=` key of each of the three datasets, in the same JSON shape the landed datasets use. Verify by the sensor tests in 4.2.
 
 ## 3. The three Silver assets
 
