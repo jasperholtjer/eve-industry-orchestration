@@ -601,9 +601,12 @@ def _do_live(args: list[str], sink: str) -> int:
         return 2
     _write_flat(sink, "gold", f"{dataset}/current")
     print(f"wrote 1 live gold rows -> {dataset}/current", file=sys.stderr)
-    # The two live datasets emit different status shapes, mirroring the real
-    # binary: market-orders-live (everef snapshot) carries `snapshot_file`/`date`;
-    # market-prices-live (ESI, ADR-0040) carries `snapshot_at`/`source`.
+    # The live datasets emit different status shapes, mirroring the real binary:
+    # market-orders-live (everef snapshot) carries `snapshot_file`/`date`;
+    # market-prices-live (ESI, ADR-0040) carries `snapshot_at`/`source`;
+    # public-contracts-live (everef `.v2.tar.bz2`, ADR-0068) carries both — the
+    # filename plus the payload's own `scrape_start` as `snapshot_at`, which the
+    # filename's drifting seconds field cannot give.
     status: dict[str, object] = {
         "status": "written",
         "dataset": dataset,
@@ -617,6 +620,11 @@ def _do_live(args: list[str], sink: str) -> int:
         status["url"] = (
             "https://esi.evetech.net/latest/markets/prices/?datasource=tranquility"
         )
+        status["snapshot_at"] = "2026-06-26T12:00:00+00:00"
+    elif dataset == "public-contracts-live":
+        status["snapshot_file"] = "public-contracts-2026-06-26_12-00-11.v2.tar.bz2"
+        status["snapshot_sha256"] = "fake"
+        status["date"] = "2026-06-26"
         status["snapshot_at"] = "2026-06-26T12:00:00+00:00"
     else:
         status["snapshot_file"] = f"{dataset}-2026-06-26_12-00-00.v3.csv.bz2"

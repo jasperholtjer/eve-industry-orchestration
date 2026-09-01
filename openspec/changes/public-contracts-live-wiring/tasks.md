@@ -28,20 +28,20 @@
 
 ## 3. Fake binary and tests
 
-- [ ] 3.1 Extend `_do_live` in `tests/fake_corpus.py` with a
+- [x] 3.1 Extend `_do_live` in `tests/fake_corpus.py` with a
   `public-contracts-live` branch emitting the status shape the real binary
   prints for the contracts snapshot — a `.v2.tar.bz2` snapshot file, a `date`,
   and a `snapshot_at` — keeping the existing branches unchanged. Verify with
   `uv run --project <worktree> pytest -q tests/test_market_orders_live.py
   tests/test_market_prices_live.py`, which must stay green.
-- [ ] 3.2 Add `tests/test_public_contracts_live.py` mirroring
+- [x] 3.2 Add `tests/test_public_contracts_live.py` mirroring
   `tests/test_market_orders_live.py`: the asset writes the `current/` partition
   and returns the freshness metadata including `snapshot_at`; the asset is
   non-partitioned; the schedule's cadence, target and default status; and no
   run-state query is issued (monkeypatch `CorpusResource.state_query` to fail).
   Verify with `uv run --project <worktree> pytest -q
   tests/test_public_contracts_live.py`.
-- [ ] 3.3 Add a test that a freshness key absent from the binary's status output
+- [x] 3.3 Add a test that a freshness key absent from the binary's status output
   is omitted from the metadata rather than defaulted, so the advisory rule the
   spec states is pinned. Drive it by monkeypatching `CorpusResource.run` to
   return a status dict without `snapshot_at` — the fake binary gains no knob for
