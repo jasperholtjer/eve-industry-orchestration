@@ -48,7 +48,7 @@ serving-load assets in `serving.py` are left alone. Every group consults the
 - [x] 2.4 `news.py`, `killmails.py`, `transcripts.py` — including the sites that
   build a local `metadata` dict before yielding. Verify with `pytest -q -k
   "news or killmails or transcripts"`.
-- [ ] 2.5 The `*_live.py` snapshot assets (`market_orders_live.py`,
+- [x] 2.5 The `*_live.py` snapshot assets (`market_orders_live.py`,
   `market_prices_live.py`, `industry_cost_indices_live.py`): enrich where the
   asset records a partition registered in run-state, and leave the site alone
   where it does not. State which it was in the commit body. Verify with

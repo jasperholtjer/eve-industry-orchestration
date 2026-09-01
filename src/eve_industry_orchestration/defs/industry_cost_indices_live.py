@@ -61,6 +61,16 @@ def industry_cost_indices_live_gold(
         "--sink-path",
         corpus.sink_path,
     )
+    # No `partition_metadata` enrichment here, deliberately: `corpus live build`
+    # writes no run-state row at all. `crates/corpus-cli/src/live.rs` is never
+    # handed the state DB (`main.rs` passes only sink and datasets dir, unlike
+    # `context::fetch`), imports no `corpus_state`, and says so at the point of
+    # the `_INDEX.json` it stamps: "No run-state row for the throwaway live tree;
+    # the snapshot file is the traceable provenance." A `state query` against
+    # `partitions` would therefore match nothing and log a warning every run. The
+    # facts the enrichment would carry are already here: the binary prints `rows`
+    # on the status line, and the live tree's retention is fixed (last write
+    # wins, no retention class to vary).
     metadata: dict[str, object] = {
         "dataset": DATASET,
         "tier": "gold",

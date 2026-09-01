@@ -57,6 +57,17 @@ def market_prices_live_gold(
         "--sink-path",
         corpus.sink_path,
     )
+    # No `partition_metadata` enrichment here, deliberately: `corpus live build`
+    # writes no run-state row at all, on either branch. `main.rs` hands
+    # `live::live_build` only the sink and datasets dir — never the state DB, as
+    # it does for `context::fetch` — and `crates/corpus-cli/src/live.rs` imports
+    # no `corpus_state`; its everef branch says so outright at the `_INDEX.json`
+    # it stamps ("No run-state row for the throwaway live tree"), and
+    # `live_build_prices` follows the same shape with an ESI-derived `run_id`. A
+    # `state query` against `partitions` would match nothing and log a warning
+    # every run. The facts the enrichment would carry are already here: the
+    # binary prints `rows` on the status line, and the live tree's retention is
+    # fixed (last write wins, no retention class to vary).
     metadata: dict[str, object] = {
         "dataset": DATASET,
         "tier": "gold",
