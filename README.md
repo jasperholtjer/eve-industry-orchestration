@@ -169,10 +169,10 @@ The LXC and the NFS mount are stood up per the homelab how-tos; the `corpus`
 binary and its dataset configs are pulled by `redeploy.sh` (see below). This repo
 supplies the orchestration wiring in `deploy/`:
 
-- `dagster.yaml` — instance config; `QueuedRunCoordinator` (`max_concurrent_runs: 4`,
-  the NAS-spindle I/O cap) plus concurrency pools (`heavy`, `everef_download`,
-  `default_limit: 2`) that bound Gold memory and EVE Ref fetches across every launch
-  path. Copy to `$DAGSTER_HOME/dagster.yaml`.
+- `dagster.yaml` — instance config; `QueuedRunCoordinator` carries the global run
+  cap and the concurrency pools that bound heavy-corpus memory and EVE Ref fetches
+  across every launch path. The pool set, limits and memory budget are documented
+  there. Copy to `$DAGSTER_HOME/dagster.yaml`.
 - `workspace.yaml` — code location (`eve_industry_orchestration.definitions`).
 - `dagster-webserver.service` / `dagster-daemon.service` — systemd units running as
   `corpus`, with `CORPUS_*` env and `DAGSTER_HOME` set. Adjust the `WorkingDirectory`

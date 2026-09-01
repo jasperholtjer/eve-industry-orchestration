@@ -26,11 +26,10 @@
 # mount, gh auth, uv) lives in homelab_docs: docs/howto/deploy-dagster-lxc.md
 #
 # Container sizing. Two independent axes:
-#   - RAM tracks the heavy pools, not max_concurrent_runs. A Gold build streams
-#     its rolling window (corpus >= v0.1.6) and peaks ~3-4 GiB; worst case is the
-#     `heavy` pool (2 Gold) plus the `market_orders` pool (1 Silver) ≈ 3 x ~4 GiB
-#     ≈ 12 GiB. Size the LXC >= 12 GiB (observed peak is far lower, ~4 GiB). This
-#     is unchanged by the Silver/Gold pool split — same number of heavy slots.
+#   - RAM tracks the sum of the memory-bearing pools, not max_concurrent_runs.
+#     THE MEMORY BUDGET block in deploy/dagster.yaml is the one copy of that
+#     arithmetic — which pools carry memory, each holder's peak, and the worst
+#     case against the box. Read it there before sizing the LXC.
 #   - CORES gate the market-orders backfill: its Silver parses with rayon and is
 #     CPU-bound (observed loadavg ~= cores, I/O-wait ~0), so the backfill scales
 #     ~linearly with cores. 8 cores roughly halves market-orders backfill time vs

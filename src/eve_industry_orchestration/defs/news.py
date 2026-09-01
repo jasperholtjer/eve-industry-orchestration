@@ -244,14 +244,13 @@ GOLD_ASSETS = (
 # manual operator run.
 EMBEDDINGS_DATASET = "news-embeddings"
 
-# The embed step is the memory-heaviest thing on the box: measured 4.4 GB RSS at
-# 3.76 chunks/s (a full 11 320-chunk generation ≈ 50 min). It gets its OWN pool at
-# limit 1 (set in redeploy.sh — deploy/dagster.yaml carries only `default_limit`,
-# and the `heavy` pool's limit of 2 would let two embeds overlap and peak ~8.8 GB
-# on a 12 GB box). Limit 1 guarantees no two embed runs ever overlap, across every
-# launch path — schedule, UI, manual. A pool is per-asset and cannot span pools, so
-# this does NOT exclude a concurrent `heavy` Gold build (~3 GB floor): worst case
-# embed + heavy ≈ 7.4 GB, which fits. See deploy/dagster.yaml.
+# The embed step is the memory-heaviest thing on the box, so it gets its OWN pool
+# at limit 1 rather than joining `heavy`: `heavy` allows 2 concurrent holders, and
+# two embeds overlapping would double-peak with nothing left for the rest of the
+# box. Limit 1 guarantees no two embed runs ever overlap, across every launch path
+# — schedule, UI, manual. A pool is per-asset and cannot span pools, so this does
+# NOT exclude a concurrent `heavy` Gold build. See the `news_embed` bullet and the
+# memory budget table in deploy/dagster.yaml for the measured figures.
 _EMBED_POOL = "news_embed"
 
 

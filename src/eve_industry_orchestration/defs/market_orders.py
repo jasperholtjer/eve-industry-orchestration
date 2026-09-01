@@ -75,7 +75,9 @@ gold_partitions = dg.DailyPartitionsDefinition(start_date=_starts.gold)
 #     with no throughput gain — observed as a run-queue backlog (loadavg `r` ~9 on
 #     4 cores) during a backfill. limit 1 keeps one CPU-saturating run in flight;
 #     other (single-threaded) datasets fill any remaining cores via their own
-#     pools. The limit-1 pool also bounds its memory (~4 GB) on its own.
+#     pools. limit 1 bounds this dataset only against itself; it says nothing
+#     about overlap with `heavy` or `news_embed` — every memory-bearing pool
+#     counts against one box budget, stated in deploy/dagster.yaml.
 _SILVER_POOL = "market_orders"
 _GOLD_POOL = "heavy"
 

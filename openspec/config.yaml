@@ -59,18 +59,24 @@ context: |
 
   ## Concurrency, which is where this repo is easiest to get wrong
 
-  Two layers in `deploy/dagster.yaml`. `max_concurrent_runs: 4` is the global
-  I/O cap — the single-HDD NAS spindle is the real limiter and every run taps
-  it. Per-class limits are concurrency **pools** keyed on the assets' `pool=`,
-  not run tags: a pool gates every launch path — sensor, UI backfill, manual —
-  where a sensor-set run tag gates only the sensor.
+  Two layers in `deploy/dagster.yaml`: a global `max_concurrent_runs` I/O cap —
+  the single-HDD NAS spindle is the real limiter and every run taps it — and
+  per-class limits as concurrency **pools** keyed on the assets' `pool=`, not run
+  tags. A pool gates every launch path — sensor, UI backfill, manual — where a
+  sensor-set run tag gates only the sensor.
 
-  `heavy` membership is by **measured peak RSS**, not by whether a build is
-  windowed. The wide-window Gold builds peak around 3-4 GiB and belong there;
-  the narrow ones use the same 365-day k-way merge over ~5k-row days and peak
-  under 100 MiB, so they take no pool and obey only the global cap. Putting them
-  in `heavy` only starved the big backfills of scarce slots. Measure with
-  `/usr/bin/time -v` before adding a build, and put the number in the change.
+  Membership of a memory-bearing pool is by **measured peak RSS**, not by whether
+  a build is windowed: a narrow build put in one only starves the big backfills
+  of scarce slots. Measure with `/usr/bin/time -v` before adding a build, and put
+  the number in the change. Every memory-bearing pool counts against one box
+  budget, because the pools do not know about each other and their peaks add.
+
+  **The arithmetic itself lives in `deploy/dagster.yaml` and nowhere else** —
+  which pools exist, their limits, each holder's peak, the worst case against the
+  box, and where the box is provisioned. A change that restates any of those
+  numbers in prose is adding the copy that drifts;
+  `tests/test_concurrency_pools.py` pins the set of declared pools so a new one
+  cannot arrive unaccounted.
 
   ## Stack
 
