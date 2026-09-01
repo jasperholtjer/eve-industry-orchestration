@@ -22,6 +22,12 @@ are version-specific.
       — add a test driving `market_history_gold_sensor` against the fake binary.
       Consult the `dagster-expert` skill for the sensor-invocation shape first.
       Verify with `uv run pytest -q tests/ -k sensor`.
+- [ ] 1.3a Back the `heavy`-pool requirement with a static assertion that
+      `market_history_gold` declares the pool, rather than a runtime test: the
+      fake-binary suite runs no scheduler, so pool arbitration is not observable
+      there. Assert on the asset definition's declared pool and note in the test
+      why it is a config-level assertion. Verify with
+      `uv run pytest -q tests/ -k pool`.
 - [ ] 1.4 Confirm no scenario needed a change to
       `src/eve_industry_orchestration/defs/market_history.py` or
       `sensors.py`. Verify with `git diff --stat develop -- src/`: empty output.
@@ -38,13 +44,23 @@ are version-specific.
       sentence. Keep the "Gold on the NAS (decided)" paragraph intact — it is
       still live and recorded nowhere else. Verify with
       `grep -n 'NotImplementedError\|blocked upstream' ROADMAP.md`: no match.
+- [ ] 2.1a In the same file's **Decisions** section, correct the one stale
+      sentence in the **Gold coverage gate** bullet: the sensor pre-checks via
+      `corpus gold ready-dates`, not `corpus state query`. Change nothing else in
+      that bullet - "binary authoritative" and "the orchestration check is an
+      optimisation, not a correctness dependency" are both still true. Verify
+      with `grep -n 'state query' ROADMAP.md`: no match inside the Gold coverage
+      gate bullet.
 - [ ] 2.2 Correct the **State of the repository** paragraph in
       `openspec/config.yaml`: `market_history_gold` is no longer open work, so
       only the materialisation-metadata row remains in that sentence. Verify with
       `grep -n 'NotImplementedError' openspec/config.yaml`: no match.
 - [ ] 2.3 Check no other tracked file still claims the asset is unimplemented.
-      Verify with `grep -rn 'NotImplementedError' --include='*.md' --include='*.yaml' .`
-      restricted to tracked files: no match outside this change's own directory.
+      Verify with
+      `git grep -n 'NotImplementedError' -- '*.md' '*.yaml' ':!roadmap.yaml' ':!openspec/changes/gold-asset-wiring/'`:
+      no match. `roadmap.yaml` is excluded deliberately - the phrase survives
+      there inside this row's own `goal:` text, which records what was asked and
+      is not rewritten after the fact; only the row's `status:` changes.
 
 ## 3. Verify
 

@@ -36,6 +36,10 @@ binary.
   "blocked upstream" framing and the `NotImplementedError` claim. The "Gold on
   the NAS" decision inside it stays: it is still live and is not restated
   anywhere else.
+- Correct the same stale pre-check claim where it is stated most authoritatively:
+  the **Gold coverage gate** bullet in `ROADMAP.md`'s Decisions section still says
+  the sensor pre-checks through `corpus state query`. Only that sentence changes;
+  the decision it belongs to is correct and is not being reopened.
 - Correct the **State of the repository** paragraph in `openspec/config.yaml`,
   which still lists this asset as open work.
 - Cover any spec scenario that the fake-binary suite does not already exercise.
@@ -60,7 +64,12 @@ what the tree does and makes the documents agree with it.
 
 - `openspec/specs/market-history-gold/` — new, promoted from this change's delta
   on archive.
-- `ROADMAP.md` — work item 2 rewritten; the Decisions section is untouched.
+- `ROADMAP.md` — work item 2 rewritten, and the one stale sentence in the
+  **Gold coverage gate** decision corrected: it still names `corpus state query`
+  as the sensor's pre-check. That bullet is the more authoritative of the two
+  places, so leaving it would defeat the change. The rest of the decision —
+  binary authoritative, pre-check an optimisation and not a correctness
+  dependency — is correct and stands.
 - `openspec/config.yaml` — the State of the repository paragraph.
 - `roadmap.yaml` — row `gold-asset-wiring` to `status: done`.
 - `tests/` — new cases only where a spec scenario has no test behind it.
