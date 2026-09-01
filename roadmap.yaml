@@ -31,7 +31,7 @@ items:
       query` so no doomed run is queued.
     areas: [orchestration]
     priority: 2
-    status: doing
+    status: done
     notes: >
       ROADMAP.md marks this blocked on a half-built corpus Gold builder. That
       caveat predates the Gold trees corpus has since shipped — confirm the
