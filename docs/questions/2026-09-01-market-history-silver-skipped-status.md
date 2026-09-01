@@ -1,5 +1,5 @@
 ---
-status: open
+status: answered
 row: gold-asset-wiring
 ---
 
@@ -62,4 +62,52 @@ Whichever way it goes, the answer is one comment or one guard, and it should end
 with `market_history_silver` reading unambiguously either way.
 
 ## Answer
+
+None of the three as written. The question is mis-scoped: this is a corpus
+defect, not an orchestration decision.
+
+**`market-history` Silver cannot report `skipped` — but not for the reason
+option 1 gives.** It is the only `daily-file` dataset (`datasets/*.yaml`), and
+the `Layout::DailyFile` arm of `partition_sources`
+(`corpus-cli/src/main.rs:1976`) calls `download_archive(...)?` with no
+absent-classification. Its two sibling arms have one: `DailyTarOfJson` maps
+`Err(EverefError::Http { status: 404 })` to `FetchOutcome::AbsentUpstream`
+(ADR-0059) and `HourlyFolderTar` maps `EverefError::UpstreamAbsent` (ADR-0028).
+So `IngestOutcome::SkippedAbsent` is unreachable here and `corpus ingest` never
+prints the verb. An absent market-history day is not a not-yet-settled day — it
+is a **fatal 404**, exit non-zero, a permanently red partition. That is the very
+failure ADR-0028 exists to prevent, still open for one layout.
+
+**Adding the guard now would not fix that.** On the fatal path
+`corpus_resource.py:130` raises `dg.Failure` before `run` returns a status, so
+the branch never executes. The guard addresses the conditional the question
+opens with, not the way an absent day actually arrives. Its test would assert
+fake-binary behaviour the real binary provably cannot produce.
+
+**The Silver/Gold asymmetry is correct, because reachability differs.** Gold's
+skip is state-driven — `silver_day_skipped` reads the `skipped` table, which the
+operator escape hatch `corpus state mark-skipped` (`main.rs:534`) fills today —
+so the guard the row landed in `market_history_gold` is live, not defensive.
+Silver's skip is fetch-driven and therefore layout-gated, and `ingest` has no
+short-circuit on an already-skipped partition (`main.rs:1390`), so not even the
+escape hatch reaches it.
+
+**The exposure is bounded.** `everef missing-partitions` derives daily-file
+candidates from the upstream listing (`main.rs:3967`), so the sensor never
+proposes a gap day; only a dense-calendar UI backfill hits one — ADR-0028's own
+motivating scenario. And recovery exists: discovery merges `list_skipped` into
+the covered set for every layout (`main.rs:4028`), so an operator marks the day
+and it stays covered. One red partition plus one manual command, not a stall.
+
+So:
+
+1. **Here: the docstring only, carrying the true reason** — the layout gap, and
+   why Gold differs. Applied with this answer.
+2. **The fix is a corpus row:** give `Layout::DailyFile` the same 404 arm
+   `DailyTarOfJson` has. Filed as `docs/questions/2026-09-01-daily-file-absent-day-404.md`
+   in `eve-industry-corpus`. Low priority — the escape hatch covers it.
+3. **The `skipped` guard lands in that row's orchestration half**, with
+   `depends_on: eve-industry-corpus:<id>`. Then the branch is reachable, the test
+   is real, and the docstring is true when written — the order ADR-0028 itself
+   kept.
 

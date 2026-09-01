@@ -56,6 +56,22 @@ def market_history_silver(
     next sensor tick — the availability sensor rotates its ``run_key`` per tick
     (see :mod:`sensor_util`) so Dagster dedup does not swallow the retry — so the
     full file is picked up once EVE Ref finishes it.
+
+    ``incomplete`` is the **only** status this asset branches on, unlike the four
+    sibling Silver assets, which branch on ``skipped`` (ADR-0028). That is not an
+    oversight: ``corpus ingest`` cannot emit ``skipped`` for this dataset.
+    market-history is the only ``daily-file`` layout, and that fetch arm carries
+    no absent-day classification — its ``daily-tar-of-json`` and
+    ``hourly-folder-tar`` siblings map a 404 / missing folder to a clean skip,
+    daily-file does not. An absent market-history day therefore arrives as a
+    fatal 404, exits non-zero and fails the run before any status is read, so a
+    ``skipped`` branch here would be unreachable rather than protective. Only a
+    dense-calendar UI backfill can reach that day at all (the sensor derives
+    daily-file candidates from the upstream listing), and the operator remedy is
+    ``corpus state mark-skipped``, which discovery honours from then on. The
+    branch belongs with the corpus change that closes the layout gap, not before
+    it — see :func:`market_history_gold`, whose ``skipped`` guard *is* reachable
+    today because it reads that same recorded skip out of the run-state.
     """
     date = context.partition_key
     status = corpus.run(
