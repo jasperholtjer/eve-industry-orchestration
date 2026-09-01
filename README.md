@@ -58,13 +58,22 @@ The homelab deployment (LXC, NFS mount, build order) is documented in
   derivatives between them — `sovereignty-ownership` and `sovereignty-changes`
   off `sovereignty-map`, `sovereignty-adm` off `sovereignty-structures`,
   `sovereignty-contests` off `sovereignty-campaigns`, and the assembled
-  `sovereignty-panel`, also off `sovereignty-map`. The panel is the first
-  **Gold-over-Gold** build here: it reads no Silver at all, so it depends on the
-  four sibling Gold trees and on `sde_snapshot_gold`, and it is served a flip
-  window later than its siblings because its flip counts read their trailing
-  30 days. Both of its gates are the binary's — a permanently absent same-day
-  prerequisite skips the day, an incomplete flip window only nulls the two
-  counts — and the assets pre-validate neither.
+  `sovereignty-panel`, also off `sovereignty-map`. Unlike `kills-consumption`
+  (Gold-over-Gold via `sde_snapshot_gold`/`market_history_gold`) and
+  `news_embeddings_gold` (Gold-over-Gold via `news_sections_gold`), the panel
+  reads **only** Gold and no Silver at all: it depends on the four sibling
+  Gold trees and on `sde_snapshot_gold`, and it is served a flip window later
+  than its siblings because its flip counts read their trailing 30 days. Both
+  of its gates are the binary's, and the assets pre-validate neither — a
+  permanently absent same-day prerequisite skips the day, and an incomplete
+  flip window only nulls the two counts. Because `corpus gold ready-dates`
+  never re-reports a date whose Gold partition already exists, a day built
+  while `sovereignty-changes` lags keeps `constellation_flips_30d` and
+  `region_flips_30d` NULL permanently — see
+  `docs/questions/2026-09-01-sov-panel-flip-window-gate.md` for the open gap.
+  Run all five of this family's sensors together; enabling four without
+  `sovereignty_changes_gold_sensor` is the concrete way panel days end up
+  stuck NULL.
   Every derivative name
   differs from the dataset, so each Gold call passes `--derivative`; Gold verify
   keys on the derivative name (its own `gold/<derivative>/...` tree).

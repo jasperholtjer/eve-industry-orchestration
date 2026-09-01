@@ -26,6 +26,10 @@ date appears in this list for another dataset/derivative. ``FAKE_VERIFY_FAIL_DAT
 (entries ``dataset:tier:date``) makes ``verify`` exit non-zero on a partition
 that is present but fails the contract cross-check, checked *after* the
 partition-presence check so it only fires on a partition that actually exists.
+A third, ``FAKE_SHORT_FLIP_WINDOW_DATES`` (entries ``dataset:derivative:date``),
+makes a ``sovereignty-panel`` build report a *written* partition whose two flip
+counts are NULL — the trailing-window gate, which nulls a derived column rather
+than skipping the day.
 """
 
 from __future__ import annotations
@@ -152,6 +156,20 @@ _SERVED_START: dict[str, str | None] = {
     "sovereignty-panel": "2022-01-31",
     "sovereignty-adm": "2022-01-01",
     "sovereignty-contests": "2022-01-01",
+}
+
+# Same-day Gold prerequisites the real binary's `gold ready-dates` gates on
+# (corpus ADR-0066 decision 8): a Gold-over-Gold derivative reports a date ready
+# only once every prerequisite tree holds that same day's Gold partition. Only
+# `sovereignty-panel` has any, and `sovereignty-changes` is deliberately absent
+# from its set — the binary does not gate on the flip-window tree, which is the
+# gap parked in docs/questions/2026-09-01-sov-panel-flip-window-gate.md.
+_SAME_DAY_GOLD_PREREQUISITES: dict[str, tuple[str, ...]] = {
+    "sovereignty-panel": (
+        "sovereignty-ownership",
+        "sovereignty-adm",
+        "sovereignty-contests",
+    ),
 }
 
 
@@ -1059,6 +1077,11 @@ def _do_gold_ready_dates(args: list[str], sink: str) -> int:
     # exercise the sensor (window coverage is unit-tested on the Rust side).
     built = set(state["gold"].get(derivative, []))
     ready = sorted(d for d in state["silver"] if d not in built)
+    # A Gold-over-Gold derivative additionally waits on its same-day sibling Gold
+    # partitions; a date whose prerequisites are not all built is not ready.
+    for prerequisite in _SAME_DAY_GOLD_PREREQUISITES.get(derivative, ()):
+        sibling = set(state["gold"].get(prerequisite, []))
+        ready = [d for d in ready if d in sibling]
     payload = {
         "dataset": dataset,
         "derivative": derivative,
@@ -1174,19 +1197,32 @@ def _do_gold_build(args: list[str], sink: str) -> int:
     _save_state(sink, state)
 
     print(f"wrote 1 gold rows -> {pdir}", file=sys.stderr)
-    print(
-        json.dumps(
-            {
-                "status": "written",
-                "dataset": dataset,
-                "derivative": derivative,
-                "date": date,
-                "partition_key": f"date={date}",
-                "rows": 1,
-                "parquet_sha256": "fake",
-            }
+    status: dict[str, object] = {
+        "status": "written",
+        "dataset": dataset,
+        "derivative": derivative,
+        "date": date,
+        "partition_key": f"date={date}",
+        "rows": 1,
+        "parquet_sha256": "fake",
+    }
+    # The panel's trailing 30-day flip window is the *other* gate (corpus
+    # ADR-0066 decision 8): a short window nulls the two flip counts and warns,
+    # but still writes the partition — it is never a skip. The window itself is
+    # not something the fake can derive, so it is injected per
+    # dataset:derivative:date like the other binary-side outcomes.
+    if derivative == "sovereignty-panel":
+        short = f"{dataset}:{derivative}:{date}" in _env_keys(
+            "FAKE_SHORT_FLIP_WINDOW_DATES"
         )
-    )
+        if short:
+            print(
+                f"gold build: flip window for {date} is short; flip counts null",
+                file=sys.stderr,
+            )
+        status["constellation_flips_30d"] = None if short else 3
+        status["region_flips_30d"] = None if short else 1
+    print(json.dumps(status))
     return 0
 
 

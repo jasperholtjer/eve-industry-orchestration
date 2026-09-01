@@ -41,6 +41,16 @@ DERIVATIVES = [
     pytest.param("sovereignty-campaigns", "sovereignty-contests", id="contests"),
 ]
 
+# The panel's same-day Gold prerequisites (corpus ADR-0066 decision 8): corpus
+# reports a panel date ready only once these three trees hold that day. They
+# span three datasets, but the fake's Silver state is keyed by date alone, so a
+# sibling Gold build over an already-ingested day needs no second ingest.
+PANEL_PREREQUISITES = [
+    ("sovereignty-map", "sovereignty-ownership"),
+    ("sovereignty-structures", "sovereignty-adm"),
+    ("sovereignty-campaigns", "sovereignty-contests"),
+]
+
 # Every sovereignty Gold asset, each with its dataset, derivative and the
 # partitions definition its own configuration declares. All five are
 # parametrised together because they are deliberately identical in shape: the
@@ -182,9 +192,14 @@ def test_fake_binary_reports_ready_dates_per_derivative(
     """``gold ready-dates`` takes the selector and answers for that derivative.
 
     A day drops out of ``ready`` once that derivative's Gold is built, which is
-    the state-level diff the readiness sensors will run on.
+    the state-level diff the readiness sensors will run on. The panel is also
+    gated on its three same-day sibling trees, so this case builds them first —
+    that gate is exercised in both directions in the sensor tests.
     """
     _ingest(corpus, dataset, DATE)
+    if derivative == "sovereignty-panel":
+        for prerequisite_dataset, prerequisite in PANEL_PREREQUISITES:
+            _gold_build(corpus, prerequisite_dataset, prerequisite, DATE)
 
     report = corpus.gold_ready_dates(dataset, derivative=derivative)
     assert report["derivative"] == derivative
@@ -538,16 +553,28 @@ def test_no_sovereignty_module_writes_a_date_literal(module_name: str) -> None:
 
 
 def test_an_incomplete_flip_window_is_not_a_skip(corpus, monkeypatch) -> None:
-    """A written partition materialises and verifies whatever the window held.
+    """A short flip window nulls two columns; it does not skip the day.
 
-    The panel's day is built with no sibling Gold tree and no 30-day flip
-    history present, which is the incomplete window: corpus still reports
-    ``written``, so the asset materialises and verifies like any other date.
-    Whether that window was complete is never asked here.
+    ``FAKE_SHORT_FLIP_WINDOW_DATES`` is the switch: the build reports a
+    *written* partition whose ``constellation_flips_30d`` / ``region_flips_30d``
+    are NULL, the way the real binary warns and publishes the counts as null
+    when the trailing 30 days are not all there. That is the ordinary path —
+    the partition materialises and Gold verify runs — and it produces none of
+    what the skipped branch above produces: no observation, no missing
+    partition, no failure.
     """
+    monkeypatch.setenv(
+        "FAKE_SHORT_FLIP_WINDOW_DATES", f"sovereignty-map:sovereignty-panel:{DATE}"
+    )
     _ingest(corpus, "sovereignty-map", DATE)
-    calls = _record_runs(monkeypatch)
 
+    built = _gold_build(corpus, "sovereignty-map", "sovereignty-panel", DATE)
+    assert built is not None
+    assert built["status"] == "written"
+    assert built["constellation_flips_30d"] is None
+    assert built["region_flips_30d"] is None
+
+    calls = _record_runs(monkeypatch)
     result = dg.materialize(
         [sm.sovereignty_panel_gold], partition_key=DATE, resources={"corpus": corpus}
     )
@@ -558,6 +585,23 @@ def test_an_incomplete_flip_window_is_not_a_skip(corpus, monkeypatch) -> None:
         "sovereignty-panel"
     )
     assert _subcommands(calls) == ["gold", "verify"]
+    assert result.get_asset_observation_events() == []
+
+
+def test_a_complete_flip_window_reports_the_two_counts(corpus) -> None:
+    """The switch above is a real fixture branch, not the only thing it does.
+
+    Without it the same build reports both flip counts populated, so the NULLs
+    in the test above come from the short window and nothing else.
+    """
+    _ingest(corpus, "sovereignty-map", DATE)
+
+    built = _gold_build(corpus, "sovereignty-map", "sovereignty-panel", DATE)
+
+    assert built is not None
+    assert built["status"] == "written"
+    assert built["constellation_flips_30d"] is not None
+    assert built["region_flips_30d"] is not None
 
 
 @pytest.mark.parametrize("module_name", SOVEREIGNTY_MODULES)

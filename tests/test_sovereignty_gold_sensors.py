@@ -107,6 +107,23 @@ def _gold_build(corpus, dataset: str, derivative: str, date: str) -> None:
     )
 
 
+# The panel's same-day Gold prerequisites: corpus reports a panel date ready
+# only once these three trees hold that day (corpus ADR-0066 decision 8). They
+# span three datasets, but only `sovereignty-map` is ever ingested per sink —
+# the fake's Silver state is by date, so a sibling Gold build over the same day
+# needs no second ingest.
+PANEL_PREREQUISITES = [
+    ("sovereignty-map", "sovereignty-ownership"),
+    ("sovereignty-structures", "sovereignty-adm"),
+    ("sovereignty-campaigns", "sovereignty-contests"),
+]
+
+
+def _build_panel_prerequisites(corpus, date: str) -> None:
+    for dataset, derivative in PANEL_PREREQUISITES:
+        _gold_build(corpus, dataset, derivative, date)
+
+
 def _target_keys(sensor: dg.SensorDefinition) -> set[dg.AssetKey]:
     return {
         key
@@ -142,9 +159,13 @@ def test_gold_sensor_requests_the_dates_corpus_reports_ready(
     """Readiness is corpus run-state, never a listing of the NAS tree.
 
     The day drops out again once that derivative's Gold is built, which is the
-    state-level diff the sensor runs on.
+    state-level diff the sensor runs on. The panel additionally waits on its
+    three same-day sibling trees, so this case builds them first; the direction
+    that gating runs in is asserted on its own below.
     """
     _ingest(corpus, dataset, DATE)
+    if derivative == "sovereignty-panel":
+        _build_panel_prerequisites(corpus, DATE)
     context = dg.build_sensor_context(resources={"corpus": corpus})
 
     result = sensor(context)
@@ -203,6 +224,35 @@ def test_gold_sensor_targets_only_its_own_asset(
 ) -> None:
     """``deps=`` expresses build order; a sensor never fans out over the family."""
     assert _target_keys(sensor) == {asset.key}
+
+
+def test_panel_readiness_waits_for_its_three_same_day_sibling_gold_trees(
+    corpus,
+) -> None:
+    """The panel's one distinguishing readiness behaviour, in both directions.
+
+    Ingested Silver alone does not make a panel date ready: corpus gates it on
+    the same day's ownership, ADM and contests Gold. Building `sovereignty-
+    changes` does not help — the binary notably does *not* gate on the
+    flip-window tree, which is the gap parked in
+    `docs/questions/2026-09-01-sov-panel-flip-window-gate.md`. Building the
+    three flips the date to ready, with no change on the orchestration side.
+    """
+    _ingest(corpus, "sovereignty-map", DATE)
+
+    def _tick() -> list[str]:
+        result = s.sovereignty_panel_gold_sensor(
+            dg.build_sensor_context(resources={"corpus": corpus})
+        )
+        return [rr.partition_key for rr in result.run_requests]
+
+    assert _tick() == []
+
+    _gold_build(corpus, "sovereignty-map", "sovereignty-changes", DATE)
+    assert _tick() == []
+
+    _build_panel_prerequisites(corpus, DATE)
+    assert _tick() == [DATE]
 
 
 def test_the_five_sensors_are_distinct_and_named_per_derivative() -> None:
