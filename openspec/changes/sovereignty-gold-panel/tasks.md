@@ -19,7 +19,7 @@
   configured served start
 - [x] 2.2 Add `sovereignty_contests_gold` to `defs/sovereignty_campaigns.py` in the
   same shape; verify the same two ways
-- [ ] 2.3 Add `sovereignty_ownership_gold` and `sovereignty_changes_gold` to
+- [x] 2.3 Add `sovereignty_ownership_gold` and `sovereignty_changes_gold` to
   `defs/sovereignty_map.py`, each with its own derivative constant and partitions
   definition; verify both materialise against the fake binary and that the two
   builds are invoked with their own `--derivative` and neither produces the
@@ -27,16 +27,16 @@
 
 ## 3. The assembled panel
 
-- [ ] 3.1 Add `sovereignty_panel_gold` to `defs/sovereignty_map.py` with
+- [x] 3.1 Add `sovereignty_panel_gold` to `defs/sovereignty_map.py` with
   `deps=[sovereignty_ownership_gold, sovereignty_changes_gold,
   sovereignty_structures.sovereignty_adm_gold,
   sovereignty_campaigns.sovereignty_contests_gold, sde.sde_snapshot_gold]` and its
   own partitions definition; verify the definitions load with no import cycle and
   a test asserts the five dependency keys
-- [ ] 3.2 Verify the panel's partition start is the configured 2022-01-31 while its
+- [x] 3.2 Verify the panel's partition start is the configured 2022-01-31 while its
   siblings start 2022-01-01, with no literal date anywhere in `defs/` — a test that
   reads both starts and a grep-style assertion over the sovereignty modules
-- [ ] 3.3 Verify the non-partitioned SDE dependency carries lineage only: a test
+- [x] 3.3 Verify the non-partitioned SDE dependency carries lineage only: a test
   that materialises a panel partition against the fake binary without providing any
   SDE partition
 
@@ -55,18 +55,18 @@
 
 ## 5. Gate behaviour
 
-- [ ] 5.1 Verify the skipped-day gate for the panel: a build reporting
+- [x] 5.1 Verify the skipped-day gate for the panel: a build reporting
   `status: "skipped"` yields no materialisation, no Gold-tier verify call, a
   successful run and an observation naming the reason
-- [ ] 5.2 Verify the incomplete-window gate is not a skip: a build reporting a
+- [x] 5.2 Verify the incomplete-window gate is not a skip: a build reporting a
   written partition alongside an incomplete flip window materialises and verifies
   like any other date, and no code path in the assets inspects window coverage
-- [ ] 5.3 Verify a failing build fails the materialisation without invoking the
+- [x] 5.3 Verify a failing build fails the materialisation without invoking the
   Gold-tier verify
 
 ## 6. Records and checks
 
-- [ ] 6.1 Verify the run-state lookup is keyed on the derivative, not the source
+- [x] 6.1 Verify the run-state lookup is keyed on the derivative, not the source
   dataset: a test in which the two derivatives sharing a dataset have different
   registered facts for one date and each materialisation records its own. The rest
   of the metadata contract is the `materialisation-metadata` capability's and needs

@@ -4,7 +4,8 @@ Two layers. The first drives the fake ``corpus`` binary directly over all five
 sovereignty derivative names, because every asset and every readiness sensor in
 this family is only as trustworthy as the fixture underneath it: a derivative
 name the fake cannot resolve would make an asset test pass for the wrong reason.
-The second exercises the two Gold assets this bundle adds.
+The second exercises the five Gold assets themselves, including the panel's
+assembly edge over the other four and the SDE snapshot.
 
 One dataset per sink: the fake binary's Silver/skipped state is global rather
 than per dataset, so a test that ingested two datasets into one sink would see
@@ -20,6 +21,7 @@ import dagster as dg
 import pytest
 
 from eve_industry_orchestration.defs import sovereignty_campaigns as sc
+from eve_industry_orchestration.defs import sovereignty_map as sm
 from eve_industry_orchestration.defs import sovereignty_structures as ss
 from eve_industry_orchestration.defs.corpus_resource import CorpusResource
 from tests.conftest import _assert_enriched
@@ -39,10 +41,32 @@ DERIVATIVES = [
     pytest.param("sovereignty-campaigns", "sovereignty-contests", id="contests"),
 ]
 
-# The two assets this bundle adds, each with its dataset, derivative and the
-# served start its own configuration declares. The pair is parametrised because
-# the assets are deliberately identical in shape.
+# Every sovereignty Gold asset, each with its dataset, derivative and the
+# partitions definition its own configuration declares. All five are
+# parametrised together because they are deliberately identical in shape: the
+# panel differs only in what it depends on, never in how it builds.
 GOLD_ASSETS = [
+    pytest.param(
+        sm.sovereignty_ownership_gold,
+        "sovereignty-map",
+        "sovereignty-ownership",
+        sm.ownership_gold_partitions,
+        id="ownership",
+    ),
+    pytest.param(
+        sm.sovereignty_changes_gold,
+        "sovereignty-map",
+        "sovereignty-changes",
+        sm.changes_gold_partitions,
+        id="changes",
+    ),
+    pytest.param(
+        sm.sovereignty_panel_gold,
+        "sovereignty-map",
+        "sovereignty-panel",
+        sm.panel_gold_partitions,
+        id="panel",
+    ),
     pytest.param(
         ss.sovereignty_adm_gold,
         "sovereignty-structures",
@@ -332,3 +356,218 @@ def test_no_memory_bearing_pool_is_declared(
 ) -> None:
     """Pool membership is by measured peak, and neither build has one yet."""
     assert asset.op.pool is None
+
+
+# --- sibling derivatives off one dataset ----------------------------------
+
+
+def test_sibling_derivatives_write_only_their_own_partition(
+    corpus, monkeypatch
+) -> None:
+    """Ownership and changes share a Silver fold but not a Gold tree.
+
+    Both builds are invoked with their own ``--derivative``; corpus writes each
+    tree under that name, so materialising one must leave the other's partition
+    absent.
+    """
+    _ingest(corpus, "sovereignty-map", DATE)
+    calls = _record_runs(monkeypatch)
+
+    result = dg.materialize(
+        [sm.sovereignty_ownership_gold],
+        partition_key=DATE,
+        resources={"corpus": corpus},
+    )
+
+    assert result.success
+    assert "--derivative" in calls[0]
+    assert calls[0][calls[0].index("--derivative") + 1] == "sovereignty-ownership"
+    assert _gold_partition_dir(corpus, "sovereignty-ownership", DATE).is_dir()
+    assert not _gold_partition_dir(corpus, "sovereignty-changes", DATE).exists()
+
+    assert dg.materialize(
+        [sm.sovereignty_changes_gold], partition_key=DATE, resources={"corpus": corpus}
+    ).success
+    assert _gold_partition_dir(corpus, "sovereignty-changes", DATE).is_dir()
+
+
+def test_run_state_facts_are_read_per_derivative(corpus) -> None:
+    """Each of the pair records its own run-state row, not its sibling's.
+
+    The fake stamps ``parquet_sha256`` from the ``<dataset>|<tier>|<key>``
+    identity, so the two derivatives have genuinely different facts registered
+    for the same date; a lookup keyed on ``sovereignty-map`` would match neither.
+    """
+    _ingest(corpus, "sovereignty-map", DATE)
+
+    facts = {}
+    for asset in (sm.sovereignty_ownership_gold, sm.sovereignty_changes_gold):
+        result = dg.materialize(
+            [asset], partition_key=DATE, resources={"corpus": corpus}
+        )
+        assert result.success
+        (materialization,) = result.get_asset_materialization_events()
+        metadata = materialization.materialization.metadata
+        _assert_enriched(metadata)
+        facts[metadata["derivative"].value] = metadata["parquet_sha256"].value
+
+    assert set(facts) == {"sovereignty-ownership", "sovereignty-changes"}
+    assert len(set(facts.values())) == 2
+
+
+# --- the panel's assembly edge --------------------------------------------
+
+
+def test_panel_depends_on_its_four_siblings_and_the_sde_snapshot() -> None:
+    """ADR-0066's build order is a real edge in the graph, not schedule timing."""
+    # `deps=`, not parameters: every edge is Nothing-typed, so no IO manager
+    # loads an upstream — the five carry lineage and ordering only. The
+    # non-partitioned SDE snapshot is one of them and is no different.
+    assert [
+        in_def.dagster_type.is_nothing
+        for in_def in sm.sovereignty_panel_gold.op.ins.values()
+    ] == [True] * 5
+    (spec,) = sm.sovereignty_panel_gold.specs
+    assert {dep.asset_key for dep in spec.deps} == {
+        dg.AssetKey("sovereignty_ownership_gold"),
+        dg.AssetKey("sovereignty_changes_gold"),
+        dg.AssetKey("sovereignty_adm_gold"),
+        dg.AssetKey("sovereignty_contests_gold"),
+        dg.AssetKey("sde_snapshot"),
+    }
+
+
+def test_the_code_location_loads_with_the_panel_edge() -> None:
+    """No import cycle: sovereignty_map imports two sibling modules, neither back."""
+    from eve_industry_orchestration.definitions import defs
+
+    keys = {spec.key for spec in defs().resolve_all_asset_specs()}
+    assert dg.AssetKey("sovereignty_panel_gold") in keys
+
+
+def test_panel_materialises_with_no_sde_partition_provided(corpus, monkeypatch) -> None:
+    """The non-partitioned SDE dep carries lineage only.
+
+    Nothing about the SDE snapshot is fetched, mapped to a partition or passed
+    in: the panel run is exactly the two-call build/verify of any other date.
+    """
+    _ingest(corpus, "sovereignty-map", DATE)
+    calls = _record_runs(monkeypatch)
+
+    result = dg.materialize(
+        [sm.sovereignty_panel_gold], partition_key=DATE, resources={"corpus": corpus}
+    )
+
+    assert result.success
+    assert _subcommands(calls) == ["gold", "verify"]
+
+
+# --- the two starts, both from configuration ------------------------------
+
+
+def test_panel_starts_one_flip_window_after_its_siblings() -> None:
+    """2022-01-31 against 2022-01-01, both read out of the dataset YAML."""
+    from eve_industry_orchestration.defs.config import resolve_partition_starts
+
+    starts = {
+        derivative: resolve_partition_starts("sovereignty-map", derivative).gold
+        for derivative in (
+            "sovereignty-ownership",
+            "sovereignty-changes",
+            "sovereignty-panel",
+        )
+    }
+    assert starts["sovereignty-ownership"] == starts["sovereignty-changes"]
+    assert starts["sovereignty-panel"] > starts["sovereignty-ownership"]
+    assert (
+        sm.panel_gold_partitions.start.strftime("%Y-%m-%d")
+        == starts["sovereignty-panel"]
+    )
+    assert (
+        sm.ownership_gold_partitions.start.strftime("%Y-%m-%d")
+        == (starts["sovereignty-ownership"])
+    )
+
+
+SOVEREIGNTY_MODULES = (
+    "sovereignty_map",
+    "sovereignty_structures",
+    "sovereignty_campaigns",
+)
+
+
+def _executable_source(module_name: str) -> str:
+    """The module's code with comments and docstrings removed.
+
+    Both are prose about what configuration yields and what the binary decides,
+    and both legitimately name dates and coverage; only what actually runs is
+    the subject of the two assertions below. ``ast.unparse`` drops comments, and
+    the docstring statements are stripped explicitly.
+    """
+    import ast
+
+    source = (Path(sm.__file__).parent / f"{module_name}.py").read_text(
+        encoding="utf-8"
+    )
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if not isinstance(
+            node, ast.Module | ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef
+        ):
+            continue
+        body = node.body
+        if (
+            body
+            and isinstance(body[0], ast.Expr)
+            and isinstance(body[0].value, ast.Constant)
+            and isinstance(body[0].value.value, str)
+        ):
+            node.body = body[1:] or [ast.Pass()]
+    return ast.unparse(tree)
+
+
+@pytest.mark.parametrize("module_name", SOVEREIGNTY_MODULES)
+def test_no_sovereignty_module_writes_a_date_literal(module_name: str) -> None:
+    """Starts come from the corpus config; a literal here would silently drift."""
+    import re
+
+    assert not re.search(r"\d{4}-\d{2}-\d{2}", _executable_source(module_name))
+
+
+# --- the two gates are both the binary's ----------------------------------
+
+
+def test_an_incomplete_flip_window_is_not_a_skip(corpus, monkeypatch) -> None:
+    """A written partition materialises and verifies whatever the window held.
+
+    The panel's day is built with no sibling Gold tree and no 30-day flip
+    history present, which is the incomplete window: corpus still reports
+    ``written``, so the asset materialises and verifies like any other date.
+    Whether that window was complete is never asked here.
+    """
+    _ingest(corpus, "sovereignty-map", DATE)
+    calls = _record_runs(monkeypatch)
+
+    result = dg.materialize(
+        [sm.sovereignty_panel_gold], partition_key=DATE, resources={"corpus": corpus}
+    )
+
+    assert result.success
+    (materialization,) = result.get_asset_materialization_events()
+    assert materialization.materialization.metadata["derivative"].value == (
+        "sovereignty-panel"
+    )
+    assert _subcommands(calls) == ["gold", "verify"]
+
+
+@pytest.mark.parametrize("module_name", SOVEREIGNTY_MODULES)
+def test_no_asset_inspects_window_coverage(module_name: str) -> None:
+    """The Gold gate is the binary's; a Python pre-check would duplicate it.
+
+    Nothing that could read a window runs in these modules: no coverage
+    arithmetic, no readiness poll, no run-state query beyond the advisory
+    metadata read, and no tree walk.
+    """
+    code = _executable_source(module_name)
+    for forbidden in ("coverage", "ready_dates", "state_query", "glob", "listdir"):
+        assert forbidden not in code, f"{module_name} names {forbidden}"
