@@ -78,7 +78,7 @@
 
 ## 7. Documentation
 
-- [ ] 7.1 Update `ROADMAP.md` where this row changes what it claims about the
+- [x] 7.1 Update `ROADMAP.md` where this row changes what it claims about the
   sovereignty family's Gold trees, and the **State of the repository** paragraph in
   `openspec/config.yaml` where it says the family is Silver-only; verify by reading
   both back against what the row landed

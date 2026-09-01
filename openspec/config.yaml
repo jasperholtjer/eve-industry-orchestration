@@ -34,9 +34,13 @@ context: |
 
   Twenty-odd asset modules under `src/eve_industry_orchestration/defs/`, one per
   dataset family, all reaching corpus through `corpus_resource`. The three
-  sovereignty datasets are the newest and are Silver-only: their assets, sensors
-  and partition starts have landed, their five Gold trees have not, and nothing
-  in the family has been materialised yet. Availability is
+  sovereignty datasets are the newest and are now complete through Gold: their
+  Silver assets, all five Gold derivatives and a readiness sensor each have
+  landed, and nothing in the family has been materialised yet. The family also
+  carries the code location's first Gold-over-Gold build — the assembled panel
+  declares its three same-day sibling trees, the trailing flip-window tree and
+  the SDE snapshot as dependencies, so corpus ADR-0066's build order is a graph
+  edge rather than schedule ordering. Availability is
   driven by `market_history_availability_sensor` rather than a fixed cron: EVE
   Ref publishes one file per calendar day with a variable intraday lag, so a
   daily cron would structurally miss yesterday.

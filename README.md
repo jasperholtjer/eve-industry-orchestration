@@ -28,9 +28,8 @@ The homelab deployment (LXC, NFS mount, build order) is documented in
   `CORPUS_<DATASET>_<DERIVATIVE>_GOLD_START`.
 - **Dataset assets** (`defs/market_history.py`, `defs/system_jumps.py`,
   `defs/market_orders.py`, `defs/system_kills.py`, `defs/structures.py`,
-  `defs/killmails.py`, and the Silver-only
-  `defs/sovereignty_map.py` / `defs/sovereignty_structures.py` /
-  `defs/sovereignty_campaigns.py`, whose five Gold trees are not wired yet) —
+  `defs/killmails.py`, `defs/sovereignty_map.py`,
+  `defs/sovereignty_structures.py` and `defs/sovereignty_campaigns.py`) —
   daily-partitioned Silver and
   Gold assets, with **distinct** partition start dates (Silver reaches back one
   window before Gold). Gold depends on Silver via `deps=` (lineage only). A
@@ -55,6 +54,17 @@ The homelab deployment (LXC, NFS mount, build order) is documented in
   derivative that depends on **two** other Gold trees — `sde_snapshot_gold` for
   the region map and `market_history_gold` for the reference price — and is the
   one dataset whose partitions **mutate**: see "Mutable partitions" below.
+  The three `sovereignty` datasets (ADR-0066) carry five daily-partitioned
+  derivatives between them — `sovereignty-ownership` and `sovereignty-changes`
+  off `sovereignty-map`, `sovereignty-adm` off `sovereignty-structures`,
+  `sovereignty-contests` off `sovereignty-campaigns`, and the assembled
+  `sovereignty-panel`, also off `sovereignty-map`. The panel is the first
+  **Gold-over-Gold** build here: it reads no Silver at all, so it depends on the
+  four sibling Gold trees and on `sde_snapshot_gold`, and it is served a flip
+  window later than its siblings because its flip counts read their trailing
+  30 days. Both of its gates are the binary's — a permanently absent same-day
+  prerequisite skips the day, an incomplete flip window only nulls the two
+  counts — and the assets pre-validate neither.
   Every derivative name
   differs from the dataset, so each Gold call passes `--derivative`; Gold verify
   keys on the derivative name (its own `gold/<derivative>/...` tree).
