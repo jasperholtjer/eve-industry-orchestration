@@ -23,9 +23,9 @@
 
 ## 4. The three availability sensors
 
-- [ ] 4.1 Consult the `dagster-expert` skill before writing the sensors, then add three availability sensors to `src/eve_industry_orchestration/defs/sensors.py`, mirroring `market_history_availability_sensor`: `corpus.everef_missing_partitions(DATASET)` to `request_partitions(...)` with a `run_key_prefix`, capped by `sensor_util.MAX_PARTITIONS_PER_TICK`. Verify by reading them beside the landed sensor and with `uv run pytest tests/test_sensors.py -q`.
-- [ ] 4.2 Add sensor tests against the fake binary covering, per dataset: missing partitions are requested; nothing missing requests nothing; a backlog longer than the per-tick cap requests at most the cap and leaves the rest reported missing on the next tick. Verify with `uv run pytest tests/test_sensors.py -q`.
-- [ ] 4.3 Confirm the three assets and three sensors are picked up by the code location's definitions — no manual registration is missing. Verify with `uv run pytest tests/ -q` and whichever existing test enumerates the definitions.
+- [x] 4.1 Consult the `dagster-expert` skill before writing the sensors, then add three availability sensors to `src/eve_industry_orchestration/defs/sensors.py`, mirroring `market_history_availability_sensor`: `corpus.everef_missing_partitions(DATASET)` to `request_partitions(...)` with a `run_key_prefix`, capped by `sensor_util.MAX_PARTITIONS_PER_TICK`. Verify by reading them beside the landed sensor and with `uv run pytest tests/test_sensor.py -q`.
+- [x] 4.2 Add sensor tests against the fake binary covering, per dataset: missing partitions are requested; nothing missing requests nothing; a backlog longer than the per-tick cap requests at most the cap and leaves the rest reported missing on the next tick. Verify with `uv run pytest tests/test_sensor.py -q`.
+- [x] 4.3 Confirm the three assets and three sensors are picked up by the code location's definitions — no manual registration is missing. Verify with `uv run pytest tests/ -q` and whichever existing test enumerates the definitions.
 
 ## 5. Verify the whole change
 

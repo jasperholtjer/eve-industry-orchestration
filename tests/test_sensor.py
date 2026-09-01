@@ -1,6 +1,8 @@
-"""Tests for the market-history availability sensor."""
+"""Tests for the market-history and sovereignty availability sensors."""
 
 from __future__ import annotations
+
+from collections.abc import Callable
 
 import dagster as dg
 import pytest
@@ -9,6 +11,9 @@ from eve_industry_orchestration.defs.sensor_util import MAX_PARTITIONS_PER_TICK
 from eve_industry_orchestration.defs.sensors import (
     market_history_availability_sensor,
     market_history_gold_sensor,
+    sovereignty_campaigns_availability_sensor,
+    sovereignty_map_availability_sensor,
+    sovereignty_structures_availability_sensor,
 )
 
 
@@ -278,3 +283,112 @@ def test_gold_sensor_skips_an_in_flight_date(
     result = market_history_gold_sensor(context)
 
     assert [rr.partition_key for rr in result.run_requests] == ["2024-01-16"]
+
+
+# --- sovereignty availability sensors (corpus ADR-0066) --------------------
+#
+# One dataset per sink, deliberately: the fake binary's ingested-date state is
+# global rather than per dataset, so ingesting a second dataset into the same
+# sink would leak its dates into the first's `missing-partitions` report. Each
+# test therefore drives exactly one of the three through its own `corpus`
+# fixture.
+
+SOVEREIGNTY_SENSORS = [
+    (sovereignty_map_availability_sensor, "sovereignty-map"),
+    (sovereignty_structures_availability_sensor, "sovereignty-structures"),
+    (sovereignty_campaigns_availability_sensor, "sovereignty-campaigns"),
+]
+
+
+def _ingest_dataset(corpus, dataset: str, date: str) -> None:
+    corpus.run(
+        dg.build_asset_context(),
+        "ingest",
+        "--dataset",
+        dataset,
+        "--date",
+        date,
+        "--sink-path",
+        corpus.sink_path,
+    )
+
+
+@pytest.mark.parametrize(("sensor", "dataset"), SOVEREIGNTY_SENSORS)
+def test_sovereignty_sensor_requests_missing_partitions(
+    sensor: Callable[..., dg.SensorResult],
+    dataset: str,
+    corpus,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FAKE_EVEREF_DATES", "2024-01-15,2024-01-16")
+    context = dg.build_sensor_context(resources={"corpus": corpus})
+
+    result = sensor(context)
+
+    by_partition = {rr.partition_key: rr for rr in result.run_requests}
+    assert sorted(by_partition) == ["2024-01-15", "2024-01-16"]
+    # The run_key stem is the dataset's own, so two sovereignty sensors ticking
+    # on the same date cannot dedup each other away.
+    assert by_partition["2024-01-15"].run_key.startswith(
+        f"{dataset}-silver-2024-01-15-"
+    )
+
+
+@pytest.mark.parametrize(("sensor", "dataset"), SOVEREIGNTY_SENSORS)
+def test_sovereignty_sensor_skips_dates_already_in_the_run_state(
+    sensor: Callable[..., dg.SensorResult],
+    dataset: str,
+    corpus,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Availability is the run-state diff, not a listing of the storage tree."""
+    monkeypatch.setenv("FAKE_EVEREF_DATES", "2024-01-15,2024-01-16")
+    _ingest_dataset(corpus, dataset, "2024-01-15")
+    context = dg.build_sensor_context(resources={"corpus": corpus})
+
+    result = sensor(context)
+
+    assert [rr.partition_key for rr in result.run_requests] == ["2024-01-16"]
+
+
+@pytest.mark.parametrize(("sensor", "dataset"), SOVEREIGNTY_SENSORS)
+def test_sovereignty_sensor_requests_nothing_when_nothing_is_missing(
+    sensor: Callable[..., dg.SensorResult],
+    dataset: str,
+    corpus,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FAKE_EVEREF_DATES", "")
+    context = dg.build_sensor_context(resources={"corpus": corpus})
+
+    result = sensor(context)
+
+    assert result.run_requests == []
+
+
+@pytest.mark.parametrize(("sensor", "dataset"), SOVEREIGNTY_SENSORS)
+def test_sovereignty_sensor_caps_the_tick_and_carries_the_backlog(
+    sensor: Callable[..., dg.SensorResult],
+    dataset: str,
+    corpus,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A backlog longer than the cap drains oldest-first over ticks, losing none."""
+    dates = [f"2024-01-{day:02d}" for day in range(5, 5 + MAX_PARTITIONS_PER_TICK + 1)]
+    monkeypatch.setenv("FAKE_EVEREF_DATES", ",".join(dates))
+
+    first = sensor(dg.build_sensor_context(resources={"corpus": corpus}))
+
+    assert [rr.partition_key for rr in first.run_requests] == dates[
+        :MAX_PARTITIONS_PER_TICK
+    ]
+
+    # The remainder is not dropped: once the requested dates commit they leave
+    # the run-state diff and the next tick picks up what was deferred.
+    for date in dates[:MAX_PARTITIONS_PER_TICK]:
+        _ingest_dataset(corpus, dataset, date)
+    second = sensor(
+        dg.build_sensor_context(resources={"corpus": corpus}, cursor=first.cursor)
+    )
+
+    assert [rr.partition_key for rr in second.run_requests] == [dates[-1]]

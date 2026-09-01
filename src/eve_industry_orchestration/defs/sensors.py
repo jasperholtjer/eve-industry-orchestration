@@ -24,6 +24,9 @@ from eve_industry_orchestration.defs import market_orders as mo
 from eve_industry_orchestration.defs import market_orders_live as mol
 from eve_industry_orchestration.defs import market_prices_live as mpl
 from eve_industry_orchestration.defs import mer, sde, sensor_util
+from eve_industry_orchestration.defs import sovereignty_campaigns as sc
+from eve_industry_orchestration.defs import sovereignty_map as sm
+from eve_industry_orchestration.defs import sovereignty_structures as ss
 from eve_industry_orchestration.defs import structures as st
 from eve_industry_orchestration.defs import system_jumps as sj
 from eve_industry_orchestration.defs import system_kills as sk
@@ -549,6 +552,77 @@ def killmails_consumption_gold_repair_sensor(
         run_key_prefix=f"{km.CONSUMPTION_DERIVATIVE}-repair",
         asset_key=km.killmails_consumption_gold.key,
         label="gold-repair",
+    )
+
+
+# --- sovereignty (map / structures / campaigns, corpus ADR-0066) ----------
+#
+# Silver only: the three datasets' Gold trees land in a later row, so each has an
+# availability sensor and no readiness sensor. All three are hourly-folder-tar
+# datasets whose days settle with the usual EVE Ref lag, so availability is the
+# same thin cap-and-dedup loop as every other Silver sensor — the missing set
+# comes from corpus run-state, never from listing the NAS tree, and the
+# `everef_download` pool on the assets throttles the fetches across every launch
+# path, so no sensor tag is set here.
+
+
+@dg.sensor(
+    target=sm.sovereignty_map_silver,
+    minimum_interval_seconds=3600,
+    default_status=dg.DefaultSensorStatus.STOPPED,
+)
+def sovereignty_map_availability_sensor(
+    context: dg.SensorEvaluationContext, corpus: CorpusResource
+) -> dg.SensorResult:
+    """Requests Silver runs for sovereignty-map dates newly available upstream."""
+    report = corpus.everef_missing_partitions(sm.DATASET)
+    return request_partitions(
+        context,
+        reported=report.get("missing", []),
+        valid=set(sm.silver_partitions.get_partition_keys()),
+        run_key_prefix=f"{sm.DATASET}-silver",
+        asset_key=sm.sovereignty_map_silver.key,
+        label="availability",
+    )
+
+
+@dg.sensor(
+    target=ss.sovereignty_structures_silver,
+    minimum_interval_seconds=3600,
+    default_status=dg.DefaultSensorStatus.STOPPED,
+)
+def sovereignty_structures_availability_sensor(
+    context: dg.SensorEvaluationContext, corpus: CorpusResource
+) -> dg.SensorResult:
+    """Requests Silver runs for sovereignty-structures dates newly available."""
+    report = corpus.everef_missing_partitions(ss.DATASET)
+    return request_partitions(
+        context,
+        reported=report.get("missing", []),
+        valid=set(ss.silver_partitions.get_partition_keys()),
+        run_key_prefix=f"{ss.DATASET}-silver",
+        asset_key=ss.sovereignty_structures_silver.key,
+        label="availability",
+    )
+
+
+@dg.sensor(
+    target=sc.sovereignty_campaigns_silver,
+    minimum_interval_seconds=3600,
+    default_status=dg.DefaultSensorStatus.STOPPED,
+)
+def sovereignty_campaigns_availability_sensor(
+    context: dg.SensorEvaluationContext, corpus: CorpusResource
+) -> dg.SensorResult:
+    """Requests Silver runs for sovereignty-campaigns dates newly available."""
+    report = corpus.everef_missing_partitions(sc.DATASET)
+    return request_partitions(
+        context,
+        reported=report.get("missing", []),
+        valid=set(sc.silver_partitions.get_partition_keys()),
+        run_key_prefix=f"{sc.DATASET}-silver",
+        asset_key=sc.sovereignty_campaigns_silver.key,
+        label="availability",
     )
 
 
