@@ -17,10 +17,10 @@ silver:
 gold:
   - name: sovereignty-adm
     shape: sov-adm
-    sort_keys: [system_id, date]
+    sort_keys: [solar_system_id, date]
     served_start: 2022-01-01
     flat:
-      daily_rollup: mean
+      daily_rollup: last
       horizons: [7, 30, 90]
       aggregators: [mean, median, p95, max, std]
       coverage_min_ratio: 0.5

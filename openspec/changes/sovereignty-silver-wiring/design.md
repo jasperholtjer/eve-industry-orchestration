@@ -152,7 +152,14 @@ a Python decision about something the binary does not report for these datasets.
 - **Three sensors triple the per-tick fan-out against one NAS spindle.** → Each
   sensor uses the shared `sensor_util.MAX_PARTITIONS_PER_TICK` cap, and every run
   they queue is bounded by both the global `max_concurrent_runs` and
-  `everef_download`. The backlog is carried, not dropped.
+  `everef_download`. Within a sensor's horizon the backlog is carried, not
+  dropped.
+- **The sensors do not drain the history**, and are not meant to. `corpus everef
+  missing-partitions` defaults to a 30-day window and none of the three passes
+  `window_days`, so the sensors keep the trailing edge current and never reach
+  2021–2024. That history is a UI backfill, which the same two concurrency layers
+  bound. Both are the landed behaviour of every other everef availability sensor;
+  the row changes neither.
 - **The whole history is the first backfill** (nothing materialised, ~4 years x 3
   datasets). → Out of scope by design: this change defines the assets, it does not
   launch a backfill. Whoever runs it does so through a UI backfill that the same
