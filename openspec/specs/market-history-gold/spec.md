@@ -14,10 +14,11 @@ the build is allowed.
 ### Requirement: A Gold partition is built, then verified against the contract
 
 For a given Gold partition date the orchestrator SHALL invoke the corpus Gold
-build for that date and, only after it succeeds, invoke the corpus contract
-verification for the Gold tier of the same date. Verification SHALL NOT be
-attempted for a build that failed, and the materialisation SHALL be reported
-successful only when both operations exit zero.
+build for that date and, only after it has succeeded and written a partition,
+invoke the corpus contract verification for the Gold tier of the same date.
+Verification SHALL NOT be attempted for a build that failed, nor for a build
+that exited zero reporting it wrote no partition, and the materialisation SHALL
+be reported successful only when both operations exit zero.
 
 #### Scenario: Build and verification both succeed
 
@@ -38,6 +39,14 @@ successful only when both operations exit zero.
 
 - **WHEN** the Gold build succeeds and the Gold-tier verification exits non-zero
 - **THEN** the run fails rather than reporting a successful materialisation
+
+#### Scenario: The build skips a date recorded as an upstream gap
+
+- **WHEN** the Gold build exits zero reporting that it skipped the target date
+  because that day's Silver is a recorded upstream gap, writing no partition
+- **THEN** the Gold-tier verification is not attempted
+- **AND** nothing is reported as materialised, leaving the partition missing
+- **AND** the run does not fail
 
 ### Requirement: The coverage gate belongs to the binary
 

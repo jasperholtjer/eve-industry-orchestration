@@ -5,8 +5,8 @@ from __future__ import annotations
 import dagster as dg
 import pytest
 
-from eve_industry_orchestration.defs.config import resolve_partition_starts
 from eve_industry_orchestration.defs.corpus_resource import CorpusResource
+from eve_industry_orchestration.defs.killmails import killmails_consumption_gold
 from eve_industry_orchestration.defs.market_history import (
     DATASET,
     gold_partitions,
@@ -63,6 +63,13 @@ def test_silver_materialises_settled_day(corpus) -> None:
 
 # Well inside the resolved Gold range (served_start 2021-01-01).
 _GOLD_DATE = "2024-01-15"
+
+# The fake binary's failure injections are keyed per dataset so one dataset's
+# injected failure cannot bleed into another sharing the same date: the gate list
+# takes `dataset:derivative:date` (market-history declares a single derivative
+# named after itself), the verify list `dataset:tier:date`.
+_GOLD_GATE_FAIL_KEY = f"{DATASET}:{DATASET}:{_GOLD_DATE}"
+_GOLD_VERIFY_FAIL_KEY = f"{DATASET}:gold:{_GOLD_DATE}"
 
 
 def _ingest(corpus, date: str) -> None:
@@ -155,7 +162,7 @@ def test_gold_incomplete_window_fails_without_materialising(
 ) -> None:
     """The coverage gate is the binary's: its non-zero exit is never suppressed."""
     _ingest(corpus, _GOLD_DATE)
-    monkeypatch.setenv("FAKE_GOLD_GATE_FAIL_DATES", _GOLD_DATE)
+    monkeypatch.setenv("FAKE_GOLD_GATE_FAIL_DATES", _GOLD_GATE_FAIL_KEY)
 
     result = dg.materialize(
         [market_history_gold],
@@ -169,12 +176,42 @@ def test_gold_incomplete_window_fails_without_materialising(
     assert result.get_asset_materialization_events() == []
 
 
+def test_gold_skips_upstream_gap_day_without_verifying(
+    corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A gap day exits zero reporting "skipped": no verify, no materialisation.
+
+    The target day's Silver is a recorded upstream gap (ADR-0029), so the build
+    writes nothing and reports it. Verifying would fail on the absent partition,
+    so the asset must stop at the build and leave the partition Missing rather
+    than failing the run permanently.
+    """
+    monkeypatch.setenv("FAKE_EVEREF_DATES", "2024-01-14")
+    _ingest(corpus, _GOLD_DATE)  # records the upstream gap for the target day
+    calls = _spy_on_corpus(monkeypatch)
+
+    result = dg.materialize(
+        [market_history_gold],
+        partition_key=_GOLD_DATE,
+        selection=[market_history_gold],
+        resources={"corpus": corpus},
+    )
+
+    assert result.success
+    assert result.get_asset_materialization_events() == []
+    assert [call[:2] for call in calls] == [("gold", "build")]
+    observations = result.get_asset_observation_events()
+    assert len(observations) == 1
+    metadata = observations[0].event_specific_data.asset_observation.metadata
+    assert metadata["skip_reason"].value == "upstream_gap"
+
+
 def test_gold_fails_when_verification_fails(
     corpus, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A green build with a failed contract check is a failed run, not a success."""
     _ingest(corpus, _GOLD_DATE)
-    monkeypatch.setenv("FAKE_VERIFY_FAIL_DATES", _GOLD_DATE)
+    monkeypatch.setenv("FAKE_VERIFY_FAIL_DATES", _GOLD_VERIFY_FAIL_KEY)
     calls = _spy_on_corpus(monkeypatch)
 
     result = dg.materialize(
@@ -205,7 +242,7 @@ def test_gold_stale_readiness_still_fails_at_the_gate(
     )
     assert [rr.partition_key for rr in tick.run_requests] == [_GOLD_DATE]
 
-    monkeypatch.setenv("FAKE_GOLD_GATE_FAIL_DATES", _GOLD_DATE)
+    monkeypatch.setenv("FAKE_GOLD_GATE_FAIL_DATES", _GOLD_GATE_FAIL_KEY)
     result = dg.materialize(
         [market_history_gold],
         partition_key=_GOLD_DATE,
@@ -261,26 +298,33 @@ def test_gold_declares_the_heavy_pool() -> None:
     # error — that asset silently gets its own pool with its own limit, and the real
     # ceiling doubles while every other test stays green. Pin the names to each
     # other. market-orders Silver is deliberately absent: it holds its own limit-1
-    # `market_orders` pool. killmails Gold is absent too — it joins `heavy`
-    # PROVISIONALLY (deploy/dagster.yaml), pending measurement, so dropping it is a
-    # legitimate change that must not fail here.
+    # `market_orders` pool.
+    #
+    # Skip-if-absent: killmails Gold joins `heavy` PROVISIONALLY
+    # (deploy/dagster.yaml), pending measurement, so dropping `pool=` entirely
+    # stays a legitimate change — but while it declares a pool, that pool must be
+    # the shared one, not a typo of it.
     for shared in (
         market_orders_snapshot_gold,
         market_orders_changes_gold,
         market_orders_events_gold,
+        killmails_consumption_gold,
     ):
+        if shared.op.pool is None:
+            continue
         assert shared.op.pool == market_history_gold.op.pool, (
             f"{shared.op.name} left the shared heavy memory budget"
         )
 
 
 def test_gold_partition_start_comes_from_config() -> None:
-    """The valid Gold keys derive from the dataset YAML's served_start.
+    """The first valid Gold key is the fixture dataset's ``gold.served_start``.
 
-    Asserted against the resolver's own output, not a literal: the test must
-    fail if ``market_history.py`` stops routing through
-    :func:`resolve_partition_starts` and hardcodes a start date instead.
+    Pinned to the fixture's literal value rather than to
+    :func:`resolve_partition_starts`, which is what builds ``gold_partitions`` at
+    import time — asserting against that call would compare the value with
+    itself. That the resolver reads the value from the dataset YAML is pinned
+    separately by ``test_config.py``; together the two fix the start date to
+    configuration.
     """
-    resolved = resolve_partition_starts(DATASET)
-    assert resolved.gold is not None
-    assert gold_partitions.start.strftime("%Y-%m-%d") == resolved.gold
+    assert gold_partitions.start.strftime("%Y-%m-%d") == "2021-01-01"

@@ -15,10 +15,17 @@ Upstream EVE Ref availability is injected via ``FAKE_EVEREF_DATES`` (a
 comma-separated list of ``YYYY-MM-DD``); exit-code paths mirror the real binary
 (``verify`` on an absent partition exits 1). Two further lists inject the
 binary-side failures that have no state-level cause the fake can otherwise
-reach: ``FAKE_GOLD_GATE_FAIL_DATES`` makes ``gold build`` exit non-zero as the
-real ``coverage_min_ratio`` gate does on an incomplete rolling window, and
-``FAKE_VERIFY_FAIL_DATES`` makes ``verify`` exit non-zero on a partition that is
-present but fails the contract cross-check.
+reach, both keyed on composite ``dataset:tier-or-derivative:date`` entries
+(comma-separated) rather than on date alone, so a failure injected for one
+dataset/tier does not bleed into another sharing the same date:
+``FAKE_GOLD_GATE_FAIL_DATES`` (entries ``dataset:derivative:date``) makes
+``gold build`` exit non-zero as the real ``coverage_min_ratio`` gate does on an
+incomplete rolling window, checked *after* the upstream-gap ``skipped`` branch
+so a genuine ADR-0029 gap still reports ``skipped`` cleanly even when the same
+date appears in this list for another dataset/derivative. ``FAKE_VERIFY_FAIL_DATES``
+(entries ``dataset:tier:date``) makes ``verify`` exit non-zero on a partition
+that is present but fails the contract cross-check, checked *after* the
+partition-presence check so it only fires on a partition that actually exists.
 """
 
 from __future__ import annotations
@@ -41,9 +48,9 @@ def _pop_opt(args: list[str], name: str) -> str | None:
     return value
 
 
-def _env_dates(name: str) -> set[str]:
-    """Reads a comma-separated ``YYYY-MM-DD`` injection list off the environment."""
-    return {d.strip() for d in os.environ.get(name, "").split(",") if d.strip()}
+def _env_keys(name: str) -> set[str]:
+    """Reads a comma-separated composite injection list (e.g. ``dataset:tier:date``)."""
+    return {k.strip() for k in os.environ.get(name, "").split(",") if k.strip()}
 
 
 def _pop_flag(args: list[str], name: str) -> bool:
@@ -1032,17 +1039,6 @@ def _do_gold_build(args: list[str], sink: str) -> int:
         )
         return 2
 
-    # The rolling-window coverage gate lives in the binary: an incomplete
-    # [date - max_horizon, date] window exits non-zero rather than writing a
-    # degraded partition. The fake models only the state-level diff, so the gate
-    # rejection is injected per date instead of derived from a window.
-    if date in _env_dates("FAKE_GOLD_GATE_FAIL_DATES"):
-        print(
-            f"gold build: silver coverage for {date} below coverage_min_ratio",
-            file=sys.stderr,
-        )
-        return 1
-
     # The real binary bails when the target-day Silver partition is absent — but
     # a target day recorded as an upstream gap (ADR-0029) skips cleanly instead,
     # so a Gold backfill glides over gaps. An un-ingested target still fails.
@@ -1065,6 +1061,19 @@ def _do_gold_build(args: list[str], sink: str) -> int:
             return 0
         print(
             f"gold build: target silver partition for {date} is absent", file=sys.stderr
+        )
+        return 1
+
+    # The rolling-window coverage gate lives in the binary: an incomplete
+    # [date - max_horizon, date] window exits non-zero rather than writing a
+    # degraded partition. The fake models only the state-level diff, so the gate
+    # rejection is injected per dataset:derivative:date instead of derived from
+    # a window, and checked after the upstream-gap branch so a genuine ADR-0029
+    # gap still reports "skipped" cleanly even for a date in this list.
+    if f"{dataset}:{derivative}:{date}" in _env_keys("FAKE_GOLD_GATE_FAIL_DATES"):
+        print(
+            f"gold build: silver coverage for {date} below coverage_min_ratio",
+            file=sys.stderr,
         )
         return 1
 
@@ -1118,18 +1127,21 @@ def _do_verify(args: list[str], sink: str) -> int:
         print("verify: --dataset and --date required", file=sys.stderr)
         return 2
 
+    pdir = _partition_dir(sink, tier, dataset, date)
+    if not (pdir / "_DONE").is_file():
+        print(f"[{date}] absent", file=sys.stderr)
+        return 1
+
     # A present-but-corrupt partition (sha256 / _INDEX cross-check mismatch) has
-    # no state-level cause the fake can reach, so it is injected per date.
-    if date in _env_dates("FAKE_VERIFY_FAIL_DATES"):
+    # no state-level cause the fake can reach, so it is injected per
+    # dataset:tier:date, checked only after presence so it fires exclusively
+    # on a partition that actually exists.
+    if f"{dataset}:{tier}:{date}" in _env_keys("FAKE_VERIFY_FAIL_DATES"):
         print(f"[{date}] sha256 mismatch", file=sys.stderr)
         return 1
 
-    pdir = _partition_dir(sink, tier, dataset, date)
-    if (pdir / "_DONE").is_file():
-        print(f"[{date}] ok", file=sys.stderr)
-        return 0
-    print(f"[{date}] absent", file=sys.stderr)
-    return 1
+    print(f"[{date}] ok", file=sys.stderr)
+    return 0
 
 
 def _do_everef(args: list[str], sink: str) -> int:

@@ -116,10 +116,14 @@ _GOLD_POOL = "heavy"
     group_name="market_history",
     kinds={"corpus"},
     pool=_GOLD_POOL,
+    # A target day whose Silver is an upstream gap can never produce a Gold row
+    # (ADR-0029); corpus reports "skipped", so the asset completes without
+    # materialising — the partition stays Missing rather than failing.
+    output_required=False,
 )
 def market_history_gold(
     context: dg.AssetExecutionContext, corpus: CorpusResource
-) -> dg.MaterializeResult:
+) -> Iterator[dg.MaterializeResult | dg.AssetObservation]:
     """Gold partition: build the rolling-window features, then verify the contract.
 
     ``corpus gold build`` reads the full ``[date - max_horizon, date]`` Silver
@@ -128,9 +132,13 @@ def market_history_gold(
     writing a degraded partition. The availability sensor only requests dates
     ``corpus gold ready-dates`` already reports as buildable, so this is a
     backstop rather than the primary gate.
+
+    A target day recorded as an upstream gap (ADR-0029) exits zero reporting
+    ``status: skipped`` and writes nothing; the verify is skipped with it and an
+    ``AssetObservation`` records why, leaving the partition Missing.
     """
     date = context.partition_key
-    corpus.run(
+    status = corpus.run(
         context,
         "gold",
         "build",
@@ -141,6 +149,21 @@ def market_history_gold(
         "--sink-path",
         corpus.sink_path,
     )
+    if status is not None and status.get("status") == "skipped":
+        context.log.info(
+            "market-history %s: target silver is an upstream gap, leaving partition "
+            "missing",
+            date,
+        )
+        yield dg.AssetObservation(
+            asset_key=context.asset_key,
+            partition=date,
+            metadata={
+                "skip_reason": "upstream_gap",
+                "detail": str(status.get("reason", "")),
+            },
+        )
+        return
     corpus.run(
         context,
         "verify",
@@ -154,6 +177,6 @@ def market_history_gold(
         corpus.sink_path,
     )
     # TODO: enrich metadata from _INDEX.json / `corpus state query`.
-    return dg.MaterializeResult(
+    yield dg.MaterializeResult(
         metadata={"dataset": DATASET, "tier": "gold", "partition": date}
     )

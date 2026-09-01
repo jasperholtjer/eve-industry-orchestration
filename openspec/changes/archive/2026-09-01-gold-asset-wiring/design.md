@@ -18,8 +18,16 @@ this repository a change writes the spec and then makes the tree satisfy it.
 
 **Non-Goals**
 
-- Changing the behaviour of `market_history_gold` or its sensor. A diff in either
-  is out of scope for this change and is evidence the spec was mis-written.
+- Changing the behaviour of `market_history_gold` or its sensor **beyond making it
+  honour the exit contract of the command it invokes**. This started as a strict
+  non-goal, on the assumption that specifying built code could not turn up a bug in
+  it. Review found one: the asset ignored the `status: "skipped"` that
+  `corpus gold build` returns for an ADR-0029 upstream gap and verified anyway,
+  failing every gap day permanently, where four sibling Gold assets already guard
+  it. Writing that behaviour into a spec would have codified the bug, so the guard
+  was added here and the requirement states the corrected contract. The sensor is
+  untouched, and `market_history_silver` — which has a related gap — is left to
+  `docs/questions/2026-09-01-market-history-silver-skipped-status.md`.
 - Generalising the capability to the other Gold datasets. `killmails`,
   `market_orders`, `industry_cost_indices` and `mer` share the shape, but each
   carries a `--derivative` dimension this dataset does not have (ADR-0025). One

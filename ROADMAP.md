@@ -82,8 +82,10 @@ Verified against `crates/corpus-cli/src/main.rs`. `--sink-path` is a global flag
 > rejects an earlier ingest. `coverage_min_ratio: 0.5` tolerates the resulting
 > partial first Gold window by design.
 
-`market_history.py` uses `DailyPartitionsDefinition(start_date="2024-01-01")` for
-both Silver and Gold — a placeholder that contradicts the config source of truth.
+`market_history.py` calls `resolve_partition_starts(DATASET)` and builds
+`silver_partitions`/`gold_partitions` as separate `DailyPartitionsDefinition`s from
+the resolved `_starts.silver` and `_starts.gold`, matching the config source of
+truth below.
 
 - Source of truth: `datasets/market-history.yaml` (corpus repo) —
   `gold.served_start: 2021-01-01`; Silver preload start `2020-01-02` (derived by
@@ -112,9 +114,10 @@ both Silver and Gold — a placeholder that contradicts the config source of tru
   sensor pre-checks via `corpus gold ready-dates` to avoid queuing doomed runs.
 - **Gold on the NAS** (decided): the canonical Gold lives on the NAS — it is the
   single source of truth that downstream consumers fan out from (see Future phases).
-  Default is option (a): point `corpus gold --gold-path` at the NAS directly (the
-  365-day Silver read already comes from the NAS, so only the Gold write/serve loses
-  NVMe speed). NVMe-primary + `corpus mirror` (option b) is revisited only if a
+  Default is option (a): the NAS root is selected through the global `--sink-path`
+  (`CORPUS_SINK_PATH=/mnt/eve` as the env form) and the binary derives the tier
+  roots itself, so the 365-day Silver read and the Gold write/serve share the same
+  NAS root. NVMe-primary + `corpus mirror` (option b) is revisited only if a
   consumer needs NVMe read speed — a corpus-side ADR touching storage layout (plan
   02). A hand-rolled rsync that rebuilds the layout is ruled out by the storage
   boundary; this repo only records the root choice.
