@@ -19,7 +19,14 @@
       `memory.peak`, kernel >= 6.9, and read the current configuration back
       before sizing). Verify the comment states a worst case, a box size and a
       measurement step.
-- [ ] 1.4 Reconcile the comment at `deploy/redeploy.sh:245-247` with the
+- [ ] 1.4 Carry the host-provisioning pointer into the same comment, since the
+      box size is an input to the arithmetic: RAM and cores are set on the
+      Proxmox host and not here (`pct set 211 --cores 8 --memory 12288 --swap
+      2048`), and the authoritative provisioning lives in `homelab_docs`
+      (`docs/howto/deploy-dagster-lxc.md`). These exist today only in
+      `CLAUDE.md` and would otherwise be lost when task 3.1 shrinks it. Verify
+      `grep -n "homelab_docs\|pct set" deploy/dagster.yaml` finds both.
+- [ ] 1.5 Reconcile the comment at `deploy/redeploy.sh:245-247` with the
       rewritten arithmetic — it names which pools sit below `default_limit` and
       why they cannot live in `dagster.yaml`. Verify `bash -n
       deploy/redeploy.sh` passes and the two `concurrency set` calls are
@@ -27,12 +34,15 @@
 
 ## 2. Pin the market-orders Silver resident-snapshot window
 
-- [ ] 2.1 Add `CORPUS_PARSE_CONCURRENCY=6` to `deploy/dagster-daemon.service`
+- [ ] 2.1 Add `CORPUS_PARSE_CONCURRENCY=8` to `deploy/dagster-daemon.service`
       beside `RAYON_NUM_THREADS=6`, with a comment saying it is the
-      resident-snapshot cap *and* the parse batch size, that matching the rayon
-      thread count keeps batches fully occupied, and that without it the window
-      follows the host core count. Verify `grep -n CORPUS_PARSE_CONCURRENCY
-      deploy/dagster-daemon.service` shows it inside the `[Service]` block.
+      resident-snapshot cap *and* the parse batch size, that 8 is what the
+      8-core box resolves to today so pinning it changes nothing that runs, and
+      that without it the window follows the host core count and moves silently
+      on `pct set --cores`. Note that lowering it is the first lever once
+      `memory.peak` has been reset and read back. Verify `grep -n
+      CORPUS_PARSE_CONCURRENCY deploy/dagster-daemon.service` shows it inside
+      the `[Service]` block.
 - [ ] 2.2 Mirror it into `deploy/dagster-webserver.service` in the same
       duplicated-comment style already used there for `RAYON_NUM_THREADS`,
       because a launchpad-triggered run inherits the webserver's env. Verify
@@ -48,9 +58,12 @@
       for the numbers. Drop the stale `market-orders` Silver `heavy` membership
       and the `--cores 4` prescription. Verify no GiB figure or pool limit
       number survives in that bullet.
-- [ ] 3.2 Do the same for the stale two-pool sentence at `ROADMAP.md:141-145`.
-      Verify it no longer enumerates pools or limits and points at
-      `deploy/dagster.yaml` instead.
+- [ ] 3.2 Fix the stale two-pool sentence at `ROADMAP.md:141-145` with a
+      single factual line — pools and limits are in `deploy/dagster.yaml` — and
+      change nothing else. It sits inside `### 3. Add an availability-driven
+      sensor — done`, a record of what was built, so the narrative of a finished
+      work item is not rewritten. Verify the diff touches only that sentence and
+      that it enumerates no pools or limits.
 
 ## 4. Pin the declared pool set in a test
 
@@ -63,9 +76,6 @@
 - [ ] 4.2 Make the failure message name `deploy/dagster.yaml` as the file whose
       budget must account for a new pool. Verify by temporarily perturbing one
       asset's pool literal that the test fails with that message, then reverting.
-- [ ] 4.3 Assert in the same module that the three memory-bearing pools are the
-      ones the budget counts, so dropping one from the budget without dropping
-      it from the code fails. Verify the test passes.
 
 ## 5. Verify the row
 

@@ -50,23 +50,52 @@ declared in a module nobody remembered to add, and that is exactly how
 not about market-history. *Alternative considered:* extend the existing test in
 place. Rejected for both reasons above.
 
-**`CORPUS_PARSE_CONCURRENCY=6`, matching `RAYON_NUM_THREADS=6`.** In corpus,
+**`CORPUS_PARSE_CONCURRENCY=8`, pinning today's effective value.** In corpus,
 `parse_window()` (`ingestor-market-orders/src/parse.rs:144`) returns
 `available_parallelism` clamped to `[2, 8]`, and that window is *both* the
 resident-snapshot cap and the `chunks()` batch size for a `par_iter` over the
-rayon pool (`parse.rs:133`). On the 8-core LXC the window is therefore 8 while
-only 6 threads parse: each batch runs a 6-wide round then a 2-wide one, and two
-extra snapshots sit resident for no throughput. Aligning the window to the
-thread count gives fully-occupied batches and a strictly lower peak.
-*Alternatives considered:* pin 8, preserving today's behaviour exactly — honest,
-but keeps two idle resident snapshots and the poor batch tail; pin 4, lowering
-the peak further — rejected, it throttles the heaviest Silver below its own
-thread pool.
+rayon pool (`parse.rs:133`). On the 8-core LXC it therefore sits at 8 today,
+chosen by nobody. Writing 8 into both units changes nothing that runs and
+removes the coupling to `pct set 211 --cores`, which is exactly what the row
+asked for: the window becomes a chosen constant rather than a discovered one.
+
+*Alternative considered and rejected: 6, matching `RAYON_NUM_THREADS=6`.* It is
+tempting — only 6 threads parse, so a window of 8 runs a 6-wide round then a
+2-wide one and holds two extra snapshots resident for no throughput — and it
+cannot raise the peak. It is still wrong for this row. The budget this change
+writes down records ~3-4 GiB for one `market_orders` holder, and that figure
+belongs to a window of 8; moving the window in the same change that states the
+figure makes the stated number describe a configuration that no longer runs.
+This row's thesis is that the budget is stated honestly and sized only after a
+measurement of the configuration actually running. Lowering the window is the
+first lever to reach for once `memory.peak` has been reset and read back, and
+the unit comment says so — but it is a sizing decision, and sizing waits.
 
 **No ADR.** This row exists because one decision was written down in four
 places. Recording it a fifth time in `docs/adr/` would recreate the failure the
 row is closing. The invariant is in `CLAUDE.md`, the arithmetic in
 `deploy/dagster.yaml`, the mechanism in the test.
+
+**`ROADMAP.md` gets a one-line factual fix, not a rewrite.** Its pool sentence
+sits inside `### 3. Add an availability-driven sensor - done`, which is a record
+of what was built rather than a live decision. Correcting a stale enumeration
+inside that record is in scope; rewriting the narrative of a finished work item
+is not. The line names no pools or limits and points at `deploy/dagster.yaml`.
+
+**The test pins pool *names*, and asserts nothing about which pools carry
+memory.** There are only two ways to test the membership half: parse prose out
+of a YAML comment, or hardcode the memory-bearing set in the test. The second is
+a fifth copy of the arithmetic and directly contradicts the requirement that it
+live in `deploy/dagster.yaml` and nowhere else. So the mechanism guards the
+thing that can be mechanically guarded - a pool name entering the deployment -
+and the budget itself stays prose in one file, guarded by review.
+
+**The host-provisioning pointer moves with the arithmetic.** `CLAUDE.md` is
+today the only place carrying "set RAM/cores on the Proxmox host, not here",
+the `pct set 211` example and the `homelab_docs`
+(`docs/howto/deploy-dagster-lxc.md`) reference. Shrinking that bullet without
+rehoming them loses them, so they land in `deploy/dagster.yaml` beside the
+budget they belong to - the box size is an input to that arithmetic.
 
 **The worst case is stated, not solved.** The rewritten comment says plainly
 that 2 x `heavy` + `market_orders` + `news_embed` can exceed the box, and why
