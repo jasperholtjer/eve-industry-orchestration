@@ -754,16 +754,43 @@ def test_gold_sensor_ignores_a_higher_silver_in_flight(
 def test_gold_sensor_is_not_stalled_by_a_build_that_never_commits(
     corpus, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # The rejected alternative — block on the largest *registered* build below —
-    # would stop every changelog above 200 for good. Readiness must not depend on
-    # the registered sequence, only on what is actually in flight.
+    # The honest shape of a build that never commits: discovery re-requests 200
+    # every tick, so it is *also* in flight (often QUEUED behind the
+    # `everef_download` pool) on a large share of Gold ticks. Under the broad rule
+    # that tick requested nothing at all. Narrowed, only 300 — whose predecessor
+    # 200 would actually change — waits; 400's predecessor (300) is unaffected, so
+    # the changelog stream keeps moving.
     monkeypatch.setenv(
         "FAKE_SDE_BUILDS",
-        "100:2025-09-01,200:2025-09-02,300:2025-09-03",
+        "100:2025-09-01,200:2025-09-02,300:2025-09-03,400:2025-09-04",
     )
-    _ingest_build(corpus, 100)
-    _ingest_build(corpus, 300)
-    instance = _instance_with_builds(100, 200, 300)
+    for build in (100, 300, 400):
+        _ingest_build(corpus, build)
+    instance = _instance_with_builds(100, 200, 300, 400)
+    _defer_silver(monkeypatch, "200")
+    context = dg.build_sensor_context(resources={"corpus": corpus}, instance=instance)
+
+    result = sde_gold_sensor(context)
+
+    assert [rr.partition_key for rr in result.run_requests] == ["400"]
+
+
+def test_gold_sensor_defers_only_across_the_current_predecessor(
+    corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The narrowed rule: an in-flight run defers a build only when it lands
+    # strictly between that build and its current nearest lower committed Silver.
+    # 150 sits between 100 and 200, so 200 waits; it is at-or-below 300's
+    # predecessor (200), so it cannot become 300's predecessor and 300 is asked
+    # for on the same tick.
+    monkeypatch.setenv(
+        "FAKE_SDE_BUILDS",
+        "100:2025-09-01,150:2025-09-02,200:2025-09-03,300:2025-09-04",
+    )
+    for build in (100, 200, 300):
+        _ingest_build(corpus, build)
+    instance = _instance_with_builds(100, 150, 200, 300)
+    _defer_silver(monkeypatch, "150")
     context = dg.build_sensor_context(resources={"corpus": corpus}, instance=instance)
 
     result = sde_gold_sensor(context)

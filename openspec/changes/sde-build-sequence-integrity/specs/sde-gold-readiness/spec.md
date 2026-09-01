@@ -86,19 +86,28 @@ orchestrator SHALL NOT compute the predecessor, the diff, or which rows changed.
 
 ### Requirement: A Gold build is deferred while a lower Silver run is in flight
 
-Where a lower build's `sde` Silver run is queued or in flight, the changelog for a
-higher build would be diffed against a predecessor that is about to change. The
-orchestrator SHALL hold that build back for the tick rather than request it.
+Where a queued or in-flight `sde` Silver run would become a build's predecessor,
+the changelog for that build would be diffed against a predecessor that is about
+to change. The orchestrator SHALL hold that build back for the tick rather than
+request it.
+
+The rule SHALL be narrow: a build is deferred only where an in-flight Silver run
+lies **strictly between** that build and its current nearest lower committed
+Silver build. A run at or below that predecessor cannot become the predecessor and
+SHALL NOT defer anything. Deferring every outstanding build above the lowest
+in-flight run would let one permanently-failing ingest — re-requested on every
+discovery tick, and able to sit queued behind the `everef_download` pool for a
+long stretch — silence the whole changelog stream.
 
 The deferral SHALL be bounded by the in-flight run's own lifetime: a deferred
 build SHALL remain in the outstanding set and be requested on a later tick. The
 orchestrator SHALL NOT make readiness depend on the registered build sequence, so
-that a build whose Silver never commits can never stop a later changelog.
+that a build whose Silver never commits can never stop the changelog stream.
 
-#### Scenario: A lower Silver run in flight
+#### Scenario: A run in flight between a build and its predecessor
 
-- **WHEN** build 300 is outstanding and build 200's `sde_silver` run has not
-  reached a terminal state
+- **WHEN** build 300 is outstanding, its nearest lower committed Silver is build
+  200, and build 250's `sde_silver` run has not reached a terminal state
 - **THEN** build 300 is not requested on that tick
 - **AND** the deferral is logged
 
@@ -112,11 +121,19 @@ that a build whose Silver never commits can never stop a later changelog.
 - **WHEN** build 300 is outstanding and build 400's `sde_silver` run is in flight
 - **THEN** build 300 is still requested
 
+#### Scenario: A run in flight at or below the predecessor
+
+- **WHEN** build 300 is outstanding, its nearest lower committed Silver is build
+  200, and build 150's `sde_silver` run is in flight
+- **THEN** build 300 is still requested, because build 150 cannot become its
+  predecessor
+
 #### Scenario: A build whose Silver never commits
 
-- **WHEN** a build is permanently excluded from ingest and never commits Silver
-- **THEN** builds above it are still requested, and the changelog stream does not
-  stall
+- **WHEN** a build never commits Silver and its retry is in flight on a given tick
+- **THEN** only the one outstanding build directly above it is held for that tick
+- **AND** every other outstanding build is still requested, so the changelog
+  stream does not stall
 
 ### Requirement: The build number is the key and the release date is a label
 

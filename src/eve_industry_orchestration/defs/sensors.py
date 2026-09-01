@@ -737,9 +737,15 @@ def sde_gold_sensor(
     ``sde_changelog_gold``. The full rule is therefore
     ``(committed Silver − committed Gold − baseline) ∪ stale``.
 
-    An outstanding build is **deferred** while a *lower* build's ``sde_silver`` run
-    is queued or in flight: that run is exactly the one that would change the
-    predecessor underneath it. Deferral is applied before the per-tick cap so a
+    An outstanding build ``B`` is **deferred** only while a queued or in-flight
+    ``sde_silver`` run ``S`` lands *strictly between* ``B`` and ``B``'s current
+    predecessor — the largest committed Silver build below ``B``. Such an ``S`` is
+    exactly the run that would change the predecessor underneath ``B``; a run at or
+    below that predecessor cannot become one, so it must not defer anything. The
+    broad form ("defer every outstanding build above the lowest in-flight run")
+    would let a single permanently-failing ingest, re-requested every discovery
+    tick and often sitting QUEUED behind the ``everef_download`` pool, silence the
+    whole changelog stream. Deferral is applied before the per-tick cap so a
     deferred build does not consume a slot, and the build stays outstanding, so the
     wait is bounded by a run's lifetime. Readiness deliberately does not depend on
     the registered build sequence — a build that never ingests would then stall
@@ -761,16 +767,26 @@ def sde_gold_sensor(
     outstanding = (committed - built - baseline) | stale
 
     silver_in_flight = _in_flight_builds(context)
-    lowest_in_flight = min(silver_in_flight, default=None)
-    if lowest_in_flight is not None:
-        deferred = sorted(b for b in outstanding if b > lowest_in_flight)
+    if silver_in_flight and outstanding:
+        deferred: set[int] = set()
+        blocking: set[int] = set()
+        for build in outstanding:
+            predecessor = max((c for c in committed if c < build), default=None)
+            blockers = {
+                run
+                for run in silver_in_flight
+                if run < build and (predecessor is None or run > predecessor)
+            }
+            if blockers:
+                deferred.add(build)
+                blocking |= blockers
         if deferred:
             context.log.info(
                 "sde-gold: deferring %s while lower Silver build(s) %s are in flight",
-                ", ".join(str(build) for build in deferred),
-                ", ".join(str(build) for build in sorted(silver_in_flight)),
+                ", ".join(str(build) for build in sorted(deferred)),
+                ", ".join(str(build) for build in sorted(blocking)),
             )
-        outstanding = outstanding - set(deferred)
+        outstanding = outstanding - deferred
 
     return request_partitions(
         context,
