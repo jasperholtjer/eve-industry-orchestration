@@ -121,3 +121,58 @@ items:
       kernel >= 6.9) before any RAM decision. The ADR, if one lands, records that
       every memory-bearing pool counts against one box budget and that
       market-orders Silver's peak is pinned rather than discovered.
+
+  - id: sovereignty-silver-wiring
+    title: Wire the sovereignty family's Silver into the code location
+    goal: >
+      The three hourly everef sovereignty datasets — `sovereignty-map`,
+      `sovereignty-structures` and `sovereignty-campaigns` — carry Silver and
+      all five Gold trees in corpus (ADR-0066) and have no Dagster asset at
+      all. Land the Silver half: one day-partitioned `*_silver` asset per
+      dataset shelling out to `corpus ingest`, the availability sensor off
+      `corpus everef missing-partitions` keyed on run-state, resource and pool
+      placement, and the fake-binary tests. `config.py` resolves none of the
+      three yet — `_lookback_for_shape` raises on every `sov-*` shape, and the
+      Silver start is the earliest preload across a dataset's derivatives, so
+      all five shapes are taught here even though their Gold lands in the next
+      row: `tenure.tenure_lookback_days` for `sov-ownership` and `sov-events`,
+      `flat.horizons` for `sov-adm`, no reach-back for `sov-contests` and
+      `sov-panel`.
+    areas: [orchestration]
+    depends_on: [corpus:corpus-gold-sovereignty]
+    priority: 2
+    status: todo
+    notes: >
+      The `add-dataset-to-orchestration` skill is the procedure. All three
+      serve Silver from 2021-07-01 while the everef folder era starts
+      2022-12-16, so a backfill crosses a layout boundary the binary owns.
+      Nothing has been materialised, so the first backfill is the whole
+      history — measure its peak before putting any of the three in a
+      memory-bearing pool.
+
+  - id: sovereignty-gold-panel
+    title: Build the five sovereignty Gold trees, panel last
+    goal: >
+      Five derivatives over the three datasets: `sovereignty-ownership` and
+      `sovereignty-changes` off `sovereignty-map`, `sovereignty-adm` off
+      `sovereignty-structures`, `sovereignty-contests` off
+      `sovereignty-campaigns`, then `sovereignty-panel`. Each is its own
+      `corpus gold build --derivative` asset. The panel is a Gold-over-Gold
+      build (ADR-0052 sibling read): it takes the same-day partitions of the
+      other three trees, the trailing 30-day `sov-events` window and the
+      `sde-mapSolarSystems` snapshot, and ADR-0066 requires that build order to
+      be a real asset dependency, not schedule ordering. The panel serves from
+      2022-01-31, one flip window after its siblings' 2022-01-01 — the
+      per-derivative start resolver already carries that, the asset graph does
+      not.
+    areas: [orchestration]
+    depends_on: [sovereignty-silver-wiring]
+    priority: 3
+    status: todo
+    notes: >
+      Two gates, and conflating them yields a wrong number rather than a
+      missing one: a permanently-absent same-day prerequisite skips the panel
+      day (ADR-0065), while an incomplete `sov-events` window only NULLs the
+      two flip counts. Both are the binary's to enforce — the assets shell out
+      and record, they never pre-validate. The panel's SDE input makes this the
+      first cross-dataset Gold dependency in the code location.
