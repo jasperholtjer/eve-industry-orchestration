@@ -5,6 +5,7 @@ from __future__ import annotations
 import dagster as dg
 import pytest
 
+from eve_industry_orchestration.defs.sensor_util import MAX_PARTITIONS_PER_TICK
 from eve_industry_orchestration.defs.sensors import (
     market_history_availability_sensor,
     market_history_gold_sensor,
@@ -162,3 +163,103 @@ def test_gold_sensor_no_silver_yields_no_requests(corpus) -> None:
     result = market_history_gold_sensor(context)
 
     assert result.run_requests == []
+
+
+# --- Gold readiness: what the sensor may and may not decide -----------------
+
+
+def test_gold_sensor_ignores_a_date_not_reported_ready(corpus) -> None:
+    """Readiness comes from corpus alone: a date it drops is not requested.
+
+    The built date leaves the readiness report while its Silver stays on disk,
+    so a sensor deriving readiness from the tree would still request it.
+    """
+    _ingest(corpus, "2024-01-15")
+    _ingest(corpus, "2024-01-16")
+    _build_gold(corpus, "2024-01-15")
+    context = dg.build_sensor_context(resources={"corpus": corpus})
+
+    result = market_history_gold_sensor(context)
+
+    assert [rr.partition_key for rr in result.run_requests] == ["2024-01-16"]
+
+
+def test_gold_sensor_ignores_a_date_outside_the_partition_range(corpus) -> None:
+    """Gold starts at served_start; an older ready date is not a valid key."""
+    # 2020-06-01 is inside the Silver preload window (from 2020-01-02) but before
+    # the Gold served_start of 2021-01-01, so corpus reports it ready while
+    # Dagster has no partition for it.
+    _ingest(corpus, "2020-06-01")
+    _ingest(corpus, "2024-01-15")
+    context = dg.build_sensor_context(resources={"corpus": corpus})
+
+    result = market_history_gold_sensor(context)
+
+    assert [rr.partition_key for rr in result.run_requests] == ["2024-01-15"]
+
+
+def test_gold_sensor_caps_the_tick_at_the_oldest_dates(
+    corpus, capfd: pytest.CaptureFixture[str]
+) -> None:
+    """A backlog drains oldest-first over ticks rather than enqueuing at once."""
+    dates = [f"2024-01-{day:02d}" for day in range(5, 5 + MAX_PARTITIONS_PER_TICK + 1)]
+    for date in dates:
+        _ingest(corpus, date)
+
+    first = market_history_gold_sensor(
+        dg.build_sensor_context(resources={"corpus": corpus})
+    )
+
+    assert [rr.partition_key for rr in first.run_requests] == dates[
+        :MAX_PARTITIONS_PER_TICK
+    ]
+    # The deferred count is logged so a stalled backlog is visible on the tick.
+    assert "1 deferred" in capfd.readouterr().err
+
+    # Once the requested ones are built they leave the readiness report and the
+    # next tick picks up the remainder.
+    for date in dates[:MAX_PARTITIONS_PER_TICK]:
+        _build_gold(corpus, date)
+    second = market_history_gold_sensor(
+        dg.build_sensor_context(resources={"corpus": corpus}, cursor=first.cursor)
+    )
+
+    assert [rr.partition_key for rr in second.run_requests] == [dates[-1]]
+
+
+def test_gold_sensor_re_requests_a_still_ready_date_on_a_later_tick(corpus) -> None:
+    """A run that never materialised must not be suppressed by dedup.
+
+    Gold has no incomplete-skip path, but a failed or lost run leaves the date
+    ready; a static run_key would swallow the retry, so the key rotates per tick.
+    """
+    _ingest(corpus, "2024-01-15")
+
+    first = market_history_gold_sensor(
+        dg.build_sensor_context(resources={"corpus": corpus})
+    )
+    second = market_history_gold_sensor(
+        dg.build_sensor_context(resources={"corpus": corpus}, cursor=first.cursor)
+    )
+
+    (first_rr,) = first.run_requests
+    (second_rr,) = second.run_requests
+    assert first_rr.partition_key == second_rr.partition_key == "2024-01-15"
+    assert first_rr.run_key != second_rr.run_key
+
+
+def test_gold_sensor_skips_an_in_flight_date(
+    corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The rotating key must not put a second writer on an in-flight partition."""
+    _ingest(corpus, "2024-01-15")
+    _ingest(corpus, "2024-01-16")
+    monkeypatch.setattr(
+        "eve_industry_orchestration.defs.sensor_util._in_flight_partitions",
+        lambda context, asset_key: {"2024-01-15"},
+    )
+    context = dg.build_sensor_context(resources={"corpus": corpus})
+
+    result = market_history_gold_sensor(context)
+
+    assert [rr.partition_key for rr in result.run_requests] == ["2024-01-16"]

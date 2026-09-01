@@ -6,29 +6,29 @@ could fail. These tasks add tests only; they consult the `dagster-expert` skill
 before driving any Dagster definition, since sensor and asset invocation shapes
 are version-specific.
 
-- [ ] 1.1 Audit `tests/` against the seven requirements in
+- [x] 1.1 Audit `tests/` against the seven requirements in
       `openspec/changes/gold-asset-wiring/specs/market-history-gold/spec.md` and
       record, in `tmp/scenario-coverage.md`, one line per scenario naming the
       test that backs it or `MISSING`. Verify by reading that file: every
       scenario appears exactly once.
-- [ ] 1.2 For each `MISSING` scenario on the Gold **asset** — build-then-verify
+- [x] 1.2 For each `MISSING` scenario on the Gold **asset** — build-then-verify
       order, no verify after a failed build, failure when verification fails,
       root passed as a flag — add a test against the fake corpus binary. Verify
       with `uv run pytest -q tests/ -k gold`.
-- [ ] 1.3 For each `MISSING` scenario on the Gold **sensor** — a date not
+- [x] 1.3 For each `MISSING` scenario on the Gold **sensor** — a date not
       reported ready is not requested, a reported date outside the partition
       range is ignored, the per-tick cap takes the oldest first, a still-ready
       date is re-requested on a later tick, an in-flight date is not re-requested
       — add a test driving `market_history_gold_sensor` against the fake binary.
       Consult the `dagster-expert` skill for the sensor-invocation shape first.
       Verify with `uv run pytest -q tests/ -k sensor`.
-- [ ] 1.3a Back the `heavy`-pool requirement with a static assertion that
+- [x] 1.3a Back the `heavy`-pool requirement with a static assertion that
       `market_history_gold` declares the pool, rather than a runtime test: the
       fake-binary suite runs no scheduler, so pool arbitration is not observable
       there. Assert on the asset definition's declared pool and note in the test
       why it is a config-level assertion. Verify with
       `uv run pytest -q tests/ -k pool`.
-- [ ] 1.4 Confirm no scenario needed a change to
+- [x] 1.4 Confirm no scenario needed a change to
       `src/eve_industry_orchestration/defs/market_history.py` or
       `sensors.py`. Verify with `git diff --stat develop -- src/`: empty output.
       A non-empty diff means the spec was mis-written — fix the spec, not the
@@ -68,5 +68,5 @@ are version-specific.
       `uv run ruff check .`, `uv run ruff format --check .`, `uv run pytest -q`.
       There is no type checker in this repository by design; its absence is not a
       skipped check.
-- [ ] 3.2 Run `openspec validate gold-asset-wiring --strict` and confirm it
+- [x] 3.2 Run `openspec validate gold-asset-wiring --strict` and confirm it
       passes.

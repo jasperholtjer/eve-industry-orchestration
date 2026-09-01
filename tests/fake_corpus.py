@@ -13,7 +13,12 @@ build`` wrote — keyed on state, never on the tree.
 
 Upstream EVE Ref availability is injected via ``FAKE_EVEREF_DATES`` (a
 comma-separated list of ``YYYY-MM-DD``); exit-code paths mirror the real binary
-(``verify`` on an absent partition exits 1).
+(``verify`` on an absent partition exits 1). Two further lists inject the
+binary-side failures that have no state-level cause the fake can otherwise
+reach: ``FAKE_GOLD_GATE_FAIL_DATES`` makes ``gold build`` exit non-zero as the
+real ``coverage_min_ratio`` gate does on an incomplete rolling window, and
+``FAKE_VERIFY_FAIL_DATES`` makes ``verify`` exit non-zero on a partition that is
+present but fails the contract cross-check.
 """
 
 from __future__ import annotations
@@ -34,6 +39,11 @@ def _pop_opt(args: list[str], name: str) -> str | None:
     value = args[idx + 1] if idx + 1 < len(args) else None
     del args[idx : idx + 2]
     return value
+
+
+def _env_dates(name: str) -> set[str]:
+    """Reads a comma-separated ``YYYY-MM-DD`` injection list off the environment."""
+    return {d.strip() for d in os.environ.get(name, "").split(",") if d.strip()}
 
 
 def _pop_flag(args: list[str], name: str) -> bool:
@@ -1022,6 +1032,17 @@ def _do_gold_build(args: list[str], sink: str) -> int:
         )
         return 2
 
+    # The rolling-window coverage gate lives in the binary: an incomplete
+    # [date - max_horizon, date] window exits non-zero rather than writing a
+    # degraded partition. The fake models only the state-level diff, so the gate
+    # rejection is injected per date instead of derived from a window.
+    if date in _env_dates("FAKE_GOLD_GATE_FAIL_DATES"):
+        print(
+            f"gold build: silver coverage for {date} below coverage_min_ratio",
+            file=sys.stderr,
+        )
+        return 1
+
     # The real binary bails when the target-day Silver partition is absent — but
     # a target day recorded as an upstream gap (ADR-0029) skips cleanly instead,
     # so a Gold backfill glides over gaps. An un-ingested target still fails.
@@ -1096,6 +1117,12 @@ def _do_verify(args: list[str], sink: str) -> int:
     if dataset is None or date is None:
         print("verify: --dataset and --date required", file=sys.stderr)
         return 2
+
+    # A present-but-corrupt partition (sha256 / _INDEX cross-check mismatch) has
+    # no state-level cause the fake can reach, so it is injected per date.
+    if date in _env_dates("FAKE_VERIFY_FAIL_DATES"):
+        print(f"[{date}] sha256 mismatch", file=sys.stderr)
+        return 1
 
     pdir = _partition_dir(sink, tier, dataset, date)
     if (pdir / "_DONE").is_file():
