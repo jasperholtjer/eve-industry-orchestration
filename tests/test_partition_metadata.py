@@ -8,6 +8,8 @@ asserts the metadata is *populated*, not merely that nothing raised.
 
 from __future__ import annotations
 
+import subprocess
+
 import dagster as dg
 import pytest
 
@@ -110,9 +112,25 @@ def test_unparseable_output_is_advisory(corpus, monkeypatch) -> None:
     monkeypatch.setattr(
         corpus_resource.CorpusResource,
         "_capture",
-        lambda self, *args: "not json at all",
+        lambda self, *args, **kwargs: "not json at all",
     )
     assert corpus.partition_metadata("market-history", "silver", date_key(DATE)) == {}
+
+
+def test_timing_out_query_is_advisory(corpus, monkeypatch) -> None:
+    """A stalled sink must not hold the run open on a cosmetic read."""
+    from eve_industry_orchestration.defs import corpus_resource
+
+    seen: dict[str, float | None] = {}
+
+    def _timeout(cmd, **kwargs):
+        seen["timeout"] = kwargs.get("timeout")
+        raise subprocess.TimeoutExpired(cmd, kwargs.get("timeout") or 0)
+
+    monkeypatch.setattr(corpus_resource.subprocess, "run", _timeout)
+    assert corpus.partition_metadata("market-history", "silver", date_key(DATE)) == {}
+    # The bound is passed, not merely handled: without it the call cannot expire.
+    assert seen["timeout"] == corpus_resource._STATE_QUERY_TIMEOUT_SECONDS
 
 
 def test_malformed_key_never_raises(corpus) -> None:

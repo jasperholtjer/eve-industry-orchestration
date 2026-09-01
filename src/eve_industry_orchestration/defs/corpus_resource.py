@@ -25,6 +25,14 @@ _DATASET_NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
 # unprefixed `latest`. The only shape allowed into a state-query WHERE clause.
 _PARTITION_KEY = re.compile(r"(?:[a-z]+=)?[A-Za-z0-9][A-Za-z0-9._-]*")
 
+# Bound on the advisory run-state read behind `partition_metadata`. The work is
+# one indexed SELECT over the local SQLite file corpus has just written, so
+# 30 seconds is orders of magnitude more than it ever needs — it exists only for
+# the case where the NFS sink stalls. Without it a wedged mount would hold the
+# asset, its concurrency-pool slot and a global run slot open forever, long
+# after corpus wrote and verified the partition.
+_STATE_QUERY_TIMEOUT_SECONDS = 30.0
+
 # The run-state key of a latest-only, non-partitioned tree (e.g. the SDE Gold
 # snapshot derivatives): unprefixed, because there is no axis to name.
 LATEST_KEY = "latest"
@@ -165,11 +173,15 @@ class CorpusResource(dg.ConfigurableResource):
             raise dg.Failure(description=description)
         return status
 
-    def _capture(self, *args: str) -> str:
+    def _capture(self, *args: str, timeout: float | None = None) -> str:
         """Runs a ``corpus`` subcommand and returns its stdout.
 
         Raises ``dg.Failure`` on non-zero exit, attaching captured stderr so
         the sensor tick fails loudly instead of parsing empty output.
+
+        ``timeout`` defaults to ``None`` — wait forever — which is what the
+        sensor callers have always done. A caller that must not block passes an
+        explicit bound and handles ``subprocess.TimeoutExpired`` itself.
         """
         cmd = [self.binary_path, *args]
         result = subprocess.run(  # noqa: S603 — fixed binary, no shell
@@ -178,6 +190,7 @@ class CorpusResource(dg.ConfigurableResource):
             text=True,
             env=self._env(),
             check=False,
+            timeout=timeout,
         )
         if result.returncode != 0:
             raise dg.Failure(
@@ -186,8 +199,8 @@ class CorpusResource(dg.ConfigurableResource):
             )
         return result.stdout
 
-    def _capture_json(self, *args: str) -> Any:
-        out = self._capture(*args)
+    def _capture_json(self, *args: str, timeout: float | None = None) -> Any:
+        out = self._capture(*args, timeout=timeout)
         try:
             return json.loads(out)
         except json.JSONDecodeError as exc:
@@ -437,8 +450,14 @@ class CorpusResource(dg.ConfigurableResource):
             "transcripts", "match-stats", "--sink-path", self.sink_path
         )
 
-    def state_query(self, sql: str) -> list[dict[str, Any]]:
-        """Runs a read-only ``corpus state query`` and returns the JSON rows."""
+    def state_query(
+        self, sql: str, *, timeout: float | None = None
+    ) -> list[dict[str, Any]]:
+        """Runs a read-only ``corpus state query`` and returns the JSON rows.
+
+        ``timeout`` is unbounded by default, matching the sensor callers; pass a
+        bound where blocking forever is worse than losing the answer.
+        """
         return self._capture_json(
             "state",
             "query",
@@ -448,6 +467,7 @@ class CorpusResource(dg.ConfigurableResource):
             self.sink_path,
             "--format",
             "json",
+            timeout=timeout,
         )
 
     def partition_metadata(
@@ -499,7 +519,7 @@ class CorpusResource(dg.ConfigurableResource):
             "LIMIT 1"
         )
         try:
-            rows = self.state_query(sql)
+            rows = self.state_query(sql, timeout=_STATE_QUERY_TIMEOUT_SECONDS)
         except (dg.Failure, subprocess.SubprocessError, OSError) as exc:
             return _warn(f"state query failed: {exc}")
 
