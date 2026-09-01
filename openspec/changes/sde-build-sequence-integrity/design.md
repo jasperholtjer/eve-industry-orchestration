@@ -104,9 +104,18 @@ rather than by date. A date is also not unique per build and describes upstream
 publication rather than commit order, which is the axis both the race and the
 detection query turn on. The date is carried on log lines and the run request so a
 permanently failing build is visible rather than silent, taken from the listing
-the sensor already fetches. Asset code is not touched to carry it: the run request
-is where a label reaches the materialisation without moving anything into the
-compute path.
+the sensor already fetches. The run request carries it as a tag and `sde_silver`
+surfaces that tag as materialisation metadata, which is what "carried as a label"
+has to mean if a reader is to find the date on the partition rather than only in
+a log. That is the one asset-side line this row adds; it moves no compute, reads
+nothing from the contract, and is dropped silently when the tag is absent.
+
+The stale-Gold log line names the build number and not the date, which narrows
+the answered question's "report build plus date". `sde_gold_sensor` never calls
+`everef list`, so a date there would have to come from the run-state row or from
+`done_path`, and the second is corpus's layout to own. The build number is the
+key the operator needs; adding an upstream fetch to a Gold tick to decorate a log
+line is not proportionate.
 
 **Discovery reassembles the `SensorResult`.** `request_partitions` gives the run
 requests and the cursor; the discovery sensor adds its own

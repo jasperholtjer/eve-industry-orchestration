@@ -135,12 +135,39 @@ fetches, never parsed from the corpus `done_path` layout.
 - **THEN** the log line names the build number and its release date
 - **AND** the release date is attached to the run request as a label
 
+#### Scenario: The date reaches the materialisation
+
+- **WHEN** an ingest run carrying a release-date label materialises its `sde`
+  Silver partition
+- **THEN** the release date appears in that materialisation's metadata
+
 #### Scenario: A stale changelog reported
 
 - **WHEN** a changelog is reported stale
 - **THEN** the log line names the build number
 
 ## MODIFIED Requirements
+
+### Requirement: Only outstanding builds are requested
+
+Readiness SHALL be read from corpus run-state: a build is outstanding when its
+`sde` Silver partition is committed and its `sde-changelog` Gold partition is
+not, or when its committed changelog was built against a predecessor that has
+since changed. A build whose changelog Gold is already committed SHALL NOT be
+requested again on the grounds of Silver alone.
+
+#### Scenario: A build whose Gold is already committed
+
+- **WHEN** a tick runs and every build with committed Silver also has a committed
+  `sde-changelog` Gold partition, and none of those changelogs is stale
+- **THEN** no Gold run is requested
+
+#### Scenario: One build behind
+
+- **WHEN** builds 100, 200 and 300 have committed Silver and only 200's changelog
+  Gold is committed
+- **THEN** exactly one Gold run is requested, for build 300
+- **AND** build 100 is not requested, because it is the baseline
 
 ### Requirement: One run per build at a time
 

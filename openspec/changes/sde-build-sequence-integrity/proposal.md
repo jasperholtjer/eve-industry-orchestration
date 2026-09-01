@@ -52,10 +52,10 @@ Three parts, one capability. None of them can stop the changelog stream.
   design.md with the three reasons it was rejected.
 
 Build number stays the key for ordering, predecessor, deferral and detection.
-`release_date` is carried only as a label, in the discovery sensor's log lines and
-on the run request's tags, taken from the `everef list` payload the sensor already
-fetches and discards — never parsed from `done_path`, which is corpus's layout to
-own.
+`release_date` is carried only as a label: in the discovery sensor's log lines, on
+the run request as a tag, and from there onto the `sde_silver` materialisation's
+metadata, taken from the `everef list` payload the sensor already fetches and
+discards — never parsed from `done_path`, which is corpus's layout to own.
 
 No compute, parsing or validation moves into Python. Every fact is a row in the
 run-state `partitions` table read through `corpus state query`, and no new corpus
@@ -76,6 +76,8 @@ subcommand or JSON shape is needed.
   and `sde_gold_sensor`.
 - `src/eve_industry_orchestration/defs/corpus_resource.py` — one read-only query
   method for stale changelog builds, mirroring `stale_gold_dates`.
+- `src/eve_industry_orchestration/defs/sde.py` — `sde_silver` surfaces the
+  release-date tag as materialisation metadata. One label, no compute.
 - `tests/fake_corpus.py` — `state query` answers the stale-Gold detection SQL
   from the state it already keeps.
 - `tests/test_sde.py` — regression tests for all three parts.

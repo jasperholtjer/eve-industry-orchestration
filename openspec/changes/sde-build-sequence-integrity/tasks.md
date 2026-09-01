@@ -41,7 +41,14 @@
   already fetches — never from `done_path`. Where a build has no date in the
   payload, log the build alone rather than a placeholder. Verify with a test that
   asserts the tag on the emitted run request.
-- [ ] 2.4 Rewrite the sensor's docstring to state the readiness rule it now
+- [ ] 2.4 Surface that tag as materialisation metadata on `sde_silver` in
+  `src/eve_industry_orchestration/defs/sde.py`, so the date is readable on the
+  partition and not only in a log. Read it from the run's tags, add it to the
+  metadata the asset already emits, and omit the key entirely when the tag is
+  absent — a manual backfill has no tag and must not fail or emit a placeholder.
+  This is a label only: no contract byte is read and nothing is parsed. Verify
+  with `uv run pytest -q tests/test_sde.py`.
+- [ ] 2.5 Rewrite the sensor's docstring to state the readiness rule it now
   implements, why the eligible set includes already-registered builds, and that a
   failed ingest is retried. Verify by reading the file.
 
@@ -67,8 +74,9 @@
 - [ ] 4.1 Discovery: a registered build whose Silver never committed is proposed
   again on a later tick with a distinct run key; a build with committed Silver is
   not proposed; a newly discovered build is registered and requested on the same
-  tick; build 99 precedes build 100 under a cap of 1. Verify with
-  `uv run pytest -q tests/test_sde.py`.
+  tick; build 99 precedes build 100 under a cap of 1; the release date reaches
+  the `sde_silver` materialisation metadata, and a run without the tag
+  materialises without it. Verify with `uv run pytest -q tests/test_sde.py`.
 - [ ] 4.2 Stale term: a changelog committed before a lower Silver becomes
   outstanding again; one whose lower Silver all predate it does not; a baseline
   changelog is never reported stale; re-ingesting a build far below flags only the
@@ -92,10 +100,20 @@
   (killmails, corpus ADR-0060) and the mitigation already in place
   (`docs/serving-seam.md`: every serving load is idempotent on `parquet_sha256`).
   Keep it to one screen; ADRs here are pruned and rewritten, not append-only.
-- [ ] 5.2 Correct `ROADMAP.md`, which says ADRs live in `eve-industry-corpus`, to
+- [ ] 5.2 Record the one-off run-state check in the ADR as an operator note, with
+  the detection SQL from the question file and what to do with any rows it
+  returns (rematerialise those changelog partitions). The stale term repairs them
+  on the first tick after deploy, so the check is confirmation rather than a
+  prerequisite — say that, so nobody treats it as a gate. This session could not
+  run it: outbound SSH to the Dagster LXC is blocked in its sandbox.
+- [ ] 5.3 Correct `ROADMAP.md`, which says ADRs live in `eve-industry-corpus`, to
   say that compute and data config do while this repo now records its own
   orchestration decisions under `docs/adr/`. One sentence; do not restructure the
   file.
+
+- [ ] 5.4 Update the **State of the repository** paragraph in
+  `openspec/config.yaml` where this row changes what it claims — the SDE sensors'
+  readiness rule and the arrival of `docs/adr/`. Two sentences at most.
 
 ## 6. Verification
 
