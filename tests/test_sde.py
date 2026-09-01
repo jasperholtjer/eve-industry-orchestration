@@ -280,6 +280,8 @@ def test_changelog_with_predecessor_materialises_one_partition(
 def test_build_discovery_sensor_registers_and_requests(
     corpus, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # A build discovered on this tick is registered and requested on the same
+    # tick: Dagster evaluates run requests with the additions applied.
     monkeypatch.setenv("FAKE_SDE_BUILDS", BUILDS)
     instance = dg.DagsterInstance.ephemeral()
     context = dg.build_sensor_context(resources={"corpus": corpus}, instance=instance)
@@ -288,7 +290,7 @@ def test_build_discovery_sensor_registers_and_requests(
 
     by_partition = {rr.partition_key: rr for rr in result.run_requests}
     assert sorted(by_partition) == ["100", "200"]
-    assert by_partition["100"].run_key == "sde-silver-100"
+    assert by_partition["100"].run_key.startswith("sde-silver-100-")
     # New build keys are registered as dynamic partitions in the same tick.
     added = {
         key for req in result.dynamic_partitions_requests for key in req.partition_keys
@@ -296,16 +298,112 @@ def test_build_discovery_sensor_registers_and_requests(
     assert added == {"100", "200"}
 
 
-def test_build_discovery_sensor_skips_known_builds(
+def test_build_discovery_sensor_skips_builds_with_committed_silver(
     corpus, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # Readiness is the run-state, not the partition store: an ingested build
+    # drops out, a registered-but-never-ingested one does not.
     monkeypatch.setenv("FAKE_SDE_BUILDS", BUILDS)
-    instance = _instance_with_builds(100)
+    _ingest_build(corpus, 100)
+    instance = _instance_with_builds(100, 200)
     context = dg.build_sensor_context(resources={"corpus": corpus}, instance=instance)
 
     result = sde_build_discovery_sensor(context)
 
     assert [rr.partition_key for rr in result.run_requests] == ["200"]
+    assert result.dynamic_partitions_requests == []
+
+
+def test_build_discovery_sensor_retries_a_registered_build_that_never_ingested(
+    corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The hole this row exists for. Keyed on "not yet registered", a failed
+    # ingest was never asked for again and the gap became permanent.
+    monkeypatch.setenv("FAKE_SDE_BUILDS", BUILDS)
+    instance = _instance_with_builds(100, 200)
+
+    first = sde_build_discovery_sensor(
+        dg.build_sensor_context(resources={"corpus": corpus}, instance=instance)
+    )
+    second = sde_build_discovery_sensor(
+        dg.build_sensor_context(
+            resources={"corpus": corpus}, instance=instance, cursor=first.cursor
+        )
+    )
+
+    assert [rr.partition_key for rr in first.run_requests] == ["100", "200"]
+    assert [rr.partition_key for rr in second.run_requests] == ["100", "200"]
+    first_keys = {rr.run_key for rr in first.run_requests}
+    assert first_keys.isdisjoint({rr.run_key for rr in second.run_requests})
+
+
+def test_build_discovery_sensor_orders_builds_numerically(
+    corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Build keys are numbers; lexically "100" sorts before "99" and the per-tick
+    # cap would then take the wrong build.
+    monkeypatch.setenv("FAKE_SDE_BUILDS", "99:2025-09-02,100:2025-09-03")
+    monkeypatch.setattr(sensor_util, "MAX_PARTITIONS_PER_TICK", 1)
+    instance = dg.DagsterInstance.ephemeral()
+    context = dg.build_sensor_context(resources={"corpus": corpus}, instance=instance)
+
+    result = sde_build_discovery_sensor(context)
+
+    assert [rr.partition_key for rr in result.run_requests] == ["99"]
+
+
+def test_build_discovery_sensor_tags_the_release_date(
+    corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("FAKE_SDE_BUILDS", BUILDS)
+    instance = dg.DagsterInstance.ephemeral()
+    context = dg.build_sensor_context(resources={"corpus": corpus}, instance=instance)
+
+    result = sde_build_discovery_sensor(context)
+
+    tags = {
+        rr.partition_key: rr.tags.get(sde.RELEASE_DATE_TAG)
+        for rr in result.run_requests
+    }
+    assert tags == {"100": "2025-09-18", "200": "2025-10-01"}
+
+
+def test_silver_records_the_release_date_tag_as_metadata(
+    corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("FAKE_SDE_BUILDS", BUILDS)
+    instance = _instance_with_builds(100)
+
+    result = dg.materialize(
+        [sde_silver],
+        partition_key="100",
+        instance=instance,
+        resources={"corpus": corpus},
+        tags={sde.RELEASE_DATE_TAG: "2025-09-18"},
+    )
+
+    (event,) = result.get_asset_materialization_events()
+    metadata = event.step_materialization_data.materialization.metadata
+    assert metadata["listed_release_date"].value == "2025-09-18"
+
+
+def test_silver_omits_the_release_date_metadata_without_the_tag(
+    corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A manual backfill carries no tag; it must materialise without a placeholder.
+    monkeypatch.setenv("FAKE_SDE_BUILDS", BUILDS)
+    instance = _instance_with_builds(100)
+
+    result = dg.materialize(
+        [sde_silver],
+        partition_key="100",
+        instance=instance,
+        resources={"corpus": corpus},
+    )
+
+    (event,) = result.get_asset_materialization_events()
+    metadata = event.step_materialization_data.materialization.metadata
+    assert "listed_release_date" not in metadata
 
 
 # --- Gold readiness sensor -------------------------------------------------
@@ -485,6 +583,192 @@ def test_gold_sensor_skips_a_build_already_in_flight(
     result = sde_gold_sensor(context)
 
     assert result.run_requests == []
+
+
+# --- Gold sensor: the stale term (a changelog diffed across a hole) --------
+
+
+def test_gold_sensor_reproposes_a_changelog_diffed_across_a_hole(
+    corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 300 committed while 200 was still ingesting, so its changelog was diffed
+    # against 100 and the 200->300 link never existed. Committing 200 afterwards
+    # makes 300 stale: the binary would pick a different predecessor now.
+    monkeypatch.setenv(
+        "FAKE_SDE_BUILDS", "100:2025-09-01,200:2025-09-02,300:2025-09-03"
+    )
+    _ingest_build(corpus, 100)
+    _ingest_build(corpus, 300)
+    _build_changelog(corpus, 300)
+    instance = _instance_with_builds(100, 200, 300)
+    assert (
+        sde_gold_sensor(
+            dg.build_sensor_context(resources={"corpus": corpus}, instance=instance)
+        ).run_requests
+        == []
+    )
+
+    _ingest_build(corpus, 200)
+    context = dg.build_sensor_context(resources={"corpus": corpus}, instance=instance)
+
+    result = sde_gold_sensor(context)
+
+    assert [rr.partition_key for rr in result.run_requests] == ["200", "300"]
+
+
+def test_gold_sensor_leaves_a_changelog_whose_predecessor_is_unchanged(
+    corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Every lower Silver predates the changelog, so it is not stale and the
+    # outstanding set stays empty — the stale term must not rebuild everything.
+    monkeypatch.setenv(
+        "FAKE_SDE_BUILDS", "100:2025-09-01,200:2025-09-02,300:2025-09-03"
+    )
+    for build in (100, 200, 300):
+        _ingest_build(corpus, build)
+    _build_changelog(corpus, 200)
+    _build_changelog(corpus, 300)
+    instance = _instance_with_builds(100, 200, 300)
+    context = dg.build_sensor_context(resources={"corpus": corpus}, instance=instance)
+
+    assert sde_gold_sensor(context).run_requests == []
+
+
+def test_gold_sensor_never_reports_the_baseline_stale(
+    corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A build below the baseline arriving late gives the old baseline (100) a
+    # predecessor, so 100 becomes outstanding by the ordinary term. 50 is the new
+    # baseline and has no lower Silver, so it can never be stale; 200's nearest
+    # lower Silver (100) is unchanged, so it is not stale either.
+    monkeypatch.setenv("FAKE_SDE_BUILDS", "50:2025-08-01,100:2025-09-01,200:2025-09-02")
+    _ingest_build(corpus, 100)
+    _ingest_build(corpus, 200)
+    _build_changelog(corpus, 200)
+    instance = _instance_with_builds(50, 100, 200)
+
+    _ingest_build(corpus, 50)
+    context = dg.build_sensor_context(resources={"corpus": corpus}, instance=instance)
+
+    result = sde_gold_sensor(context)
+
+    assert [rr.partition_key for rr in result.run_requests] == ["100"]
+
+
+def test_gold_sensor_stale_term_does_not_cascade(
+    corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Re-ingesting a build far below flags only the changelog whose *nearest*
+    # lower Silver actually changed. A superset ("any lower Silver committed
+    # after this Gold") would rebuild 300 and 400 as well.
+    monkeypatch.setenv(
+        "FAKE_SDE_BUILDS",
+        "100:2025-09-01,200:2025-09-02,300:2025-09-03,400:2025-09-04",
+    )
+    for build in (100, 200, 300, 400):
+        _ingest_build(corpus, build)
+    for build in (200, 300, 400):
+        _build_changelog(corpus, build)
+    instance = _instance_with_builds(100, 200, 300, 400)
+
+    _ingest_build(corpus, 100)
+    context = dg.build_sensor_context(resources={"corpus": corpus}, instance=instance)
+
+    result = sde_gold_sensor(context)
+
+    assert [rr.partition_key for rr in result.run_requests] == ["200"]
+
+
+# --- Gold sensor: deferral on a lower Silver run in flight -----------------
+
+
+def _defer_silver(monkeypatch: pytest.MonkeyPatch, *in_flight: str) -> None:
+    """Reports ``in_flight`` for `sde_silver` and nothing for the changelog."""
+    monkeypatch.setattr(
+        sensor_util,
+        "_in_flight_partitions",
+        lambda context, asset_key: (
+            set(in_flight) if asset_key == sde.sde_silver.key else set()
+        ),
+    )
+
+
+def test_gold_sensor_defers_a_build_with_a_lower_silver_in_flight(
+    corpus, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # 250 is ingesting; building 300 now would diff it against 200 and produce
+    # exactly the hole this row exists to prevent.
+    monkeypatch.setenv(
+        "FAKE_SDE_BUILDS",
+        "100:2025-09-01,200:2025-09-02,250:2025-09-03,300:2025-09-04",
+    )
+    for build in (100, 200, 300):
+        _ingest_build(corpus, build)
+    instance = _instance_with_builds(100, 200, 250, 300)
+    _defer_silver(monkeypatch, "250")
+    context = dg.build_sensor_context(resources={"corpus": corpus}, instance=instance)
+
+    result = sde_gold_sensor(context)
+
+    assert [rr.partition_key for rr in result.run_requests] == ["200"]
+    assert "deferring 300" in capsys.readouterr().err
+
+
+def test_gold_sensor_requests_a_deferred_build_once_the_run_settles(
+    corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Deferral is bounded by a run's lifetime: the build stays outstanding.
+    monkeypatch.setenv(
+        "FAKE_SDE_BUILDS",
+        "100:2025-09-01,200:2025-09-02,250:2025-09-03,300:2025-09-04",
+    )
+    for build in (100, 200, 300):
+        _ingest_build(corpus, build)
+    instance = _instance_with_builds(100, 200, 250, 300)
+    context = dg.build_sensor_context(resources={"corpus": corpus}, instance=instance)
+
+    result = sde_gold_sensor(context)
+
+    assert [rr.partition_key for rr in result.run_requests] == ["200", "300"]
+
+
+def test_gold_sensor_ignores_a_higher_silver_in_flight(
+    corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Only a *lower* build can change the predecessor; a higher one is irrelevant.
+    monkeypatch.setenv(
+        "FAKE_SDE_BUILDS",
+        "100:2025-09-01,200:2025-09-02,300:2025-09-03,400:2025-09-04",
+    )
+    for build in (100, 200, 300):
+        _ingest_build(corpus, build)
+    instance = _instance_with_builds(100, 200, 300, 400)
+    _defer_silver(monkeypatch, "400")
+    context = dg.build_sensor_context(resources={"corpus": corpus}, instance=instance)
+
+    result = sde_gold_sensor(context)
+
+    assert [rr.partition_key for rr in result.run_requests] == ["200", "300"]
+
+
+def test_gold_sensor_is_not_stalled_by_a_build_that_never_commits(
+    corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The rejected alternative — block on the largest *registered* build below —
+    # would stop every changelog above 200 for good. Readiness must not depend on
+    # the registered sequence, only on what is actually in flight.
+    monkeypatch.setenv(
+        "FAKE_SDE_BUILDS",
+        "100:2025-09-01,200:2025-09-02,300:2025-09-03",
+    )
+    _ingest_build(corpus, 100)
+    _ingest_build(corpus, 300)
+    instance = _instance_with_builds(100, 200, 300)
+    context = dg.build_sensor_context(resources={"corpus": corpus}, instance=instance)
+
+    result = sde_gold_sensor(context)
+
+    assert [rr.partition_key for rr in result.run_requests] == ["300"]
 
 
 # --- multi-derivative ambiguity (matches the binary) -----------------------

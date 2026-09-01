@@ -69,6 +69,13 @@ ENTITIES = sde_entities(DATASET)
 # build-discovery sensor registers each new build's key.
 build_partitions = dg.DynamicPartitionsDefinition(name="sde_builds")
 
+# The build number is the partition identity; the release date is a *label*.
+# The discovery sensor reads it from the `everef list` payload and attaches it
+# here so the date is readable on the partition and not only in a sensor log. A
+# manual backfill carries no such tag, and then the key is simply absent — no
+# placeholder, and nothing is parsed out of the contract to invent one.
+RELEASE_DATE_TAG = "eve/sde_release_date"
+
 _SILVER_POOL = "everef_download"
 _GROUP = "sde"
 
@@ -89,6 +96,11 @@ def sde_silver(
     atomic unified Silver partition (ADR-0032); the asset only shells out and
     records the materialisation. Verify addresses the ``sde`` tree at the
     build's ``release_date`` (from the ingest status JSON).
+
+    Where the discovery sensor launched the run it also tagged it with the
+    release date upstream listed for the build (:data:`RELEASE_DATE_TAG`); that
+    label is surfaced as ``listed_release_date`` metadata. A run without the tag
+    — a manual backfill — simply omits the key.
     """
     build = context.partition_key
     status = corpus.run(
@@ -120,15 +132,18 @@ def sde_silver(
         corpus.sink_path,
     )
 
-    return dg.MaterializeResult(
-        metadata={
-            "dataset": DATASET,
-            "tier": "silver",
-            "build": build,
-            "release_date": release_date,
-            "rows": (status or {}).get("rows"),
-        }
-    )
+    metadata: dict[str, object] = {
+        "dataset": DATASET,
+        "tier": "silver",
+        "build": build,
+        "release_date": release_date,
+        "rows": (status or {}).get("rows"),
+    }
+    listed_date = context.run.tags.get(RELEASE_DATE_TAG)
+    if listed_date is not None:
+        metadata["listed_release_date"] = listed_date
+
+    return dg.MaterializeResult(metadata=metadata)
 
 
 @dg.asset(

@@ -23,7 +23,7 @@ from eve_industry_orchestration.defs import killmails as km
 from eve_industry_orchestration.defs import market_orders as mo
 from eve_industry_orchestration.defs import market_orders_live as mol
 from eve_industry_orchestration.defs import market_prices_live as mpl
-from eve_industry_orchestration.defs import mer, sde
+from eve_industry_orchestration.defs import mer, sde, sensor_util
 from eve_industry_orchestration.defs import structures as st
 from eve_industry_orchestration.defs import system_jumps as sj
 from eve_industry_orchestration.defs import system_kills as sk
@@ -588,6 +588,17 @@ def _committed_builds(corpus: CorpusResource, sql: str) -> set[int]:
     }
 
 
+def _in_flight_builds(context: dg.SensorEvaluationContext) -> set[int]:
+    """SDE build numbers with a queued or running ``sde_silver`` run.
+
+    Best-effort, like the guard it reuses: a context without run storage reports
+    nothing in flight, and the stale term then covers what the deferral would
+    have prevented.
+    """
+    in_flight = sensor_util._in_flight_partitions(context, sde.sde_silver.key)  # noqa: SLF001
+    return {int(key) for key in in_flight if key.isdigit()}
+
+
 @dg.sensor(
     target=sde.sde_silver,
     minimum_interval_seconds=3600,
@@ -599,37 +610,91 @@ def sde_build_discovery_sensor(
     """Discovers SDE builds, registers each as a dynamic partition, ingests it.
 
     SDE is build-versioned: ``corpus everef list`` lists builds (not days), so the
-    partition matrix is dynamic and grows here. New build numbers are added to
-    ``sde_builds`` and a Silver run requested per build, oldest first, capped per
-    tick. ``run_key`` dedup keeps an already-requested build from re-queuing.
+    partition matrix is dynamic and grows here.
+
+    Readiness is the corpus run-state, not "not yet registered". A build is
+    **eligible** when it is registered *or* discovered on this tick and its ``sde``
+    Silver partition (``dataset = 'sde'``) is not committed. Registering a key is
+    not evidence that its ingest succeeded: keyed on first sighting, a failed or
+    green-no-op ingest was never asked for again, and the resulting hole in the
+    build sequence was permanent — the changelog binary diffs against the largest
+    *committed* Silver below its target, so every later build then diffs across
+    the hole. Including already-registered builds is what makes a failed ingest
+    retried and the hole heal on a later tick; a build whose Silver is committed
+    drops out on its own, so the retries are self-limiting.
+
+    The eligible set goes through :func:`request_partitions` for the rotating,
+    retry-safe ``run_key`` and the in-flight guard, with ``sort_key=int`` because
+    build keys are numbers and the helper's default sort is lexical, where ``"99"``
+    lands after ``"100"``. The helper sets no ``dynamic_partitions_requests`` and
+    this sensor is the only writer of ``sde.build_partitions``, so its result is
+    reassembled here with an add-request for the newly discovered keys. Dagster
+    evaluates run requests with those additions applied, so a build discovered on
+    this tick can also be requested on it.
+
+    ``release_date`` is a label, never a key: it is logged with the build and
+    attached to the run request as the ``sde.RELEASE_DATE_TAG`` tag so a build that
+    keeps failing is visible rather than silent. It comes from the ``everef list``
+    payload this sensor already fetches, never from ``done_path``.
     """
     builds = corpus.everef_list_builds(sde.DATASET)
-    discovered = sorted({int(b["build"]) for b in builds})
+    discovered = {str(int(row["build"])) for row in builds}
+    release_dates = {
+        str(int(row["build"])): date
+        for row in builds
+        if (date := row.get("release_date"))
+    }
 
-    existing = set(
+    registered = set(
         sde.build_partitions.get_partition_keys(
             dynamic_partitions_store=context.instance
         )
     )
-    new_builds = [b for b in discovered if str(b) not in existing]
-    selected = new_builds[:MAX_PARTITIONS_PER_TICK]
+    committed = {
+        str(build) for build in _committed_builds(corpus, _SDE_SILVER_BUILDS_SQL)
+    }
+    known = registered | discovered
+    eligible = known - committed
+    new_keys = sorted(discovered - registered, key=int)
 
-    deferred = len(new_builds) - len(selected)
-    if deferred > 0:
-        context.log.info(
-            "sde-discovery: %d new builds, requesting %d this tick, %d deferred",
-            len(new_builds),
-            len(selected),
-            deferred,
-        )
+    for key in sorted(eligible, key=int):
+        date = release_dates.get(key)
+        if date is None:
+            context.log.info("sde-discovery: build %s has no committed Silver", key)
+        else:
+            context.log.info(
+                "sde-discovery: build %s (released %s) has no committed Silver",
+                key,
+                date,
+            )
 
-    keys = [str(b) for b in selected]
+    result = request_partitions(
+        context,
+        reported=eligible,
+        valid=known,
+        run_key_prefix=f"{sde.DATASET}-silver",
+        asset_key=sde.sde_silver.key,
+        label="sde-discovery",
+        sort_key=int,
+    )
     run_requests = [
-        dg.RunRequest(run_key=f"sde-silver-{b}", partition_key=b) for b in keys
+        dg.RunRequest(
+            run_key=request.run_key,
+            partition_key=request.partition_key,
+            tags=(
+                {sde.RELEASE_DATE_TAG: release_dates[request.partition_key]}
+                if request.partition_key in release_dates
+                else None
+            ),
+        )
+        for request in result.run_requests
     ]
     return dg.SensorResult(
         run_requests=run_requests,
-        dynamic_partitions_requests=[sde.build_partitions.build_add_request(keys)],
+        cursor=result.cursor,
+        dynamic_partitions_requests=(
+            [sde.build_partitions.build_add_request(new_keys)] if new_keys else []
+        ),
     )
 
 
@@ -663,13 +728,49 @@ def sde_gold_sensor(
     the next tick. ``sort_key=int`` because build keys are numbers: the helper's
     default sort is lexical, where ``"99"`` lands after ``"100"``.
 
+    A committed changelog is **stale** when it was diffed across a hole: the
+    nearest lower committed Silver was committed *after* the changelog was built,
+    so the binary would pick a different predecessor now.
+    :meth:`CorpusResource.stale_changelog_builds` reports those from run-state and
+    they are folded back into the outstanding set, so the changelog is rebuilt in
+    place on the next tick — one sensor, one union, because both terms target
+    ``sde_changelog_gold``. The full rule is therefore
+    ``(committed Silver − committed Gold − baseline) ∪ stale``.
+
+    An outstanding build is **deferred** while a *lower* build's ``sde_silver`` run
+    is queued or in flight: that run is exactly the one that would change the
+    predecessor underneath it. Deferral is applied before the per-tick cap so a
+    deferred build does not consume a slot, and the build stays outstanding, so the
+    wait is bounded by a run's lifetime. Readiness deliberately does not depend on
+    the registered build sequence — a build that never ingests would then stall
+    every changelog above it for good (see design.md).
+
     The snapshot is not driven here — it is a non-partitioned, latest-only asset
     on :data:`sde_snapshot_schedule`.
     """
     committed = _committed_builds(corpus, _SDE_SILVER_BUILDS_SQL)
     built = _committed_builds(corpus, _SDE_CHANGELOG_BUILDS_SQL)
     baseline = {min(committed)} if committed else set()
-    outstanding = committed - built - baseline
+    stale = set(corpus.stale_changelog_builds())
+    if stale:
+        context.log.info(
+            "sde-gold: %d changelog(s) diffed across a hole, rebuilding: %s",
+            len(stale),
+            ", ".join(str(build) for build in sorted(stale)),
+        )
+    outstanding = (committed - built - baseline) | stale
+
+    silver_in_flight = _in_flight_builds(context)
+    lowest_in_flight = min(silver_in_flight, default=None)
+    if lowest_in_flight is not None:
+        deferred = sorted(b for b in outstanding if b > lowest_in_flight)
+        if deferred:
+            context.log.info(
+                "sde-gold: deferring %s while lower Silver build(s) %s are in flight",
+                ", ".join(str(build) for build in deferred),
+                ", ".join(str(build) for build in sorted(silver_in_flight)),
+            )
+        outstanding = outstanding - set(deferred)
 
     return request_partitions(
         context,
