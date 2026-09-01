@@ -642,10 +642,19 @@ def _build_sovereignty_gold_sensor(
     Polls ``corpus gold ready-dates --derivative <derivative>`` and stays a thin
     cap-and-dedup loop. The binary owns every readiness decision — the Silver
     window at ``coverage_min_ratio`` for the four per-dataset trees, and for the
-    panel the same day's three sibling Gold partitions plus the trailing flip
-    window (ADR-0052 sibling read, ADR-0066 decision 8). A sibling that skipped
+    panel the same day's three sibling Gold partitions: ownership, adm and
+    contests (ADR-0052 sibling read, ADR-0066 decision 8). A sibling that skipped
     its day simply never becomes ready here, so the panel's build order needs no
     cross-sensor bookkeeping on top of the asset-graph edge.
+
+    ``sovereignty-changes`` is **not** among those gates, and the trailing flip
+    window it feeds is not one either: corpus builds the day regardless and
+    publishes the two flip counts as NULL when the window is short. Because
+    ``ready-dates`` excludes dates whose Gold is already built, such a day is
+    never revisited. The panel therefore wants its changes tree kept current —
+    run all five of these sensors, not four. Closing that gap belongs in the
+    binary as a fourth readiness gate, not in a pre-check here; see
+    ``docs/questions/`` on ``develop``.
 
     Each derivative validates against **its own** partition matrix: the panel
     serves one flip window later than the tenure pair, so a date that is ready

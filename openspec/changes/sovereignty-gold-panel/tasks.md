@@ -71,9 +71,9 @@
   registered facts for one date and each materialisation records its own. The rest
   of the metadata contract is the `materialisation-metadata` capability's and needs
   no new assertion here
-- [ ] 6.2 Verify `tests/test_concurrency_pools.py` is still green with no edit —
+- [x] 6.2 Verify `tests/test_concurrency_pools.py` is still green with no edit —
   no sovereignty Gold asset declares a pool and the declared pool set is unchanged
-- [ ] 6.3 Run `uv run ruff check .`, `uv run ruff format --check .` and
+- [x] 6.3 Run `uv run ruff check .`, `uv run ruff format --check .` and
   `uv run pytest -q` in the worktree and verify all three are green
 
 ## 7. Documentation

@@ -170,11 +170,19 @@ place that asset in the panel's partition matrix.
 - **WHEN** the assembled panel asset is defined
 - **THEN** it declares a dependency on the reference-data Gold snapshot asset
 
-#### Scenario: Ordering is not left to firing order
+#### Scenario: The build order is declared, not scheduled
 
 - **WHEN** the panel's build order is inspected
-- **THEN** it is expressed by the panel's declared dependencies, and no sensor or
-  schedule is relied on to sequence the panel after its inputs
+- **THEN** it is expressed by the panel's declared dependencies rather than by an
+  ordering between schedules or sensor intervals
+
+#### Scenario: Runtime sequencing is the binary's gate, not a check here
+
+- **WHEN** the panel's readiness for a date is decided
+- **THEN** it is decided by corpus reporting that date ready, which gates on the
+  same-day sibling partitions it requires
+- **AND** the orchestrator adds no sequencing check of its own, so a sibling input
+  that corpus does not gate on is not gated here either
 
 #### Scenario: The non-partitioned dependency stays out of the partition matrix
 
