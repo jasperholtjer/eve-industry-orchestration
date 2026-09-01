@@ -78,4 +78,27 @@ sensor's is about dates.
 - **A build that fails repeatedly is retried every tick.** → Self-limiting in the
   same way as every other dataset: once corpus commits the partition the build
   leaves the outstanding set. A permanently failing build is a visible run
-  failure, which is better than today's silent stall.
+  failure, which is better than today's silent stall. There is no suppression
+  path, and this row does not add one: `skipped_partitions` (corpus ADR-0028) is
+  asked only of a *Silver* dataset — "this partition will never exist" — and a
+  changelog that fails over a Silver build that does exist is not that. Every
+  other Gold sensor in this repository has the same property, so SDE is now
+  consistent with them rather than newly exposed.
+
+Two gaps this row leaves standing, both present on `develop` and neither made
+worse here. They are one follow-up row, parked as
+`docs/questions/2026-09-01-sde-build-sequence-holes.md`:
+
+- **Out-of-order Silver commits diff against the wrong predecessor.**
+  `sde_silver` sits in the `everef_download` pool at `default_limit: 2`, so two
+  builds ingest concurrently and 300 can commit before 200. The sensor then
+  reports 300 outstanding and the binary diffs it against 100, because its
+  predecessor rule reads *committed* Silver. Subtracting committed Gold makes
+  that terminal — 300 leaves the outstanding set for good — where the old static
+  `run_key` made it terminal by dedup instead. The fix is to hold a build back
+  until the largest *registered* build below it is committed, which trades a
+  silently wrong diff for a visible stall; that trade is the person's to make.
+- **`sde_build_discovery_sensor` still has this row's bug.** It keys Silver on a
+  static `run_key` and filters on partitions it registered in the same tick, so
+  a failed `sde_silver` run is never re-proposed — which is how a hole in the
+  build sequence appears in the first place.

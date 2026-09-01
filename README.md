@@ -102,9 +102,14 @@ The homelab deployment (LXC, NFS mount, build order) is documented in
   which has no predecessor to diff against and which the binary skips), and
   `sde_snapshot_schedule` (daily rematerialise of the
   non-partitioned latest snapshot and `sde-industry-products`). All key status on corpus run-state, never on
-  globbing the NAS tree; the `run_key` carries a per-tick token so a partition
-  corpus still reports actionable is retried, and an in-flight guard keeps that
-  rotation from putting a second writer on one contract directory.
+  globbing the NAS tree. The sensors that go through `request_partitions` — every
+  Silver and Gold availability sensor, `sde_gold_sensor` included — carry a
+  per-tick token in the `run_key`, so a partition corpus still reports actionable
+  is retried, with an in-flight guard keeping that rotation from putting a second
+  writer on one contract directory. The two discovery sensors
+  (`sde_build_discovery_sensor`, `mer_report_discovery_sensor`) are the
+  exception: they register a partition and request it once, under a static
+  `run_key`, so a run that fails leaves a hole no later tick re-proposes.
 - **Mutable partitions** (`killmails` only, corpus ADR-0060) — every other everef
   partition is immutable once published, so `_DONE` plus the recorded source
   sha256 is a complete freshness contract. Killmail days are not: zKillboard keeps
