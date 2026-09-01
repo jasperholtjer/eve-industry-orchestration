@@ -130,7 +130,20 @@ the part.
   the same way as every other dataset: the moment corpus commits the partition it
   leaves the outstanding set. A visible, repeating run failure is strictly better
   than today's silent, permanent hole, and the per-tick cap bounds the cost. The
-  log line naming the build and its release date is what makes it visible.
+  log line naming the build and its release date is what makes it visible. The
+  one documented permanent failure cannot reach the sensor at all: `skip_builds`
+  is applied inside discovery, not at ingest — `corpus-everef/src/sde.rs:143`
+  drops the build before it enters the listing, so 2960198 is never listed, never
+  registered and never proposed. The retry cost is therefore bounded to builds
+  that fail transiently.
+- **An unchanged rebuild might not clear the stale flag.** → It does. There is no
+  sha256 short-circuit on the SDE Gold path: `commit_gold` upserts the partition
+  unconditionally with `last_seen_at: Utc::now()` (`corpus-cli/src/sde.rs:1106`
+  and `:1114`), and the store's `ON CONFLICT` sets `last_seen_at` from the
+  excluded row with no equality guard (`corpus-state/src/sqlite_store.rs:225`).
+  One rebuild clears the flag even when the bytes are identical, so the stale
+  term cannot loop. Verified by reading the corpus repository, which stays
+  read-only.
 - **The deferral can starve a build while Silver ingests churn.** → Bounded by a
   run's lifetime, not by intervention, and the build stays in the outstanding set
   throughout. Where run storage reports nothing in flight — unit contexts — the
