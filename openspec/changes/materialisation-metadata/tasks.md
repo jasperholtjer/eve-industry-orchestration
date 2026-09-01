@@ -45,7 +45,7 @@ serving-load assets in `serving.py` are left alone. Every group consults the
 - [x] 2.3 `sde.py`, `mer.py` — the multi-derivative and per-build sites, whose
   key is a build number or a derivative name rather than a date. Verify with
   `pytest -q -k "sde or mer"`.
-- [ ] 2.4 `news.py`, `killmails.py`, `transcripts.py` — including the sites that
+- [x] 2.4 `news.py`, `killmails.py`, `transcripts.py` — including the sites that
   build a local `metadata` dict before yielding. Verify with `pytest -q -k
   "news or killmails or transcripts"`.
 - [ ] 2.5 The `*_live.py` snapshot assets (`market_orders_live.py`,

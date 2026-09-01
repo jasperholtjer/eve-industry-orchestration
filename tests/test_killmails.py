@@ -92,7 +92,34 @@ def test_silver_materialises_present_upstream_day(
     )
 
     assert result.success
-    assert len(result.get_asset_materialization_events()) == 1
+    (materialization,) = result.get_asset_materialization_events()
+    metadata = materialization.materialization.metadata
+    # Identifying fields survive the merge, and the run-state facts corpus
+    # recorded for the partition it just wrote sit alongside them.
+    assert metadata["dataset"].value == DATASET
+    assert metadata["partition"].value == "2024-03-07"
+    assert metadata["rows"].value == 1
+    assert metadata["retention_class"].value == "validated"
+    assert metadata["parquet_sha256"].value
+
+
+def test_silver_metadata_enrichment_is_advisory(
+    corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A broken run-state read must not fail a materialisation corpus completed."""
+    monkeypatch.setenv("FAKE_STATE_QUERY_FAIL", "1")
+
+    result = dg.materialize(
+        [km.killmails_silver],
+        partition_key="2024-03-07",
+        resources={"corpus": corpus},
+    )
+
+    assert result.success
+    (materialization,) = result.get_asset_materialization_events()
+    metadata = materialization.materialization.metadata
+    assert metadata["partition"].value == "2024-03-07"
+    assert "rows" not in metadata
 
 
 def test_silver_sensor_requests_newly_available_dates(
@@ -135,7 +162,14 @@ def test_gold_materialises_ready_day(corpus) -> None:
     )
 
     assert result.success
-    assert len(result.get_asset_materialization_events()) == 1
+    (materialization,) = result.get_asset_materialization_events()
+    metadata = materialization.materialization.metadata
+    assert metadata["derivative"].value == DERIVATIVE
+    # `corpus gold build` records the run-state row under the derivative name;
+    # keying the read on "killmails" would have matched no row.
+    assert metadata["rows"].value == 1
+    assert metadata["retention_class"].value == "validated"
+    assert metadata["parquet_sha256"].value
 
 
 def test_gold_skips_upstream_gap_day(corpus, monkeypatch: pytest.MonkeyPatch) -> None:

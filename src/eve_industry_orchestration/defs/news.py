@@ -36,7 +36,7 @@ import datetime as dt
 import dagster as dg
 
 from eve_industry_orchestration.defs import sde
-from eve_industry_orchestration.defs.corpus_resource import CorpusResource
+from eve_industry_orchestration.defs.corpus_resource import CorpusResource, date_key
 
 DATASET = "news"
 
@@ -66,6 +66,9 @@ def news_bronze(
         "--sink-path",
         corpus.sink_path,
     )
+    # No run-state enrichment: corpus records a `partitions` row only for the
+    # parquet tiers (ingest and gold build); a Bronze partition is raw bytes
+    # under `_MANIFEST.json`, so there is no row to read.
     metadata: dict[str, object] = {"dataset": DATASET, "tier": "bronze"}
     if status is not None:
         for key in ("partition", "objects", "new_documents"):
@@ -142,8 +145,12 @@ def news_silver(
         "--sink-path",
         corpus.sink_path,
     )
+    # The run-state facts corpus just recorded (rows, retention_class,
+    # parquet_sha256) merge over the identifying fields; the read is advisory and
+    # yields {} rather than failing a materialisation corpus already completed.
     return dg.MaterializeResult(
         metadata={"dataset": DATASET, "tier": "silver", "partition": date}
+        | corpus.partition_metadata(DATASET, "silver", date_key(date))
     )
 
 
@@ -194,6 +201,8 @@ def _build_gold_asset(
             "--sink-path",
             corpus.sink_path,
         )
+        # `corpus gold build` writes the run-state row under the *derivative*
+        # name, not the parent dataset, so the Gold read keys on `derivative`.
         return dg.MaterializeResult(
             metadata={
                 "dataset": DATASET,
@@ -201,6 +210,7 @@ def _build_gold_asset(
                 "tier": "gold",
                 "partition": date,
             }
+            | corpus.partition_metadata(derivative, "gold", date_key(date))
         )
 
     return _gold
@@ -298,6 +308,9 @@ def news_embeddings_bronze(
     if config.limit is not None:
         args += ["--limit", str(config.limit)]
     corpus.run(context, *args)
+    # No run-state enrichment: corpus records a `partitions` row only for the
+    # parquet tiers (ingest and gold build); a Bronze partition is raw bytes
+    # under `_MANIFEST.json`, so there is no row to read.
     return dg.MaterializeResult(
         metadata={"dataset": EMBEDDINGS_DATASET, "tier": "bronze", "partition": date}
     )
@@ -337,6 +350,7 @@ def news_embeddings_silver(
     )
     return dg.MaterializeResult(
         metadata={"dataset": EMBEDDINGS_DATASET, "tier": "silver", "partition": date}
+        | corpus.partition_metadata(EMBEDDINGS_DATASET, "silver", date_key(date))
     )
 
 
@@ -381,8 +395,11 @@ def news_embeddings_gold(
         "--sink-path",
         corpus.sink_path,
     )
+    # The dataset declares a single Gold derivative named after itself, so the
+    # run-state Gold row is keyed on EMBEDDINGS_DATASET.
     return dg.MaterializeResult(
         metadata={"dataset": EMBEDDINGS_DATASET, "tier": "gold", "partition": date}
+        | corpus.partition_metadata(EMBEDDINGS_DATASET, "gold", date_key(date))
     )
 
 
