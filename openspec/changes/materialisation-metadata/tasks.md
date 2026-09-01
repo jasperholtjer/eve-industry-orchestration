@@ -35,7 +35,7 @@ partition scheme. Sites recording a skipped build (`"built": False`) and the
 serving-load assets in `serving.py` are left alone. Every group consults the
 `dagster-expert` skill before touching a Dagster definition.
 
-- [ ] 2.1 `market_history.py` — both sites, and delete the two
+- [x] 2.1 `market_history.py` — both sites, and delete the two
   `# TODO: enrich metadata from _INDEX.json / corpus state query` markers.
   Verify with `pytest -q -k market_history` and by grepping that neither TODO
   remains.

@@ -57,6 +57,34 @@ def test_silver_materialises_settled_day(corpus) -> None:
     assert result.success
     materializations = result.get_asset_materialization_events()
     assert len(materializations) == 1
+    metadata = materializations[0].materialization.metadata
+    # Identifying fields survive the merge, and the run-state facts corpus
+    # recorded for the partition it just wrote are alongside them.
+    assert metadata["dataset"].value == DATASET
+    assert metadata["tier"].value == "silver"
+    assert metadata["partition"].value == _DATE
+    assert metadata["rows"].value == 1
+    assert metadata["retention_class"].value == "validated"
+    assert metadata["parquet_sha256"].value
+
+
+def test_silver_metadata_enrichment_is_advisory(
+    corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A broken run-state read must not fail a materialisation corpus completed."""
+    monkeypatch.setenv("FAKE_STATE_QUERY_FAIL", "1")
+
+    result = dg.materialize(
+        [market_history_silver],
+        partition_key=_DATE,
+        resources={"corpus": corpus},
+    )
+
+    assert result.success
+    (materialization,) = result.get_asset_materialization_events()
+    metadata = materialization.materialization.metadata
+    assert metadata["partition"].value == _DATE
+    assert "rows" not in metadata
 
 
 # --- Gold: build then verify, with the gate owned by the binary --------------
@@ -127,6 +155,11 @@ def test_gold_builds_then_verifies_the_same_date(
     assert metadata["dataset"].value == "market-history"
     assert metadata["tier"].value == "gold"
     assert metadata["partition"].value == _GOLD_DATE
+    # Gold run-state is keyed on the derivative tree, which for market-history is
+    # the dataset name itself — a mismatched key would enrich nothing, silently.
+    assert metadata["rows"].value == 1
+    assert metadata["retention_class"].value == "validated"
+    assert metadata["parquet_sha256"].value
 
     assert len(calls) == 2
     build, verify = calls

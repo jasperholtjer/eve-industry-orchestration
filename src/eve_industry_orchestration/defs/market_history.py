@@ -15,7 +15,7 @@ from collections.abc import Iterator
 import dagster as dg
 
 from eve_industry_orchestration.defs.config import resolve_partition_starts
-from eve_industry_orchestration.defs.corpus_resource import CorpusResource
+from eve_industry_orchestration.defs.corpus_resource import CorpusResource, date_key
 
 DATASET = "market-history"
 
@@ -111,9 +111,12 @@ def market_history_silver(
         "--sink-path",
         corpus.sink_path,
     )
-    # TODO: enrich metadata from _INDEX.json / `corpus state query`.
+    # The run-state facts corpus just recorded (rows, retention_class,
+    # parquet_sha256) merge over the identifying fields; the read is advisory and
+    # yields {} rather than failing a materialisation corpus already completed.
     yield dg.MaterializeResult(
         metadata={"dataset": DATASET, "tier": "silver", "partition": date}
+        | corpus.partition_metadata(DATASET, "silver", date_key(date))
     )
 
 
@@ -192,7 +195,10 @@ def market_history_gold(
         "--sink-path",
         corpus.sink_path,
     )
-    # TODO: enrich metadata from _INDEX.json / `corpus state query`.
+    # market-history declares a single Gold derivative named after the dataset,
+    # so the run-state Gold row is keyed on DATASET itself (a multi-derivative
+    # dataset keys each tree on its derivative name instead).
     yield dg.MaterializeResult(
         metadata={"dataset": DATASET, "tier": "gold", "partition": date}
+        | corpus.partition_metadata(DATASET, "gold", date_key(date))
     )
