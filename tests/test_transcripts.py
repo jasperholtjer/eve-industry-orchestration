@@ -106,3 +106,50 @@ def test_enrichment_is_advisory(corpus, monkeypatch: pytest.MonkeyPatch) -> None
     metadata = _metadata(result)
     assert metadata["partition"].value == _DATE
     assert "rows" not in metadata
+
+
+def test_bronze_is_deliberately_unenriched(
+    corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # `transcripts_bronze` archives raw bytes under `_MANIFEST.json`; corpus
+    # records a `partitions` row only for the parquet tiers, so there is no row
+    # to read. Pin that: a later drive-by `partition_metadata` call here would
+    # match no row and warn on every scheduled run.
+    from eve_industry_orchestration.defs.corpus_resource import CorpusResource
+
+    def _fail(self, dataset, tier, partition_key):  # pragma: no cover - never runs
+        raise AssertionError(f"transcripts bronze enriched against {dataset}/{tier}")
+
+    monkeypatch.setattr(CorpusResource, "partition_metadata", _fail)
+
+    result = transcripts.transcripts_bronze(dg.build_asset_context(), corpus)
+
+    assert result.metadata["dataset"] == transcripts.DATASET
+    assert result.metadata["tier"] == "bronze"
+    assert "retention_class" not in result.metadata
+    assert "rows" not in result.metadata
+
+
+def test_embeddings_bronze_is_deliberately_unenriched(
+    corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # `transcripts_embeddings_bronze` archives raw vectors the same way; no
+    # run-state row describes them either. Pin the same decision for this asset.
+    from eve_industry_orchestration.defs.corpus_resource import CorpusResource
+
+    def _fail(self, dataset, tier, partition_key):  # pragma: no cover - never runs
+        raise AssertionError(
+            f"transcripts embeddings bronze enriched against {dataset}/{tier}"
+        )
+
+    monkeypatch.setattr(CorpusResource, "partition_metadata", _fail)
+
+    result = transcripts.transcripts_embeddings_bronze(
+        dg.build_asset_context(), corpus, transcripts.TranscriptsEmbedConfig(date=_DATE)
+    )
+
+    assert result.metadata["dataset"] == transcripts.EMBEDDINGS_DATASET
+    assert result.metadata["tier"] == "bronze"
+    assert result.metadata["partition"] == _DATE
+    assert "retention_class" not in result.metadata
+    assert "rows" not in result.metadata

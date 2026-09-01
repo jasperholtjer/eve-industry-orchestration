@@ -204,3 +204,35 @@ def test_silver_metadata_carries_the_run_state_facts(
     assert metadata["parquet_sha256"].value
     assert metadata["dataset"].value == dataset
     assert metadata["report_month"].value == "2025-06-01"
+
+
+def test_history_gold_is_deliberately_unenriched(
+    corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # `_history_gold` writes one partition per `year=YYYY` covered by the merge,
+    # so there is no single `(dataset, tier, partition_key)` row describing the
+    # result and the asset leaves itself unenriched. Pin that: a later drive-by
+    # `partition_metadata` call here would match no row and warn on every run.
+    from eve_industry_orchestration.defs.corpus_resource import CorpusResource
+
+    def _fail(self, dataset, tier, partition_key):  # pragma: no cover - never runs
+        raise AssertionError(f"history gold enriched against {dataset}/{tier}")
+
+    monkeypatch.setattr(CorpusResource, "partition_metadata", _fail)
+    monkeypatch.setenv("FAKE_MER_REPORTS", REPORTS)
+    instance = _instance_with_months("2025-06-01")
+    _ingest_month(corpus, "mer", "2025-06")
+
+    result = dg.materialize(
+        [mer_money_supply_gold],
+        instance=instance,
+        resources={"corpus": corpus},
+    )
+
+    assert result.success
+    metadata = result.get_asset_materialization_events()[0].materialization.metadata
+    assert metadata["dataset"].value == "mer-money-supply"
+    assert metadata["concept"].value == "money_supply"
+    assert metadata["built"].value is True
+    assert "retention_class" not in metadata
+    assert "rows" not in metadata

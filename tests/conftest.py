@@ -99,3 +99,28 @@ def serving(serving_binary: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
         host="192.168.2.212",
         user="serving",
     )
+
+
+def _run_state_facts(metadata) -> dict:
+    """The run-state columns `partition_metadata` merged in, unwrapped.
+
+    A materialisation event wraps its metadata in `MetadataValue`s while a
+    directly-called asset returns the raw dict; one accessor reads both.
+    """
+    return {
+        key: getattr(value, "value", value)
+        for key, value in metadata.items()
+        if key in ("rows", "retention_class", "parquet_sha256")
+    }
+
+
+def _assert_enriched(metadata) -> None:
+    """Asserts the run-state facts for the partition corpus just wrote are there.
+
+    Keyed on the run-state key, not the bare Dagster partition key: a mismatched
+    key matches no row and enriches nothing, silently, so this asserts presence.
+    """
+    facts = _run_state_facts(metadata)
+    assert facts["rows"] == 1
+    assert facts["retention_class"] == "validated"
+    assert facts["parquet_sha256"]
