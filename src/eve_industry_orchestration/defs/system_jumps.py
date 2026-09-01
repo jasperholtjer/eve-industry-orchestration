@@ -200,9 +200,8 @@ def system_jumps_recent_gold(
     and builds only that date. ``deps=`` carries lineage only (the EWMA reads the
     shared Silver tree); a non-partitioned asset cannot chain partitions, so the
     schedule — not Silver — drives it. No ``heavy`` pool: the EWMA build spans
-    only the short warmup, so it is lightweight, and keeping it out of the heavy
-    pool stops the hourly schedule from starving the 365d
-    ``system_jumps_history_gold`` backfills.
+    only the short warmup, so it is lightweight and bounded by the global cap
+    alone.
     """
     report = corpus.gold_ready_dates(DATASET, derivative=RECENT_DERIVATIVE)
     ready = report.get("ready", [])

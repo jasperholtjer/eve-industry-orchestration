@@ -94,9 +94,12 @@ the `python-conventions` skill.
   them out of the corpus dataset YAML; Silver and Gold have distinct starts.
 - **Status is keyed on the run-state, never on globbing the NAS.** A sensor that
   lists the tree is both slow and racy.
-- **Pool membership is by measured peak.** Only builds that actually peak around
-  3-4 GiB join `heavy`; measure with `/usr/bin/time -v` before adding one, and
-  say the number in your report. A narrow build in `heavy` starves the backfills.
+- **Pool membership is by measured peak.** Measure with `/usr/bin/time -v`
+  before joining any memory-bearing pool, and say the number in your report. A
+  narrow build in `heavy` starves the backfills. The budget itself — which
+  pools exist, their limits, each holder's measured peak — lives only in
+  `deploy/dagster.yaml`; a new pool means updating that budget and
+  `EXPECTED_POOLS` in `tests/test_concurrency_pools.py`, or the suite goes red.
 - **The Gold gate is the binary's.** `corpus gold` enforces
   `coverage_min_ratio: 1.0` itself. Do not pre-validate the window in Python;
   the sensor pre-check exists only to avoid queuing doomed runs.

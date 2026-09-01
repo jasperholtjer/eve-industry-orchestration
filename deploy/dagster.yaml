@@ -63,9 +63,10 @@
 #        with no data loss.
 #      - `everef_download` (limit 2 via `default_limit`): POLITENESS to
 #        data.everef.net, NOT memory. The light Silver fetches (market-history,
-#        system-jumps, system-kills, killmails, sde, and the `_LIVE_POOL` assets,
-#        which alias this same name). EVE Ref endorses a small fan-out (its rclone
-#        example uses `--transfers 2`), so 2 concurrent.
+#        system-jumps, system-kills, killmails, sde, industry-cost-indices, mer,
+#        mer-killdump, structures, and the `_LIVE_POOL` assets, which alias this
+#        same name). EVE Ref endorses a small fan-out (its rclone example uses
+#        `--transfers 2`), so 2 concurrent.
 #    `heavy` and `everef_download` want 2, so `default_limit: 2` covers them with
 #    no per-pool override. `market_orders` and `news_embed` need limit 1, which the
 #    yaml cannot express (only `default_limit` lives here) — redeploy.sh sets each
@@ -118,9 +119,8 @@
 #
 # The hourly `system_jumps_recent_schedule` is deliberately NOT in the
 # `heavy` pool: the EWMA "recent" build spans only the short warmup, so it is
-# lightweight and bounded by the global cap alone. At most one such run is in
-# flight per hour, so it cannot starve the windowed `system_jumps_history_gold`
-# backfills that do hold `heavy`.
+# lightweight and bounded by the global cap alone, same as
+# `system_jumps_history_gold` — neither system-jumps build ever holds `heavy`.
 run_coordinator:
   module: dagster.core.run_coordinator
   class: QueuedRunCoordinator

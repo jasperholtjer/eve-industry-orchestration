@@ -18,9 +18,11 @@ Environment=CORPUS_SINK_PATH=/mnt/eve
 # light runs. Must match the daemon unit: a Silver run launched from the
 # launchpad inherits THIS process's env, not the daemon's. See dagster-daemon.service.
 Environment=RAYON_NUM_THREADS=6
-# Pin market-orders Silver's resident-snapshot window (its memory peak) instead of
-# letting it follow the host core count. Must match the daemon unit: a Silver run
-# launched from the launchpad inherits THIS process's env, not the daemon's. See
+# Pin market-orders Silver's resident-snapshot window (its memory peak) to a
+# chosen constant rather than one discovered from the host; on this 8-core box
+# that is what it already resolves to, so it only removes the downward adjustment
+# when cores are reduced. Must match the daemon unit: a Silver run launched from
+# the launchpad inherits THIS process's env, not the daemon's. See
 # dagster-daemon.service for the full rationale and deploy/dagster.yaml for the
 # memory budget.
 Environment=CORPUS_PARSE_CONCURRENCY=8

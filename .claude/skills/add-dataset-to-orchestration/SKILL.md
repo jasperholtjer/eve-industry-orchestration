@@ -241,7 +241,9 @@ Keep methods derivative-agnostic for single-derivative datasets (no flag).
   `everef_download` via the assets' `pool=` (the pools are defined here).
 - A high-cadence recency-weighted schedule still shares `max_concurrent_runs` and
   the `heavy` pool — verify it cannot starve the windowed backfills (cap its
-  cadence or give it its own small pool if it competes).
+  cadence or give it its own small pool if it competes). A new pool means
+  adding its measured peak to the budget in `deploy/dagster.yaml` and its name
+  to `EXPECTED_POOLS` in `tests/test_concurrency_pools.py`.
 
 ## Verify before declaring done
 
