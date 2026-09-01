@@ -20,6 +20,41 @@ _FAILURE_TAIL_LINES = 20
 # hyphens. The only shape allowed into a state-query WHERE clause.
 _DATASET_NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
 
+# A run-state `partitions.partition_key` as corpus writes it: a scheme prefix and
+# its value (`date=2024-01-15`, `build=300`, `month=2025-06-01`) or the
+# unprefixed `latest`. The only shape allowed into a state-query WHERE clause.
+_PARTITION_KEY = re.compile(r"(?:[a-z]+=)?[A-Za-z0-9][A-Za-z0-9._-]*")
+
+# The run-state key of a latest-only, non-partitioned tree (e.g. the SDE Gold
+# snapshot derivatives): unprefixed, because there is no axis to name.
+LATEST_KEY = "latest"
+
+
+def date_key(date: str) -> str:
+    """``2024-01-15`` -> the run-state key ``date=2024-01-15``.
+
+    A Dagster partition key and a run-state ``partitions.partition_key`` are not
+    the same string — run-state prefixes the scheme. Every call site holds the
+    bare Dagster key, so the conversion is named per scheme rather than defaulted:
+    a helper that has to be named cannot be forgotten by omission, where a
+    forgotten default would match no row and enrich nothing, silently.
+    """
+    return f"date={date}"
+
+
+def build_key(build: int | str) -> str:
+    """``300`` -> the run-state key ``build=300`` (the SDE build axis)."""
+    return f"build={build}"
+
+
+def month_key(report_month: str) -> str:
+    """``2025-06-01`` -> the run-state key ``month=2025-06-01``.
+
+    Takes the report-month exactly as corpus spells it in run-state; MER's
+    partition identity is the first of the month (``YYYY-MM-01``), not ``YYYY-MM``.
+    """
+    return f"month={report_month}"
+
 
 def _parse_status_line(line: str) -> dict[str, Any] | None:
     """Parses a ``corpus ingest`` status object off one log line, else ``None``.
@@ -414,3 +449,69 @@ class CorpusResource(dg.ConfigurableResource):
             "--format",
             "json",
         )
+
+    def partition_metadata(
+        self, dataset: str, tier: str, partition_key: str
+    ) -> dict[str, Any]:
+        """Returns the run-state facts for one partition, as metadata to merge.
+
+        Reads ``rows``, ``retention_class`` and ``parquet_sha256`` off the
+        run-state ``partitions`` row keyed on ``(dataset, tier, partition_key)``
+        and returns them as a mapping a call site merges over its own
+        ``MaterializeResult`` metadata.
+
+        ``partition_key`` is the key **in run-state form** — the output of
+        :func:`date_key`, :func:`build_key`, :func:`month_key` or
+        :data:`LATEST_KEY` — never a bare Dagster partition key, which carries no
+        scheme prefix and would match no row.
+
+        Enrichment is advisory: no matching row, a non-zero exit, a timeout or
+        output that will not parse all log at warning and return an empty
+        mapping. A materialisation corpus already reported as successful must not
+        fail on a cosmetic read.
+        """
+        log = dg.get_dagster_logger()
+
+        def _warn(reason: str) -> dict[str, Any]:
+            log.warning(
+                "partition metadata unavailable for %s/%s %s: %s",
+                dataset,
+                tier,
+                partition_key,
+                reason,
+            )
+            return {}
+
+        # `state query` takes a SQL string over a CLI boundary — there is no
+        # parameter binding to bind to — so the interpolated values are validated
+        # as the identifier shapes they are. Unlike the sensor queries this is
+        # advisory, so a bad shape warns and yields nothing rather than raising.
+        if not _DATASET_NAME.fullmatch(dataset) or not _DATASET_NAME.fullmatch(tier):
+            return _warn("dataset and tier must be [a-z0-9-] identifiers")
+        if not _PARTITION_KEY.fullmatch(partition_key):
+            return _warn("partition key is not a run-state key")
+
+        sql = (
+            "SELECT rows, retention_class, parquet_sha256 "  # noqa: S608 — values validated above
+            "FROM partitions "
+            f"WHERE dataset = '{dataset}' AND tier = '{tier}' "
+            f"AND partition_key = '{partition_key}' "
+            "LIMIT 1"
+        )
+        try:
+            rows = self.state_query(sql)
+        except (dg.Failure, subprocess.SubprocessError, OSError) as exc:
+            return _warn(f"state query failed: {exc}")
+
+        if not isinstance(rows, list) or not rows:
+            return _warn("no run-state row")
+        row = rows[0]
+        if not isinstance(row, dict):
+            return _warn("unexpected run-state row shape")
+        # A zero-row partition is a fact, not an absence: filter on presence, not
+        # truthiness, or `rows: 0` would silently drop out of the metadata.
+        return {
+            field: row[field]
+            for field in ("rows", "retention_class", "parquet_sha256")
+            if row.get(field) is not None
+        }

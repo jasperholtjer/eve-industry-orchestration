@@ -1,12 +1,12 @@
 ## 1. The read
 
-- [ ] 1.1 Add the run-state key helpers to
+- [x] 1.1 Add the run-state key helpers to
   `src/eve_industry_orchestration/defs/corpus_resource.py` — `date_key`,
   `build_key`, `month_key` and a `LATEST_KEY` constant, producing the
-  `date=<iso>` / `build=<n>` / `month=<yyyy-mm>` / `latest` forms corpus
+  `date=<iso>` / `build=<n>` / `month=<yyyy-mm-01>` / `latest` forms corpus
   writes. Verify against the fixture keys in `tests/fake_corpus.py` (lines
   578, 678, 784, 890) and by task 1.4's test.
-- [ ] 1.2 Add `CorpusResource.partition_metadata(dataset, tier, partition_key)`
+- [x] 1.2 Add `CorpusResource.partition_metadata(dataset, tier, partition_key)`
   in the same module: one `state_query` over the run-state `partitions` table
   returning `rows`, `retention_class` and `parquet_sha256` for that triple, as
   a `dict[str, Any]` ready to merge into `MaterializeResult` metadata.
@@ -14,10 +14,10 @@
   SQL interpolates its values the way the other run-state queries in this
   module already do; do not introduce parameter binding for one query. Verify
   by reading the method and by task 1.4's test.
-- [ ] 1.3 Make it advisory: no matching row, a non-zero exit, a timeout or
+- [x] 1.3 Make it advisory: no matching row, a non-zero exit, a timeout or
   unparseable output all return an empty mapping and log at warning with the
   dataset, tier and key. It never raises. Verify by task 1.4's test.
-- [ ] 1.4 Extend `tests/fake_corpus.py` so its `state query` branch answers the
+- [x] 1.4 Extend `tests/fake_corpus.py` so its `state query` branch answers the
   new SQL from per-partition fixture state (`rows`, `retention_class`,
   `parquet_sha256`), and add tests in `tests/` covering: a partition found
   under each of the four key schemes using the fake's real prefixed fixture

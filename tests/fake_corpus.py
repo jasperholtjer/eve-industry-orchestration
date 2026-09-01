@@ -30,8 +30,10 @@ partition-presence check so it only fires on a partition that actually exists.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -164,6 +166,7 @@ def _load_state(sink: str) -> dict:
             "gold_at": {},
             "sde_silver_at": {},
             "sde_gold_at": {},
+            "partition_facts": {},
         }
     state = json.loads(path.read_text(encoding="utf-8"))
     state.setdefault("silver", [])
@@ -192,6 +195,11 @@ def _load_state(sink: str) -> dict:
     # and is stale, which is what `stale_changelog_builds` reports.
     state.setdefault("sde_silver_at", {})
     state.setdefault("sde_gold_at", {})
+    # Per-partition run-state columns the real `partitions` table carries beyond
+    # existence: keyed `<dataset>|<tier>|<partition_key>` with the run-state key
+    # exactly as corpus writes it (`date=`/`build=`/`month=`/`latest`), so a
+    # `state query` for partition metadata answers from a real prefixed key.
+    state.setdefault("partition_facts", {})
     # Gold is keyed per derivative (each its own tree); tolerate the older flat
     # list shape by folding it under a dataset-named key on read.
     gold = state.get("gold", {})
@@ -199,6 +207,30 @@ def _load_state(sink: str) -> dict:
         gold = {"market-history": gold}
     state["gold"] = gold
     return state
+
+
+def _record_partition(
+    state: dict,
+    dataset: str,
+    tier: str,
+    partition_key: str,
+    *,
+    rows: int | None = None,
+    retention_class: str = "validated",
+) -> None:
+    """Stamps the `partitions` columns an enrichment read asks for.
+
+    `rows` defaults to the 1 row every fake partition holds; `FAKE_PARTITION_ROWS`
+    overrides it so a test can produce a genuinely zero-row partition.
+    """
+    if rows is None:
+        rows = int(os.environ.get("FAKE_PARTITION_ROWS", "1"))
+    identity = f"{dataset}|{tier}|{partition_key}"
+    state.setdefault("partition_facts", {})[identity] = {
+        "rows": rows,
+        "retention_class": retention_class,
+        "parquet_sha256": hashlib.sha256(identity.encode()).hexdigest(),
+    }
 
 
 def _save_state(sink: str, state: dict) -> None:
@@ -566,6 +598,7 @@ def _do_sde_ingest(args: list[str], sink: str) -> int:
     state["sde_silver"][str(build)] = release_date
     state["seq"] += 1
     state["sde_silver_at"][str(build)] = state["seq"]
+    _record_partition(state, "sde", "silver", f"build={build}")
     _save_state(sink, state)
 
     print(
@@ -639,6 +672,7 @@ def _do_sde_changelog(
     # clears the build from the stale set.
     state["seq"] += 1
     state["sde_gold_at"][str(build)] = state["seq"]
+    _record_partition(state, "sde-changelog", "gold", f"build={build}")
     _save_state(sink, state)
 
     print(
@@ -665,7 +699,8 @@ def _do_sde_snapshot(sink: str, state: dict, build: int, release_date: str) -> i
     state["sde_gold"].setdefault("sde-snapshot", [])
     if build not in state["sde_gold"]["sde-snapshot"]:
         state["sde_gold"]["sde-snapshot"].append(build)
-        _save_state(sink, state)
+    _record_partition(state, "sde-snapshot", "gold", "latest")
+    _save_state(sink, state)
 
     print(
         json.dumps(
@@ -770,7 +805,9 @@ def _do_mer_ingest(args: list[str], sink: str) -> int:
             if report_month not in state["mer_silver"]:
                 state["mer_silver"].append(report_month)
         state["mer_silver"].sort()
-        _save_state(sink, state)
+    for report_month in written:
+        _record_partition(state, dataset, "silver", f"month={report_month}")
+    _save_state(sink, state)
 
     # The CLI prints one status object per report-month; the streaming resource
     # keeps the last, so emit the last month's status.
@@ -938,6 +975,7 @@ def _do_ingest(args: list[str], sink: str) -> int:
     # drift repair) is exactly the case the staleness diff must see.
     state["seq"] += 1
     state["silver_at"][date] = state["seq"]
+    _record_partition(state, dataset, "silver", f"date={date}")
     _save_state(sink, state)
 
     print(f"wrote 1 rows -> {pdir}", file=sys.stderr)
@@ -1099,6 +1137,7 @@ def _do_gold_build(args: list[str], sink: str) -> int:
         built.append(date)
     state["seq"] += 1
     state["gold_at"].setdefault(derivative, {})[date] = state["seq"]
+    _record_partition(state, derivative, "gold", f"date={date}")
     _save_state(sink, state)
 
     print(f"wrote 1 gold rows -> {pdir}", file=sys.stderr)
@@ -1174,6 +1213,11 @@ def _do_everef(args: list[str], sink: str) -> int:
     return 0
 
 
+_PARTITION_METADATA_SQL = re.compile(
+    r"dataset = '([^']*)' AND tier = '([^']*)' AND partition_key = '([^']*)'"
+)
+
+
 def _do_state(args: list[str], sink: str) -> int:
     subcommand = args[1] if len(args) > 1 else ""
     if subcommand != "query":
@@ -1182,7 +1226,25 @@ def _do_state(args: list[str], sink: str) -> int:
 
     sql = _pop_opt(args, "--sql") or ""
     _pop_opt(args, "--format")
+    # A broken run-state read, on demand: the enrichment path treats a non-zero
+    # `state query` as advisory, and that is only testable if the fake can fail.
+    if os.environ.get("FAKE_STATE_QUERY_FAIL"):
+        print("state query: run-state is locked", file=sys.stderr)
+        return 1
     state = _load_state(sink)
+    # Materialisation-metadata enrichment: the per-partition columns for one
+    # `(dataset, tier, partition_key)` triple, keyed on the run-state key
+    # (`date=`/`build=`/`month=`/`latest`) — a bare Dagster key matches nothing,
+    # exactly as against the real binary.
+    if "retention_class" in sql:
+        match = _PARTITION_METADATA_SQL.search(sql)
+        if match is None:
+            print("state query: unrecognised partitions query", file=sys.stderr)
+            return 2
+        dataset, tier, partition_key = match.groups()
+        facts = state["partition_facts"].get(f"{dataset}|{tier}|{partition_key}")
+        print(json.dumps([facts] if facts is not None else []))
+        return 0
     # The news/transcripts listed-vs-archived asset checks count the seen-ledger
     # (ADR-0045), keyed on the dataset named in the WHERE clause.
     if "seen_documents" in sql:
