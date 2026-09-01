@@ -281,6 +281,52 @@ class CorpusResource(dg.ConfigurableResource):
         )
         return [row["date"] for row in self.state_query(sql) if row.get("date")]
 
+    def stale_changelog_builds(self) -> list[int]:
+        """Returns SDE builds whose changelog Gold was diffed across a hole.
+
+        ``corpus sde gold`` diffs a build against "the largest **committed**
+        Silver build below it". The Gold sensor asks for a build as soon as *any*
+        smaller build has committed Silver, so while the sequence has a hole —
+        300 commits before 200, both ingesting under ``everef_download`` — 300 is
+        diffed against 100 and the 200→300 link never exists. Committed Gold is
+        subtracted from the outstanding set, so nothing re-proposes 300.
+
+        The run-state ``partitions`` table answers it without the recorded
+        predecessor: ``last_seen_at`` is stamped on every upsert, so a changelog
+        Gold whose ``last_seen_at`` predates that of the **nearest** lower
+        committed ``sde`` Silver was built against a different predecessor than
+        the binary would pick now. Only the nearest one matters, which makes the
+        set exact rather than a superset — no rebuild storm when an old build is
+        re-ingested, and no cascade. A baseline build has no lower Silver, so the
+        subquery yields NULL and the row drops out on its own.
+
+        Repair is a plain rematerialise: Gold overwrites in place and the binary
+        recomputes the predecessor from currently committed Silver.
+
+        Read-only, through the sanctioned ``state query`` seam — no path is
+        constructed and no parquet is opened. The build number is the key
+        throughout; ``release_date`` is a label only (three of them exist per
+        build and they disagree), so ordering never turns on it.
+        """
+        sql = (
+            # `substr(…, 7)` strips the `build=` partition-key prefix.
+            "SELECT CAST(substr(g.partition_key, 7) AS INTEGER) AS build "
+            "FROM partitions g "
+            "WHERE g.dataset = 'sde-changelog' AND g.tier = 'gold' "
+            "AND g.last_seen_at < ("
+            "SELECT s.last_seen_at FROM partitions s "
+            "WHERE s.dataset = 'sde' AND s.tier = 'silver' "
+            "AND CAST(substr(s.partition_key, 7) AS INTEGER) "
+            "< CAST(substr(g.partition_key, 7) AS INTEGER) "
+            "ORDER BY CAST(substr(s.partition_key, 7) AS INTEGER) DESC "
+            "LIMIT 1)"
+        )
+        return sorted(
+            int(row["build"])
+            for row in self.state_query(sql)
+            if row.get("build") is not None
+        )
+
     def everef_list_builds(self, dataset: str) -> list[dict[str, Any]]:
         """Returns discovered upstream builds for a build-versioned dataset.
 

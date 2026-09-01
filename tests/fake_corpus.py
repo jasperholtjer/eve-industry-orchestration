@@ -145,6 +145,8 @@ def _load_state(sink: str) -> dict:
             "seq": 0,
             "silver_at": {},
             "gold_at": {},
+            "sde_silver_at": {},
+            "sde_gold_at": {},
         }
     state = json.loads(path.read_text(encoding="utf-8"))
     state.setdefault("silver", [])
@@ -168,6 +170,11 @@ def _load_state(sink: str) -> dict:
     state.setdefault("seq", 0)
     state.setdefault("silver_at", {})
     state.setdefault("gold_at", {})
+    # Same clock over the SDE build axis, keyed `str(build)`: a changelog Gold
+    # written before the nearest lower Silver committed was diffed across a hole
+    # and is stale, which is what `stale_changelog_builds` reports.
+    state.setdefault("sde_silver_at", {})
+    state.setdefault("sde_gold_at", {})
     # Gold is keyed per derivative (each its own tree); tolerate the older flat
     # list shape by folding it under a dataset-named key on read.
     gold = state.get("gold", {})
@@ -540,6 +547,8 @@ def _do_sde_ingest(args: list[str], sink: str) -> int:
 
     state = _load_state(sink)
     state["sde_silver"][str(build)] = release_date
+    state["seq"] += 1
+    state["sde_silver_at"][str(build)] = state["seq"]
     _save_state(sink, state)
 
     print(
@@ -609,7 +618,11 @@ def _do_sde_changelog(
     state["sde_gold"].setdefault("sde-changelog", [])
     if build not in state["sde_gold"]["sde-changelog"]:
         state["sde_gold"]["sde-changelog"].append(build)
-        _save_state(sink, state)
+    # Gold overwrites in place, so a repair rematerialise re-stamps the clock and
+    # clears the build from the stale set.
+    state["seq"] += 1
+    state["sde_gold_at"][str(build)] = state["seq"]
+    _save_state(sink, state)
 
     print(
         json.dumps(
@@ -1156,6 +1169,24 @@ def _do_state(args: list[str], sink: str) -> int:
             for date, written in sorted(gold_at.items())
             if state["silver_at"].get(date, 0) > written
         ]
+        print(json.dumps(rows))
+        return 0
+    # The SDE Gold-repair term asks which changelog Gold partitions were built
+    # before the *nearest* lower `sde` Silver committed — i.e. diffed across a
+    # hole in the build sequence. Must precede the `dataset = 'sde-changelog'`
+    # branch below: this SQL contains that substring too.
+    if "g.last_seen_at < (" in sql:
+        silver_at = {int(b): seq for b, seq in state["sde_silver_at"].items()}
+        rows = []
+        gold_at = sorted(state["sde_gold_at"].items(), key=lambda kv: int(kv[0]))
+        for raw_build, written in gold_at:
+            build = int(raw_build)
+            lower = [b for b in silver_at if b < build]
+            if not lower:
+                # Baseline: the correlated subquery yields NULL, row drops out.
+                continue
+            if written < silver_at[max(lower)]:
+                rows.append({"build": build})
         print(json.dumps(rows))
         return 0
     # The SDE Gold sensor subtracts the changelog builds it has already built

@@ -164,3 +164,77 @@ def test_state_query_returns_rows(corpus) -> None:
         "tier": "silver",
         "partition_key": "date=2024-01-15",
     } in rows
+
+
+def _sde_ingest(corpus, build: int) -> None:
+    corpus.run(
+        dg.build_asset_context(),
+        "ingest",
+        "--dataset",
+        "sde",
+        "--build",
+        str(build),
+        "--sink-path",
+        corpus.sink_path,
+    )
+
+
+def _sde_changelog(corpus, build: int) -> None:
+    corpus.run(
+        dg.build_asset_context(),
+        "gold",
+        "build",
+        "--dataset",
+        "sde",
+        "--derivative",
+        "sde-changelog",
+        "--build",
+        str(build),
+        "--sink-path",
+        corpus.sink_path,
+    )
+
+
+def test_stale_changelog_builds_reports_a_diff_across_a_hole(
+    corpus, monkeypatch
+) -> None:
+    """A changelog built while 200 was still missing is diffed against 100."""
+    monkeypatch.setenv(
+        "FAKE_SDE_BUILDS", "100:2025-09-01,200:2025-09-02,300:2025-09-03"
+    )
+    _sde_ingest(corpus, 100)
+    _sde_ingest(corpus, 300)  # 300 raced ahead of 200 under `everef_download`
+    _sde_changelog(corpus, 300)  # diffed against 100: the hole is not visible yet
+    assert corpus.stale_changelog_builds() == []
+
+    _sde_ingest(corpus, 200)
+    # 200 is now the nearest lower committed Silver and postdates 300's Gold.
+    assert corpus.stale_changelog_builds() == [300]
+
+
+def test_stale_changelog_builds_clears_after_a_repair_rebuild(
+    corpus, monkeypatch
+) -> None:
+    monkeypatch.setenv(
+        "FAKE_SDE_BUILDS", "100:2025-09-01,200:2025-09-02,300:2025-09-03"
+    )
+    _sde_ingest(corpus, 100)
+    _sde_ingest(corpus, 300)
+    _sde_changelog(corpus, 300)
+    _sde_ingest(corpus, 200)
+    assert corpus.stale_changelog_builds() == [300]
+
+    _sde_changelog(corpus, 300)  # rematerialise overwrites in place
+    assert corpus.stale_changelog_builds() == []
+
+
+def test_stale_changelog_builds_ignores_the_ordered_sequence(
+    corpus, monkeypatch
+) -> None:
+    """No hole, no stale build — and a baseline never reports."""
+    monkeypatch.setenv("FAKE_SDE_BUILDS", "100:2025-09-01,200:2025-09-02")
+    _sde_ingest(corpus, 100)
+    _sde_changelog(corpus, 100)  # baseline: no lower Silver, subquery is NULL
+    _sde_ingest(corpus, 200)
+    _sde_changelog(corpus, 200)
+    assert corpus.stale_changelog_builds() == []
