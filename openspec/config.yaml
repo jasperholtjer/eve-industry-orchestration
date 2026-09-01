@@ -61,9 +61,10 @@ context: |
   scheme-prefixed (`date=`, `build=`, `month=`, `latest`) and built by named
   helpers, never handed the bare Dagster key. The read is advisory — a missing
   row or a failed query warns and yields nothing rather than failing a run
-  corpus passed. The tiers and trees corpus registers no row for (Bronze, the
-  live snapshots, MER's multi-year history Gold) record their identifying
-  fields as before, each with the reason in place.
+  corpus passed. The tiers and trees corpus registers no single row for (Bronze,
+  the live snapshots, MER's multi-year history Gold, SDE's per-entity snapshot
+  Gold) record their identifying fields as before, each with the reason in place
+  and a test pinning it.
 
   ## Concurrency, which is where this repo is easiest to get wrong
 

@@ -177,9 +177,10 @@ Makes the "overview / logging" purpose of the repo real.
 - Enrichment is advisory: no row, a failed query or unparseable output warns and
   returns an empty mapping. It never fails a materialisation corpus reported as
   successful.
-- Bronze, the `*_live.py` snapshots and MER's history Gold are deliberately not
-  enriched — corpus registers no single run-state row describing what they
-  wrote. Each site says so where it is.
+- Bronze, the `*_live.py` snapshots, MER's history Gold and SDE's snapshot Gold
+  are deliberately not enriched — corpus registers no single run-state row
+  describing what they wrote. Each site says so where it is, and a test pins the
+  decision so it is not re-added by a later drive-by.
 
 ## Future phases
 

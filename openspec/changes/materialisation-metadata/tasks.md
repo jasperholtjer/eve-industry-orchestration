@@ -56,7 +56,7 @@ serving-load assets in `serving.py` are left alone. Every group consults the
 
 ## 3. Close
 
-- [ ] 3.1 Confirm nothing scheduling-shaped moved: `git diff develop --stat`
+- [x] 3.1 Confirm nothing scheduling-shaped moved: `git diff develop --stat`
   shows no change to `defs/config.py`, `defs/sensors.py`, any partition
   definition or `deploy/dagster.yaml`, and
   `pytest -q tests/test_concurrency_pools.py` passes.
@@ -64,5 +64,5 @@ serving-load assets in `serving.py` are left alone. Every group consults the
   which currently reads "Still open: materialisation metadata is static rather
   than read from `_INDEX.json`", and the matching work item in `ROADMAP.md`.
   Verify by reading both.
-- [ ] 3.3 Green gate in the worktree: `uv run ruff check .`,
+- [x] 3.3 Green gate in the worktree: `uv run ruff check .`,
   `uv run ruff format --check .`, `uv run pytest -q`.
