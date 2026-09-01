@@ -19,6 +19,17 @@ Environment=CORPUS_SINK_PATH=/mnt/eve
 # multi-day market-orders backfill cannot monopolise every core. Inherited by
 # the `corpus` subprocess via CorpusResource; no-op for non-rayon datasets.
 Environment=RAYON_NUM_THREADS=6
+# Bound market-orders Silver's resident-snapshot window explicitly. corpus
+# >= v0.9.0 parses a window of snapshots in parallel and uses that window as BOTH
+# the resident-snapshot cap (its memory peak) and the parse batch size; unset, it
+# resolves to `available_parallelism` clamped to [2, 8], so the peak follows the
+# host core count and moves silently on the next `pct set 211 --cores`.
+# RAYON_NUM_THREADS bounds the thread pool, not the residency. 8 is what the
+# 8-core box resolves to today, so pinning it changes nothing that runs — it only
+# makes the window a chosen constant. Lowering it is the first lever once
+# /sys/fs/cgroup/memory.peak has been reset and read back (see deploy/dagster.yaml
+# for the memory budget). Inherited by the `corpus` subprocess via CorpusResource.
+Environment=CORPUS_PARSE_CONCURRENCY=8
 # Local ONNX weights for `corpus enrich embed` (news-embeddings, corpus ADR-0053):
 # a ~558 MB HuggingFace snapshot dir (onnx/model_quantized.onnx + tokenizer.json)
 # the operator provisions on the host. Deployment, not contract — never in the

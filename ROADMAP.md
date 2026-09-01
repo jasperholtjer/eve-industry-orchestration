@@ -139,10 +139,9 @@ materialisation is manual.
   materialisations, so Gold has its own availability sensor
   (`market_history_gold_sensor`) polling `corpus gold ready-dates` instead of
   riding the Silver run.
-- Respect concurrency: `deploy/dagster.yaml` pins `max_concurrent_runs: 4` (the NAS
-  spindle is the real limiter) plus concurrency pools — `everef_download` (EVE Ref
-  endorses ~2 parallel transfers) and `heavy` (Gold memory), both at
-  `default_limit: 2` — keyed on the assets' `pool=` so they bound every launch path.
+- Respect concurrency: `deploy/dagster.yaml` pins the global run cap plus the
+  concurrency pools — keyed on the assets' `pool=` so they bound every launch
+  path — and owns the pool set, the limits and the memory budget behind them.
   The sensor must also not stampede the queue, hence the per-tick cap.
 
 ### 4. Automate the release pull in deploy — done

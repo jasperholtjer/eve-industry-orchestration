@@ -242,13 +242,16 @@ main() {
   install -o "${SERVICE_USER}" -g 988 -m 0644 \
     "${REPO_DIR}/deploy/dagster.yaml" "${DAGSTER_HOME}/dagster.yaml"
 
-  # Per-pool limits below `default_limit` cannot live in dagster.yaml (it only
-  # carries `default_limit`); they persist in the instance DB. Set the
-  # `market_orders` CPU pool and the `news_embed` memory pool to 1 here so the
-  # overrides are reproducible at deploy time rather than a one-off manual CLI
+  # Four pools are declared; `heavy` and `everef_download` take `default_limit:
+  # 2` from dagster.yaml, while `market_orders` and `news_embed` sit BELOW it at
+  # 1. A sub-default per-pool limit cannot live in dagster.yaml (it only carries
+  # `default_limit`); it persists in the instance DB, so it is set here to keep
+  # the overrides reproducible at deploy time rather than a one-off manual CLI
   # call. Runs as `corpus` so it writes the corpus-owned instance DB under
-  # DAGSTER_HOME. Idempotent: re-setting the same limit is a no-op. See
-  # deploy/dagster.yaml for why each pool is limit 1.
+  # DAGSTER_HOME. Idempotent: re-setting the same limit is a no-op. A pool that
+  # gains or loses a sub-default limit needs a matching change here; the memory
+  # budget and the reason each pool has the limit it has are in
+  # deploy/dagster.yaml, which owns that arithmetic.
   echo "==> Setting per-pool concurrency limits"
   run_as_user "cd '${REPO_DIR}' && DAGSTER_HOME='${DAGSTER_HOME}' \
     uv run dagster instance concurrency set market_orders 1"

@@ -40,33 +40,23 @@ The full rationale lives in [ROADMAP.md](ROADMAP.md); the load-bearing rules:
   `market_history_gold` asset only shells out and records the run — it never
   pre-validates the window in Python. The sensor pre-checks only to avoid
   queuing doomed runs.
-- **Concurrency.** Two layers in `deploy/dagster.yaml`. `max_concurrent_runs: 4`
-  is the global I/O cap — the single-HDD NAS spindle is the real limiter, every
-  run taps it. Per-class limits are concurrency **pools** keyed on the assets'
-  `pool=`, not run tags: `everef_download` (Silver fetch politeness; EVE Ref
-  endorses ~2 parallel transfers) and `heavy` (heavy-corpus memory), both at
-  `default_limit: 2`. A pool gates **every** launch path — sensor, UI backfill,
-  manual — unlike a sensor-set run tag, and a pooled run is bounded by
+- **Concurrency.** Two layers in `deploy/dagster.yaml`: a global
+  `max_concurrent_runs` I/O cap — the single-HDD NAS spindle is the real limiter,
+  every run taps it — and per-class limits as concurrency **pools** keyed on the
+  assets' `pool=`, not run tags. A pool gates **every** launch path — sensor, UI
+  backfill, manual — unlike a sensor-set run tag, and a pooled run is bounded by
   `min(global, pool)`. Lightweight datasets omit `pool=` and obey only the global
   cap. Keep sensor fan-out capped per tick.
-  - **Heavy-corpus memory governs the `heavy` pool.** Only the wide-window Gold
-    builds that actually peak ~3–4 GiB join it: `market-history` Gold and
-    `market-orders` Gold (each streams its `[date - max_horizon, date]` Silver
-    window via a k-way merge, corpus ≥ v0.1.6). `market-orders` Silver also joins —
-    it streams ~78M rows/day one row-group per snapshot (corpus ≥ v0.7.0) and
-    peaks the same ~3–4 GiB, the only Silver heavy enough to need a memory bound.
-    Membership is by **measured peak**, not by "is windowed": `system-jumps`,
-    `system-kills` (×3 measures) and `industry-cost-indices` Gold use the same 365d
-    k-way merge but over ~5k-row/day narrow snapshots — measured peak RSS ~90–97
-    MiB — so they omit `pool=` and obey only the global cap. Putting them in
-    `heavy` only starved the big backfills of scarce slots. Measure with
-    `/usr/bin/time -v` (needs `CORPUS_DATASETS_DIR`) before adding a build here.
-    Peak heavy RAM ≈ `heavy limit × ~4 GiB`, so set the limit to `floor((RAM_GiB −
-    ~4 headroom) / 4)` — at the default 2, budget ~8 GiB, so the LXC
-    wants **≥ 12 GiB RAM** (or drop the pool to 1 at 8 GiB). Measure the real peak
-    with `/usr/bin/time -v` before raising. Set RAM/cores on the Proxmox host, not
-    here: `pct set 211 --cores 4 --memory 12288 --swap 2048`. Authoritative host
-    provisioning lives in `homelab_docs` (`docs/howto/deploy-dagster-lxc.md`).
+  - **Membership of a memory-bearing pool is by measured peak**, never by "is
+    windowed" — a narrow build put in one only starves the big backfills of
+    scarce slots. Measure with `/usr/bin/time -v` (needs `CORPUS_DATASETS_DIR`)
+    before adding a build. Every memory-bearing pool counts against **one** box
+    budget: the pools do not know about each other, so their peaks add.
+  - **The arithmetic lives in [`deploy/dagster.yaml`](deploy/dagster.yaml)** and
+    nowhere else — which pools exist, their limits, each holder's peak, the worst
+    case against the box, and where the box itself is provisioned. Read it before
+    changing a limit or adding a pool; `tests/test_concurrency_pools.py` pins the
+    set of declared pools so a new one cannot arrive unaccounted.
 
 ## How a change is worked
 
