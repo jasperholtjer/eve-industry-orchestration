@@ -1,0 +1,56 @@
+## 1. The read
+
+- [ ] 1.1 Add `CorpusResource.partition_metadata(dataset, tier, partition_key)`
+  in `src/eve_industry_orchestration/defs/corpus_resource.py`: one
+  `state_query` over the run-state `partitions` table returning `rows`,
+  `retention_class` and `parquet_sha256` for that triple, as a
+  `dict[str, Any]` ready to merge into `MaterializeResult` metadata. Verify by
+  reading the method and by task 1.3's test.
+- [ ] 1.2 Make it advisory: no matching row, a non-zero exit, a timeout or
+  unparseable output all return an empty mapping and log at warning with the
+  dataset, tier and key. It never raises. Verify by task 1.3's test.
+- [ ] 1.3 Extend `tests/fake_corpus.py` so its `state query` branch answers the
+  new SQL from per-partition fixture state (`rows`, `retention_class`,
+  `parquet_sha256`), and add tests in `tests/` covering: a partition with
+  facts, a zero-row partition, an absent row, and a failing query. Verify with
+  `uv run --project .worktrees/materialisation-metadata pytest -q tests/`.
+
+## 2. The call sites
+
+Each group merges `partition_metadata(...)` over the existing metadata dict at
+every site that records a partition corpus just wrote, keeping the identifying
+fields. Sites recording a skipped build (`"built": False`) and the
+serving-load assets in `serving.py` are left alone. Every group consults the
+`dagster-expert` skill before touching a Dagster definition.
+
+- [ ] 2.1 `market_history.py` — both sites, and delete the two
+  `# TODO: enrich metadata from _INDEX.json / corpus state query` markers.
+  Verify with `pytest -q -k market_history` and by grepping that neither TODO
+  remains.
+- [ ] 2.2 `market_orders.py`, `system_jumps.py`, `system_kills.py`,
+  `structures.py`, `industry_cost_indices.py`. Verify with `pytest -q -k
+  "market_orders or system_jumps or system_kills or structures or cost_indices"`.
+- [ ] 2.3 `sde.py`, `mer.py` — the multi-derivative and per-build sites, whose
+  key is a build number or a derivative name rather than a date. Verify with
+  `pytest -q -k "sde or mer"`.
+- [ ] 2.4 `news.py`, `killmails.py`, `transcripts.py` — including the sites that
+  build a local `metadata` dict before yielding. Verify with `pytest -q -k
+  "news or killmails or transcripts"`.
+- [ ] 2.5 The `*_live.py` snapshot assets (`market_orders_live.py`,
+  `market_prices_live.py`, `industry_cost_indices_live.py`): enrich where the
+  asset records a partition registered in run-state, and leave the site alone
+  where it does not. State which it was in the commit body. Verify with
+  `pytest -q -k live`.
+
+## 3. Close
+
+- [ ] 3.1 Confirm nothing scheduling-shaped moved: `git diff develop --stat`
+  shows no change to `defs/config.py`, `defs/sensors.py`, any partition
+  definition or `deploy/dagster.yaml`, and
+  `pytest -q tests/test_concurrency_pools.py` passes.
+- [ ] 3.2 Update `openspec/config.yaml`'s **State of the repository** paragraph,
+  which currently reads "Still open: materialisation metadata is static rather
+  than read from `_INDEX.json`", and the matching work item in `ROADMAP.md`.
+  Verify by reading both.
+- [ ] 3.3 Green gate in the worktree: `uv run ruff check .`,
+  `uv run ruff format --check .`, `uv run pytest -q`.
