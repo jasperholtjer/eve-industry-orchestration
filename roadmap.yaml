@@ -45,7 +45,7 @@ items:
       --format json` (rows, retention_class) instead of the current static fields.
     areas: [orchestration]
     priority: 4
-    status: doing
+    status: done
 
   - id: sde-gold-sensor-stall
     title: Stop the SDE Gold sensor stalling after its first tick
