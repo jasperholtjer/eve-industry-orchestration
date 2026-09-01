@@ -319,7 +319,7 @@ class CorpusResource(dg.ConfigurableResource):
         """
         sql = (
             # `substr(…, 7)` strips the `build=` partition-key prefix.
-            "SELECT CAST(substr(g.partition_key, 7) AS INTEGER) AS build "
+            "SELECT DISTINCT CAST(substr(g.partition_key, 7) AS INTEGER) AS build "
             "FROM partitions g "
             "WHERE g.dataset = 'sde-changelog' AND g.tier = 'gold' "
             "AND g.last_seen_at < ("

@@ -96,20 +96,26 @@ The homelab deployment (LXC, NFS mount, build order) is documented in
   `corpus gold ready-dates [--derivative <d>]`. The `recency-weighted` /
   `kills-recent` "recent" assets have no sensor — `system_jumps_recent_schedule`
   and the three `system_kills_{ship,npc,pod}_recent_schedule` rematerialise them
-  hourly. SDE instead has `sde_build_discovery_sensor` (registers build partitions
-  from `corpus everef list`), `sde_gold_sensor` (the changelog for builds whose
-  Silver is committed and whose changelog Gold is not — minus the baseline build,
-  which has no predecessor to diff against and which the binary skips), and
-  `sde_snapshot_schedule` (daily rematerialise of the
-  non-partitioned latest snapshot and `sde-industry-products`). All key status on corpus run-state, never on
+  hourly. SDE instead has `sde_build_discovery_sensor` (registers build
+  partitions from `corpus everef list` and, keyed on corpus run-state, keeps
+  proposing every registered-or-discovered build whose `sde` Silver is not
+  yet committed, so a failed ingest is retried and a hole in the build
+  sequence heals on a later tick), `sde_gold_sensor` (the changelog for
+  builds whose Silver is committed and whose changelog Gold is not, minus the
+  baseline build — which has no predecessor to diff against and which the
+  binary skips — plus any changelog that was diffed across a hole and is now
+  stale; a Gold build is held back while a lower Silver run that could change
+  its predecessor is still in flight), and `sde_snapshot_schedule` (daily
+  rematerialise of the non-partitioned latest snapshot and
+  `sde-industry-products`). All key status on corpus run-state, never on
   globbing the NAS tree. The sensors that go through `request_partitions` — every
-  Silver and Gold availability sensor, `sde_gold_sensor` included — carry a
-  per-tick token in the `run_key`, so a partition corpus still reports actionable
-  is retried, with an in-flight guard keeping that rotation from putting a second
-  writer on one contract directory. The two discovery sensors
-  (`sde_build_discovery_sensor`, `mer_report_discovery_sensor`) are the
-  exception: they register a partition and request it once, under a static
-  `run_key`, so a run that fails leaves a hole no later tick re-proposes.
+  Silver and Gold availability sensor, `sde_build_discovery_sensor` and
+  `sde_gold_sensor` included — carry a per-tick token in the `run_key`, so a
+  partition corpus still reports actionable is retried, with an in-flight
+  guard keeping that rotation from putting a second writer on one contract
+  directory. `mer_report_discovery_sensor` is the remaining exception: it
+  registers a partition and requests it once, under a static `run_key`, so a
+  run that fails leaves a hole no later tick re-proposes.
 - **Mutable partitions** (`killmails` only, corpus ADR-0060) — every other everef
   partition is immutable once published, so `_DONE` plus the recorded source
   sha256 is a complete freshness contract. Killmail days are not: zKillboard keeps
