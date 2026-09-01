@@ -79,5 +79,5 @@
 
 ## 5. Verify the row
 
-- [ ] 5.1 `uv run ruff check . && uv run ruff format --check . && uv run pytest -q`
+- [x] 5.1 `uv run ruff check . && uv run ruff format --check . && uv run pytest -q`
       all green in the worktree.

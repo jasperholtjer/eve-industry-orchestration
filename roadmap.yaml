@@ -110,7 +110,7 @@ items:
       function of the core count and `RAYON_NUM_THREADS` does not bound it.
     areas: [orchestration]
     priority: 3
-    status: doing
+    status: done
     notes: >
       Raised in docs/questions/2026-09-01-heavy-pool-market-orders-silver.md,
       which carries the measurements. Not urgent: the six OOM kills on the LXC
