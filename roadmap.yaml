@@ -200,8 +200,12 @@ items:
     areas: [orchestration]
     depends_on: [corpus:public-contracts-live]
     priority: 3
-    status: doing
+    status: done
     notes: >
+      Landed 2026-09-01. One non-partitioned asset, one schedule, five tests;
+      `config.py`, `deploy/dagster.yaml` and the pool set are untouched, as a
+      live dataset owes them nothing.
+
       The two history rows are not this row and must not be anticipated:
       corpus `public-contracts-silver` is blocked on
       `everef-fetch-completeness-guards` and on an open question about how one
@@ -214,7 +218,16 @@ items:
       pool of its own (corpus `tmp/contracts/measurements-2026-09-01.md`
       section 7.5); that arrives with its own row.
 
+      The schedule is `15,45 * * * *`, not `*/30`: with all four live schedules
+      enabled the minute-:00 tick would launch three EVE Ref fetches against an
+      `everef_download` limit of 2 and four runs against `max_concurrent_runs:
+      4`, so the live family could hold the whole global cap on every hour
+      boundary. The cadence is what the row needs and the offset is free on a
+      last-write-wins tree.
+
       Materialising this on the LXC waits on a corpus release: the deploy
       installs the binary from a GitHub Release and the latest tag predates
       both this dataset and the sovereignty family. The row is testable now
       against `tests/fake_corpus.py` regardless, as the sovereignty rows were.
+      The schedule ships default-stopped, so nothing queues doomed runs in the
+      meantime.
