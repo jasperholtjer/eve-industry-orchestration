@@ -18,15 +18,19 @@ The homelab deployment (LXC, NFS mount, build order) is documented in
 - **Partition config** (`defs/config.py`) — resolves Silver/Gold start dates from
   the corpus dataset YAML per `(dataset, derivative)`, instead of hardcoding them.
   Gold start is the derivative's `served_start`; Silver reaches back the look-back
-  window (largest `rolling` horizon, `max(flat.horizons)`, or the EWMA warmup) and
+  window (largest `rolling` horizon, `max(flat.horizons)`, the EWMA warmup, the
+  sovereignty `tenure.tenure_lookback_days`, or nothing at all for a shape that
+  declares no reach-back) and
   is shared across a dataset's derivatives (earliest preload wins). Reads the
   ADR-0025 `gold` list of named derivatives (market-history is a one-element list,
-  system-jumps has two). Override per tier with
+  system-jumps has two, sovereignty-map has three). Override per tier with
   `CORPUS_<DATASET>_<TIER>_START`, or per derivative with
   `CORPUS_<DATASET>_<DERIVATIVE>_GOLD_START`.
 - **Dataset assets** (`defs/market_history.py`, `defs/system_jumps.py`,
   `defs/market_orders.py`, `defs/system_kills.py`, `defs/structures.py`,
-  `defs/killmails.py`) —
+  `defs/killmails.py`, and the Silver-only
+  `defs/sovereignty_map.py` / `defs/sovereignty_structures.py` /
+  `defs/sovereignty_campaigns.py`, whose five Gold trees are not wired yet) —
   daily-partitioned Silver and
   Gold assets, with **distinct** partition start dates (Silver reaches back one
   window before Gold). Gold depends on Silver via `deps=` (lineage only). A

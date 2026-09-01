@@ -141,15 +141,20 @@ items:
     areas: [orchestration]
     depends_on: [corpus:corpus-gold-sovereignty]
     priority: 2
-    status: doing
+    status: done
     notes: >
-      The `add-dataset-to-orchestration` skill is the procedure. All three
-      serve Silver from 2021-07-01 while the everef folder era starts
-      2022-12-16, so a backfill crosses a layout boundary the binary owns.
-      Nothing has been materialised, so the first backfill is the whole
-      history — measure its peak before putting any of the three in a
-      memory-bearing pool.
-
+      Landed 2026-09-01. Three Silver assets, three availability sensors and
+      all five `sov-*` shapes in `config.py`; `everef_download` for the pool,
+      no memory-bearing pool and no new pool, so no peak was owed or measured.
+      The resolved Silver starts are 2021-07-05 (map), 2021-10-03 (structures)
+      and 2022-01-01 (campaigns) — `silver.served_start: 2021-07-01` is a floor
+      the derived preloads all sit above, so "all three serve Silver from
+      2021-07-01" above is loose: the clamp never bites. The assets copy
+      `system_jumps`' `skipped` branch, so a day EVE Ref never published is
+      observed rather than failing a four-year backfill. The sensors keep the
+      trailing edge current and do not drain that history — `everef
+      missing-partitions` defaults to a 30-day window — so the first backfill
+      is UI-driven, and nothing has been materialised yet.
   - id: sovereignty-gold-panel
     title: Build the five sovereignty Gold trees, panel last
     goal: >

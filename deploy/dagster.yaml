@@ -64,7 +64,8 @@
 #      - `everef_download` (limit 2 via `default_limit`): POLITENESS to
 #        data.everef.net, NOT memory. The light Silver fetches (market-history,
 #        system-jumps, system-kills, killmails, sde, industry-cost-indices, mer,
-#        mer-killdump, structures, and the `_LIVE_POOL` assets, which alias this
+#        mer-killdump, structures, sovereignty-map, sovereignty-structures,
+#        sovereignty-campaigns, and the `_LIVE_POOL` assets, which alias this
 #        same name). EVE Ref endorses a small fan-out (its rclone example uses
 #        `--transfers 2`), so 2 concurrent.
 #    `heavy` and `everef_download` want 2, so `default_limit: 2` covers them with

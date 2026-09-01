@@ -33,7 +33,10 @@ context: |
   ## State of the repository
 
   Twenty-odd asset modules under `src/eve_industry_orchestration/defs/`, one per
-  dataset family, all reaching corpus through `corpus_resource`. Availability is
+  dataset family, all reaching corpus through `corpus_resource`. The three
+  sovereignty datasets are the newest and are Silver-only: their assets, sensors
+  and partition starts have landed, their five Gold trees have not, and nothing
+  in the family has been materialised yet. Availability is
   driven by `market_history_availability_sensor` rather than a fixed cron: EVE
   Ref publishes one file per calendar day with a variable intraday lag, so a
   daily cron would structurally miss yesterday.
