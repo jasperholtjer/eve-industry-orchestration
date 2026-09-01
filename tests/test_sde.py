@@ -352,6 +352,54 @@ def test_build_discovery_sensor_orders_builds_numerically(
     assert [rr.partition_key for rr in result.run_requests] == ["99"]
 
 
+def test_build_discovery_sensor_logs_only_the_builds_it_requests(
+    corpus, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # After a run-state reset the eligible set is the whole build history; logging
+    # it would emit hundreds of lines an hour for builds this tick never asks for.
+    monkeypatch.setenv("FAKE_SDE_BUILDS", "100:2025-09-18,200:2025-10-01")
+    monkeypatch.setattr(sensor_util, "MAX_PARTITIONS_PER_TICK", 1)
+    instance = dg.DagsterInstance.ephemeral()
+    context = dg.build_sensor_context(resources={"corpus": corpus}, instance=instance)
+
+    result = sde_build_discovery_sensor(context)
+
+    assert [rr.partition_key for rr in result.run_requests] == ["100"]
+    logged = capsys.readouterr().err
+    assert "build 100 (released 2025-09-18)" in logged
+    assert "build 200" not in logged
+
+
+def test_build_discovery_sensor_survives_a_junk_partition_key(
+    corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The dynamic-partitions store is hand-editable; every ordering path calls
+    # int() on its keys, so one junk key must be skipped, not raise.
+    monkeypatch.setenv("FAKE_SDE_BUILDS", BUILDS)
+    instance = dg.DagsterInstance.ephemeral()
+    instance.add_dynamic_partitions(sde.build_partitions.name, ["oops"])
+    context = dg.build_sensor_context(resources={"corpus": corpus}, instance=instance)
+
+    result = sde_build_discovery_sensor(context)
+
+    assert sorted(rr.partition_key for rr in result.run_requests) == ["100", "200"]
+
+
+def test_gold_sensor_survives_a_junk_partition_key(
+    corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("FAKE_SDE_BUILDS", BUILDS)
+    for build in (100, 200):
+        _ingest_build(corpus, build)
+    instance = _instance_with_builds(100, 200)
+    instance.add_dynamic_partitions(sde.build_partitions.name, ["oops"])
+    context = dg.build_sensor_context(resources={"corpus": corpus}, instance=instance)
+
+    result = sde_gold_sensor(context)
+
+    assert [rr.partition_key for rr in result.run_requests] == ["200"]
+
+
 def test_build_discovery_sensor_tags_the_release_date(
     corpus, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -730,6 +778,27 @@ def test_gold_sensor_requests_a_deferred_build_once_the_run_settles(
     result = sde_gold_sensor(context)
 
     assert [rr.partition_key for rr in result.run_requests] == ["200", "300"]
+
+
+def test_gold_sensor_defers_a_build_whose_own_silver_is_in_flight(
+    corpus, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A re-ingest of 300 rewrites the very Silver partition 300's changelog diffs
+    # from. The per-asset in-flight guard only covers `sde_changelog_gold`, so the
+    # deferral has to close it: pred(B) < S <= B, not S < B.
+    monkeypatch.setenv(
+        "FAKE_SDE_BUILDS", "100:2025-09-01,200:2025-09-02,300:2025-09-03"
+    )
+    for build in (100, 200, 300):
+        _ingest_build(corpus, build)
+    instance = _instance_with_builds(100, 200, 300)
+    _defer_silver(monkeypatch, "300")
+    context = dg.build_sensor_context(resources={"corpus": corpus}, instance=instance)
+
+    result = sde_gold_sensor(context)
+
+    assert [rr.partition_key for rr in result.run_requests] == ["200"]
+    assert "deferring 300" in capsys.readouterr().err
 
 
 def test_gold_sensor_ignores_a_higher_silver_in_flight(

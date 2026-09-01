@@ -91,13 +91,18 @@ the changelog for that build would be diffed against a predecessor that is about
 to change. The orchestrator SHALL hold that build back for the tick rather than
 request it.
 
-The rule SHALL be narrow: a build is deferred only where an in-flight Silver run
-lies **strictly between** that build and its current nearest lower committed
-Silver build. A run at or below that predecessor cannot become the predecessor and
-SHALL NOT defer anything. Deferring every outstanding build above the lowest
-in-flight run would let one permanently-failing ingest — re-requested on every
-discovery tick, and able to sit queued behind the `everef_download` pool for a
-long stretch — silence the whole changelog stream.
+The rule SHALL be narrow: a build is deferred only where a queued or in-flight
+Silver run is **above that build's current nearest lower committed Silver build,
+and at or below the build itself**. A run strictly between the two would become
+the new predecessor; a run for the build's own Silver rewrites the very partition
+the changelog diffs from, which the per-asset in-flight guard does not cover
+because that guard watches the changelog asset alone. A run at or below the
+current predecessor cannot change the predecessor and SHALL NOT defer anything.
+
+Deferring every outstanding build above the lowest in-flight run would let one
+permanently-failing ingest — re-requested on every discovery tick, and able to sit
+queued behind the `everef_download` pool for a long stretch — silence the whole
+changelog stream.
 
 The deferral SHALL be bounded by the in-flight run's own lifetime: a deferred
 build SHALL remain in the outstanding set and be requested on a later tick. The
@@ -120,6 +125,13 @@ that a build whose Silver never commits can never stop the changelog stream.
 
 - **WHEN** build 300 is outstanding and build 400's `sde_silver` run is in flight
 - **THEN** build 300 is still requested
+
+#### Scenario: The build's own Silver is being re-ingested
+
+- **WHEN** build 300 is outstanding and build 300's own `sde_silver` run is
+  queued or in flight
+- **THEN** build 300 is not requested on that tick, because the changelog would
+  read the Silver partition that ingest is rewriting
 
 #### Scenario: A run in flight at or below the predecessor
 
