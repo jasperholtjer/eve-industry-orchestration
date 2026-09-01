@@ -64,7 +64,7 @@ are version-specific.
 
 ## 3. Verify
 
-- [ ] 3.1 Run the repository gate in the worktree and confirm all three pass:
+- [x] 3.1 Run the repository gate in the worktree and confirm all three pass:
       `uv run ruff check .`, `uv run ruff format --check .`, `uv run pytest -q`.
       There is no type checker in this repository by design; its absence is not a
       skipped check.

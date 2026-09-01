@@ -132,7 +132,10 @@ materialisation is manual.
 
 - Add a Dagster sensor polling `corpus everef missing-partitions --dataset
   market-history --format json` and requesting Silver runs for the newly available
-  dates; Gold follows via the `deps=` chain once item 2 is unblocked.
+  dates. `deps=` only expresses lineage and does not trigger downstream
+  materialisations, so Gold has its own availability sensor
+  (`market_history_gold_sensor`) polling `corpus gold ready-dates` instead of
+  riding the Silver run.
 - Respect concurrency: `deploy/dagster.yaml` pins `max_concurrent_runs: 4` (the NAS
   spindle is the real limiter) plus concurrency pools — `everef_download` (EVE Ref
   endorses ~2 parallel transfers) and `heavy` (Gold memory), both at

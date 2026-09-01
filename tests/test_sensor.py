@@ -199,12 +199,23 @@ def test_gold_sensor_ignores_a_date_outside_the_partition_range(corpus) -> None:
 
 
 def test_gold_sensor_caps_the_tick_at_the_oldest_dates(
-    corpus, capfd: pytest.CaptureFixture[str]
+    corpus, monkeypatch: pytest.MonkeyPatch, capfd: pytest.CaptureFixture[str]
 ) -> None:
     """A backlog drains oldest-first over ticks rather than enqueuing at once."""
     dates = [f"2024-01-{day:02d}" for day in range(5, 5 + MAX_PARTITIONS_PER_TICK + 1)]
     for date in dates:
         _ingest(corpus, date)
+
+    # corpus's real `ready-dates` output order is not part of the contract; feed
+    # the sensor a deliberately shuffled report so a passing test proves the
+    # sensor itself sorts oldest-first, rather than merely preserving an
+    # already-sorted upstream list.
+    shuffled = dates[::2] + dates[1::2]
+    assert sorted(shuffled) != shuffled
+    monkeypatch.setattr(
+        "eve_industry_orchestration.defs.corpus_resource.CorpusResource.gold_ready_dates",
+        lambda self, *a, **k: {"ready": shuffled},
+    )
 
     first = market_history_gold_sensor(
         dg.build_sensor_context(resources={"corpus": corpus})
@@ -220,6 +231,10 @@ def test_gold_sensor_caps_the_tick_at_the_oldest_dates(
     # next tick picks up the remainder.
     for date in dates[:MAX_PARTITIONS_PER_TICK]:
         _build_gold(corpus, date)
+    monkeypatch.setattr(
+        "eve_industry_orchestration.defs.corpus_resource.CorpusResource.gold_ready_dates",
+        lambda self, *a, **k: {"ready": [dates[-1]]},
+    )
     second = market_history_gold_sensor(
         dg.build_sensor_context(resources={"corpus": corpus}, cursor=first.cursor)
     )

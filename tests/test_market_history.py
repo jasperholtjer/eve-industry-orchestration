@@ -5,11 +5,18 @@ from __future__ import annotations
 import dagster as dg
 import pytest
 
+from eve_industry_orchestration.defs.config import resolve_partition_starts
 from eve_industry_orchestration.defs.corpus_resource import CorpusResource
 from eve_industry_orchestration.defs.market_history import (
+    DATASET,
     gold_partitions,
     market_history_gold,
     market_history_silver,
+)
+from eve_industry_orchestration.defs.market_orders import (
+    market_orders_changes_gold,
+    market_orders_events_gold,
+    market_orders_snapshot_gold,
 )
 from eve_industry_orchestration.defs.sensors import market_history_gold_sensor
 
@@ -247,7 +254,33 @@ def test_gold_declares_the_heavy_pool() -> None:
     """
     assert market_history_gold.op.pool == "heavy"
 
+    # `heavy` is one SHARED memory budget, not a per-asset limit: every wide-window
+    # ~3-4 GB Gold build names the same pool so at most `default_limit` of them run
+    # at once, whatever mix the coordinator picks. Pools are created implicitly by
+    # `pool=`, so a drifted literal in one module (typo, half-done rename) does not
+    # error — that asset silently gets its own pool with its own limit, and the real
+    # ceiling doubles while every other test stays green. Pin the names to each
+    # other. market-orders Silver is deliberately absent: it holds its own limit-1
+    # `market_orders` pool. killmails Gold is absent too — it joins `heavy`
+    # PROVISIONALLY (deploy/dagster.yaml), pending measurement, so dropping it is a
+    # legitimate change that must not fail here.
+    for shared in (
+        market_orders_snapshot_gold,
+        market_orders_changes_gold,
+        market_orders_events_gold,
+    ):
+        assert shared.op.pool == market_history_gold.op.pool, (
+            f"{shared.op.name} left the shared heavy memory budget"
+        )
+
 
 def test_gold_partition_start_comes_from_config() -> None:
-    """The valid Gold keys derive from the dataset YAML's served_start."""
-    assert gold_partitions.start.strftime("%Y-%m-%d") == "2021-01-01"
+    """The valid Gold keys derive from the dataset YAML's served_start.
+
+    Asserted against the resolver's own output, not a literal: the test must
+    fail if ``market_history.py`` stops routing through
+    :func:`resolve_partition_starts` and hardcodes a start date instead.
+    """
+    resolved = resolve_partition_starts(DATASET)
+    assert resolved.gold is not None
+    assert gold_partitions.start.strftime("%Y-%m-%d") == resolved.gold
