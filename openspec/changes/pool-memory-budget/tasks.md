@@ -67,13 +67,13 @@
 
 ## 4. Pin the declared pool set in a test
 
-- [ ] 4.1 Add `tests/test_concurrency_pools.py` asserting that the set of pool
+- [x] 4.1 Add `tests/test_concurrency_pools.py` asserting that the set of pool
       names the loaded definitions declare equals exactly
       `{"everef_download", "heavy", "market_orders", "news_embed"}`, discovering
       them from the loaded definitions rather than from a hand-written list of
       imported assets. Verify `uv run pytest tests/test_concurrency_pools.py -q`
       passes.
-- [ ] 4.2 Make the failure message name `deploy/dagster.yaml` as the file whose
+- [x] 4.2 Make the failure message name `deploy/dagster.yaml` as the file whose
       budget must account for a new pool. Verify by temporarily perturbing one
       asset's pool literal that the test fails with that message, then reverting.
 
