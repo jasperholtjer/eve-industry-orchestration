@@ -181,3 +181,40 @@ items:
       two flip counts. Both are the binary's to enforce — the assets shell out
       and record, they never pre-validate. The panel's SDE input makes this the
       first cross-dataset Gold dependency in the code location.
+
+  - id: public-contracts-live-wiring
+    title: Wire public-contracts-live into the code location
+    goal: >
+      `public-contracts-live` (corpus ADR-0068) is built and has no Dagster
+      asset. It is the current-overwrite lifecycle of ADR-0039/0040: `corpus
+      live build` lists the newest per-date folder, fetches one
+      `.v2.tar.bz2`, and collapses it to one row per open contract in
+      `gold/public-contracts-live/current/`. No Silver tier, no day-partition
+      matrix, no history, so `config.py` resolves nothing here. Land the shim
+      on the `market_orders_live` mould: one non-partitioned Gold asset in
+      `everef_download`, a fixed-cadence schedule on the upstream ~30-minute
+      rhythm (~47 snapshots a day), and the fake-binary test. The live status
+      object carries `snapshot_at` — the payload's own `scrape_start`, which
+      the filename's drifting seconds field does not give — so the freshness
+      the asset records comes from there.
+    areas: [orchestration]
+    depends_on: [corpus:public-contracts-live]
+    priority: 3
+    status: doing
+    notes: >
+      The two history rows are not this row and must not be anticipated:
+      corpus `public-contracts-silver` is blocked on
+      `everef-fetch-completeness-guards` and on an open question about how one
+      day stores four Silver tables, and `public-contracts-gold` waits on
+      that. An asset for either would be dead code.
+
+      No pool is added and none is owed a measured peak: the live build holds
+      one 4.3-6.2 MiB archive, and `everef_download` is politeness rather than
+      memory. The Silver backfill later needs the daily schedules paused or a
+      pool of its own (corpus `tmp/contracts/measurements-2026-09-01.md`
+      section 7.5); that arrives with its own row.
+
+      Materialising this on the LXC waits on a corpus release: the deploy
+      installs the binary from a GitHub Release and the latest tag predates
+      both this dataset and the sovereignty family. The row is testable now
+      against `tests/fake_corpus.py` regardless, as the sovereignty rows were.
