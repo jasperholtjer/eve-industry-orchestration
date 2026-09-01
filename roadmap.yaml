@@ -173,7 +173,7 @@ items:
     areas: [orchestration]
     depends_on: [sovereignty-silver-wiring]
     priority: 3
-    status: todo
+    status: doing
     notes: >
       Two gates, and conflating them yields a wrong number rather than a
       missing one: a permanently-absent same-day prerequisite skips the panel
