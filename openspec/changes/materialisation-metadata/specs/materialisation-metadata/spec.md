@@ -13,8 +13,9 @@ was asked.
 An asset that materialises a partition SHALL record, alongside the identifying
 fields it already carries, the facts corpus registered for that partition in
 run-state: the number of rows written, the retention class it was written
-under, and the sha256 of the parquet file. A materialisation record SHALL NOT
-consist solely of values the caller supplied.
+under, and the sha256 of the parquet file. Where run-state holds a row for the
+partition, the record SHALL carry those facts and SHALL NOT consist solely of
+values the caller supplied.
 
 #### Scenario: A partition with run-state facts
 
@@ -30,6 +31,27 @@ consist solely of values the caller supplied.
 - **WHEN** the registered run-state row reports zero rows
 - **THEN** the materialisation record reports zero rows
 - **AND** it is distinguishable from a partition whose facts could not be read
+
+### Requirement: The partition is identified in run-state's own vocabulary
+
+Run-state identifies a partition by a scheme-prefixed key, which is not the
+same string as the orchestrator's partition key. The lookup SHALL address the
+partition in the form run-state records it, so that a partition corpus
+registered is found. A lookup that silently matches nothing for a partition
+that exists is a defect, not an absent row.
+
+#### Scenario: Every scheme corpus writes is addressable
+
+- **WHEN** a partition is registered under any scheme corpus uses — a date, a
+  build number, a month, or the single latest snapshot
+- **THEN** the lookup for that partition finds its row
+- **AND** the facts recorded are that row's
+
+#### Scenario: A scheme mismatch is not mistaken for an absent row
+
+- **WHEN** an asset's partition is registered in run-state
+- **THEN** its materialisation record carries the run-state facts
+- **AND** it does not fall back to the identifying fields alone
 
 ### Requirement: Run-state is the only source of recorded facts
 

@@ -1,25 +1,37 @@
 ## 1. The read
 
-- [ ] 1.1 Add `CorpusResource.partition_metadata(dataset, tier, partition_key)`
-  in `src/eve_industry_orchestration/defs/corpus_resource.py`: one
-  `state_query` over the run-state `partitions` table returning `rows`,
-  `retention_class` and `parquet_sha256` for that triple, as a
-  `dict[str, Any]` ready to merge into `MaterializeResult` metadata. Verify by
-  reading the method and by task 1.3's test.
-- [ ] 1.2 Make it advisory: no matching row, a non-zero exit, a timeout or
+- [ ] 1.1 Add the run-state key helpers to
+  `src/eve_industry_orchestration/defs/corpus_resource.py` — `date_key`,
+  `build_key`, `month_key` and a `LATEST_KEY` constant, producing the
+  `date=<iso>` / `build=<n>` / `month=<yyyy-mm>` / `latest` forms corpus
+  writes. Verify against the fixture keys in `tests/fake_corpus.py` (lines
+  578, 678, 784, 890) and by task 1.4's test.
+- [ ] 1.2 Add `CorpusResource.partition_metadata(dataset, tier, partition_key)`
+  in the same module: one `state_query` over the run-state `partitions` table
+  returning `rows`, `retention_class` and `parquet_sha256` for that triple, as
+  a `dict[str, Any]` ready to merge into `MaterializeResult` metadata.
+  `partition_key` is the run-state key from 1.1, never a bare Dagster key. The
+  SQL interpolates its values the way the other run-state queries in this
+  module already do; do not introduce parameter binding for one query. Verify
+  by reading the method and by task 1.4's test.
+- [ ] 1.3 Make it advisory: no matching row, a non-zero exit, a timeout or
   unparseable output all return an empty mapping and log at warning with the
-  dataset, tier and key. It never raises. Verify by task 1.3's test.
-- [ ] 1.3 Extend `tests/fake_corpus.py` so its `state query` branch answers the
+  dataset, tier and key. It never raises. Verify by task 1.4's test.
+- [ ] 1.4 Extend `tests/fake_corpus.py` so its `state query` branch answers the
   new SQL from per-partition fixture state (`rows`, `retention_class`,
-  `parquet_sha256`), and add tests in `tests/` covering: a partition with
-  facts, a zero-row partition, an absent row, and a failing query. Verify with
-  `uv run --project .worktrees/materialisation-metadata pytest -q tests/`.
+  `parquet_sha256`), and add tests in `tests/` covering: a partition found
+  under each of the four key schemes using the fake's real prefixed fixture
+  keys, a zero-row partition, an absent row, and a failing query. The
+  scheme test is the one that would catch a bare key matching nothing, so it
+  asserts non-empty metadata, not merely that no exception was raised. Verify
+  with `uv run --project .worktrees/materialisation-metadata pytest -q tests/`.
 
 ## 2. The call sites
 
 Each group merges `partition_metadata(...)` over the existing metadata dict at
 every site that records a partition corpus just wrote, keeping the identifying
-fields. Sites recording a skipped build (`"built": False`) and the
+fields, and builds its key with the 1.1 helper matching that asset's own
+partition scheme. Sites recording a skipped build (`"built": False`) and the
 serving-load assets in `serving.py` are left alone. Every group consults the
 `dagster-expert` skill before touching a Dagster definition.
 

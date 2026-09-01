@@ -85,13 +85,42 @@ must not then fail because a cosmetic read did not work. This is the one place
 where swallowing is right, and it is bounded to this method: nothing else in
 this repo treats a corpus failure as advisory.
 
-**Partition key is passed, never derived.**
+**The run-state key is built explicitly, by a named helper per scheme.**
 
-The call site already holds the key corpus was invoked with — `date`,
-`context.partition_key`, a build number, `latest`. It is passed through. The
-method does not compute, normalise or reformat it, which keeps
-"config is the source of truth" intact: a key that is wrong is wrong at the
-invocation, not silently repaired at the record.
+This is the decision the whole row turns on. A Dagster partition key and a
+run-state `partitions.partition_key` are not the same string: run-state
+prefixes the scheme, and corpus writes four forms — `date=<iso>`,
+`build=<n>`, `month=<yyyy-mm>` and the unprefixed `latest`. Every call site
+holds the bare Dagster key. Passing it through unchanged would match no row,
+and because enrichment is advisory the result would be an empty mapping
+everywhere, on green tests: a row that reports itself finished and changes
+nothing. The existing sensors already know this and parse in the other
+direction (`sensors.py`, `_parse_build_key`, `removeprefix("build=")`).
+
+So `partition_metadata` takes the key *in run-state form*, and
+`corpus_resource` exposes one small helper per scheme — `date_key`,
+`build_key`, `month_key`, and a `LATEST_KEY` constant — which is what each
+call site uses. Each asset already knows its own partition scheme, so naming it
+at the call site costs one wrapper and states the mapping where it can be seen.
+
+The alternative — a `kind=` argument defaulting to `"date"` — was rejected
+because the default is what would go wrong silently: an `sde` or `mer` site
+that forgot to pass it would compile, run, match nothing, and log a warning
+nobody reads. A helper that has to be named per site cannot be forgotten by
+omission.
+
+The conversion is the only place a key is reshaped, and it is a run-state
+vocabulary question, not a path one: nothing here builds a filesystem path, so
+the storage boundary is untouched. Beyond the prefix, the key is passed
+through — not normalised, reformatted or recomputed — so a key that is wrong is
+wrong at the invocation, not silently repaired at the record.
+
+**SQL is interpolated, following the existing pattern.** The new query
+interpolates dataset, tier and key into the SQL string exactly as the other
+run-state queries in `corpus_resource.py` already do. Every value is
+repo-controlled — a dataset constant, a tier literal, a key the asset was
+invoked with — so this introduces no new exposure, and inventing parameter
+binding for one query would leave two idioms for the same table.
 
 ## Risks / Trade-offs
 
