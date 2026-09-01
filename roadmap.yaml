@@ -82,7 +82,7 @@ items:
     areas: [orchestration]
     depends_on: [sde-gold-sensor-stall]
     priority: 1
-    status: doing
+    status: done
     notes: >
       Settled in docs/questions/2026-09-01-sde-build-sequence-holes.md, which
       also carries the exact detection SQL, the reasons the blocking rule was
