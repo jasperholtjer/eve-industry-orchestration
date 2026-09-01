@@ -1,4 +1,4 @@
-schema: spec-driven
+schema: row
 
 context: |
   # eve-industry-orchestration
@@ -146,6 +146,9 @@ context: |
 rules:
   proposal:
     - State which roadmap.yaml row this change implements, by id.
+    - Fit one screen. Why is the row's goal by reference; What Changes are
+      bullets; there is no design.md - the ADR is the design where there is
+      one, and the proposal names it.
     - Say what the asset shells out to and what it records. If the proposal puts
       compute, parsing or validation in Python, stop - that belongs in
       eve-industry-corpus.
@@ -162,6 +165,12 @@ operations:
         `uv run pytest -q` against the fake corpus binary. Report only what
         failed.
       - Tick tasks in tasks.md as they finish; that is the progress signal.
+      - A bundle that touches an asset, a sensor, a schedule or a resource
+        method materialises one partition or previews one sensor tick in a
+        scratch Dagster instance against the real corpus binary before review
+        - DAGSTER_HOME and CORPUS_SINK_PATH under
+        C:\tmp\orchestration-scratch\<id>, Y:\ read and never written - and
+        the run's evidence goes to the reviewer.
   archive:
     guidance:
       - If the change settled a question in docs/questions/, resolve that file -

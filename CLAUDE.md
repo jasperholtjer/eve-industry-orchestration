@@ -60,23 +60,56 @@ The full rationale lives in [ROADMAP.md](ROADMAP.md); the load-bearing rules:
 
 ## How a change is worked
 
-**One row is one OpenSpec change, one worktree, one merge.** The row comes from
-[`roadmap.yaml`](roadmap.yaml); its `depends_on` may point into a sister repo as
-`<repo>:<id>`. `ROADMAP.md` stays what it is — the corpus CLI surface, the
-decisions, and the work items behind them. The `roadmap-next` skill carries a
-row from picked to merged and is the procedure; what to work on next across all
-six repos is the platform-level `next` skill, one directory up.
+**Two entrances.** A **row** is one logical topic — the size of one ADR or one
+dataset's wiring — and is one OpenSpec change, one worktree, one merge. It
+comes from [`roadmap.yaml`](roadmap.yaml), whose `depends_on` may point into a
+sister repo as `<repo>:<id>`, and the `roadmap-next` skill carries it from
+picked to merged. Work that moves nothing of what fires when (a partition
+definition, a start date, a sensor's trigger condition, a schedule's cadence),
+nothing an asset records, no memory budget in `deploy/dagster.yaml` and no
+recorded decision, wires no dataset and adds nothing to shell out to, and needs
+no design choice with options is a **fix**: the `fix` skill, a `fix/<slug>`
+worktree, no row and no OpenSpec change. `ROADMAP.md` stays what it is — the
+corpus CLI surface, the decisions, and the work items behind them — and what to
+work on next across all six repos is the platform-level `next` skill, one
+directory up.
 
-- **A row is built in `.worktrees/<id>`**, on `feature/<id>`, branched from
-  `develop`. The root checkout stays on `develop` and belongs to the person; a
-  command that means the worktree says so (`git -C`, `uv run --project`).
+- **Worktrees.** `.worktrees/<id>` on `feature/<id>`, or `.worktrees/<slug>`
+  on `fix/<slug>`, branched from `develop`. The root checkout stays on
+  `develop` and belongs to the person; a command that means the worktree says
+  so (`git -C`, `uv run --project`).
+- **A real run before review.** A bundle that touches an asset, a sensor, a
+  schedule or a resource method materialises one partition of that asset, or
+  previews one tick of that sensor, in a scratch Dagster instance against the
+  real `corpus` binary before it is reviewed: `DAGSTER_HOME` and
+  `CORPUS_SINK_PATH` under `C:\tmp\orchestration-scratch\<id>`, `Y:\` read and
+  never written — a materialise whose sink is `Y:\` is a defect. Testing in
+  Dagster tests the orchestration, which is this repo's product; the run's
+  evidence goes to the reviewer. The first materialise on the LXC stays the
+  operator's.
+- **One review, from outside**, by `row-reviewer` with the diff, the brief and
+  the run evidence. `/code-review` in the session only for contract rows: a
+  platform-exclusive area (`gold-contract`, `api-contract`, `calc`) in
+  `areas`, or a row that moves the memory budget in `deploy/dagster.yaml`.
+- **No session goal, no stop hook, no turn spent waiting.** A dispatched agent
+  wakes the session when it lands; a row that is not finished is picked up by
+  the next session from its worktree.
+- **A dataset is not wired freehand.** The `add-dataset-to-orchestration`
+  skill carries the touchpoints and the polymorphic-Gold mapping; a change
+  invokes it rather than reassembling them. Any Dagster definition consults
+  the `dagster-expert` skill first.
 - **A question for the person goes to [`docs/questions/`](docs/questions/README.md)**
-  on `develop`, never to the terminal and never onto the row's branch. It is
-  answered by hand, then resolved into an ADR or deleted.
+  on `develop`, never to the terminal and never onto the row's branch — and
+  only for the four cases its README names, on one screen. What a measurement
+  can answer is measured, not asked. A row that needs a corpus subcommand or a
+  Gold shape that does not exist asks; its answer is a corpus row, never logic
+  moved into Python here.
 - **The roles are definitions, not prompts.** `row-scout`, `row-builder`,
   `row-reviewer` and `row-fixer` live in `.claude/agents/`, each with its own
   model, effort and turn budget. Dispatch one by name with the task and the
   paths; do not restate what its definition or this file already says.
+- **ADRs are not append-only.** A superseded record under `docs/adr/` is
+  rewritten or deleted, never stacked with a successor.
 - **Verify before you commit**, not through a failing hook:
 
   ```bash
@@ -84,8 +117,9 @@ six repos is the platform-level `next` skill, one directory up.
   ```
 
 - **`openspec/config.yaml` carries the repository context** every change is
-  written against. When a row changes what it claims, the same change updates
-  that paragraph.
+  written against, and names the `row` schema: proposal → specs → tasks, no
+  `design.md`, because the ADR is the design wherever a row has one. When a
+  row changes what the context paragraph claims, the same change updates it.
 - **No CHANGELOG.** The specs and the decisions are the record.
 
 ## Testing without the Rust build

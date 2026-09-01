@@ -4,6 +4,13 @@
 # OpenSpec change that implements it and in the ADR it may produce; this file
 # only fixes the order. Work the first item whose `depends_on` are all done.
 #
+# A row is one logical topic - the size of one ADR or one dataset's wiring. Two
+# candidate rows that would touch the same ADR or the same module within the
+# same week are one row. A row may take more than one session; its worktree
+# and tasks.md carry it. Work that moves nothing of what fires when or what an
+# asset records, adds no dependency and needs no design choice is not a row:
+# it is a fix (the `fix` skill) and never appears here.
+#
 # `depends_on` takes a bare id for an item in this file, or `<repo>:<id>` for an
 # item in a sister repository's roadmap.yaml — corpus, orchestration, serving,
 # predict, map, calc. The platform-level `next` skill resolves both and reports
