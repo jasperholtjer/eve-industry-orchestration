@@ -58,4 +58,4 @@
 
 - [x] 5.1 `uv run ruff check .`, `uv run ruff format --check .` and
   `uv run pytest -q` are all green in the worktree.
-- [ ] 5.2 `openspec validate sde-gold-sensor-stall --strict` passes.
+- [x] 5.2 `openspec validate sde-gold-sensor-stall --strict` passes.
