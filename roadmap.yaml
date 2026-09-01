@@ -46,3 +46,19 @@ items:
     areas: [orchestration]
     priority: 4
     status: todo
+
+  - id: sde-gold-sensor-stall
+    title: Stop the SDE Gold sensor stalling after its first tick
+    goal: >
+      `sde_gold_sensor` caps `MAX_PARTITIONS_PER_TICK` over every build with
+      committed Silver and never subtracts the builds whose `sde-changelog` Gold
+      is already committed, while keying each request on a static `run_key`.
+      After the first tick Dagster dedups those keys forever: build 11 onward is
+      never requested, and a build whose Gold run failed is never retried — the
+      failure mode `sensor_util` records for market-history. Subtract committed
+      Gold from committed Silver in corpus run-state, leave out the baseline
+      build the binary skips by design, and route the remainder through
+      `request_partitions` for its rotating run_key and in-flight guard.
+    areas: [orchestration]
+    priority: 1
+    status: doing
