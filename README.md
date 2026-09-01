@@ -88,6 +88,25 @@ The homelab deployment (LXC, NFS mount, build order) is documented in
   are both **non-partitioned** `@asset`s a schedule rematerialises against
   `--latest` (mirroring the `recency-weighted` recent asset), not part of the
   partition matrix.
+- **Live snapshot assets** (`defs/market_orders_live.py`,
+  `defs/market_prices_live.py`, `defs/industry_cost_indices_live.py`,
+  `defs/public_contracts_live.py`, ADR-0039/0040/0043/0068) — the
+  current-overwrite lifecycle: `corpus live build` fetches the single newest
+  upstream snapshot and overwrites a fixed `gold/<derivative>/current/`
+  partition. No Silver tier, no `year=/month=/day=` matrix and no history, so
+  each is one **non-partitioned** asset with no `deps=` and nothing in
+  `defs/config.py` to resolve. Each is driven by a fixed-cadence, default-stopped
+  `dg.ScheduleDefinition` — the deliberate departure from "sensor over cron",
+  because there is no per-date availability to diff, only "take whatever is
+  newest now": `*/30 * * * *` for `market-orders-live` and
+  `public-contracts-live` (EVE Ref's ~30-minute snapshot rhythm, ~47 a day),
+  hourly for `market-prices-live` and `industry-cost-indices-live`. The three
+  EVE Ref ones join the `everef_download` politeness pool (one fetch per run,
+  not memory, so never `heavy`); `market-prices-live` hits ESI and joins no
+  pool. None is metadata-enriched — `corpus live build` writes no run-state row
+  — so the materialisation carries the freshness fields the binary prints
+  (`snapshot_file`, `date`, `rows`, and `snapshot_at` where the shape publishes
+  it) and nothing else.
 - **Context datasets** (`defs/news.py`, `defs/transcripts.py`, ADR-0045/0046/0048) —
   archival datasets keyed on the *fetch* date, the exception to the partition-matrix
   mould. Each shells `corpus context fetch` (raw CCP news RSS + article HTML, or the

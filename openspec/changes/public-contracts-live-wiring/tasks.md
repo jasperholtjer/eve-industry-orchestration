@@ -50,13 +50,13 @@
 
 ## 4. Documentation
 
-- [ ] 4.1 Add one line for `corpus live build` to `ROADMAP.md`'s confirmed
+- [x] 4.1 Add one line for `corpus live build` to `ROADMAP.md`'s confirmed
   corpus CLI surface list. One line only — the contract stays in corpus, and
   this row is its fourth caller. Verify by reading the list.
-- [ ] 4.2 Add the dataset where `README.md` enumerates what this code location
+- [x] 4.2 Add the dataset where `README.md` enumerates what this code location
   drives, in the shape the sibling live datasets already use. Verify by reading
   the enumeration.
-- [ ] 4.3 Update the **State of the repository** paragraph in
+- [x] 4.3 Update the **State of the repository** paragraph in
   `openspec/config.yaml`, which currently reads as though the sovereignty family
   is the newest thing here. Verify by reading the paragraph.
 

@@ -33,10 +33,20 @@ context: |
   ## State of the repository
 
   Twenty-odd asset modules under `src/eve_industry_orchestration/defs/`, one per
-  dataset family, all reaching corpus through `corpus_resource`. The three
-  sovereignty datasets are the newest and are now complete through Gold: their
-  Silver assets, all five Gold derivatives and a readiness sensor each have
-  landed, and nothing in the family has been materialised yet. The family also
+  dataset family, all reaching corpus through `corpus_resource`. The newest is
+  `public-contracts-live`, the fourth member of the live current-overwrite
+  family (`market-orders-live`, `market-prices-live`,
+  `industry-cost-indices-live`): one non-partitioned Gold asset shelling
+  `corpus live build`, a default-stopped `*/30 * * * *` schedule on EVE Ref's
+  snapshot rhythm, and the `everef_download` politeness pool. That family has no
+  Silver tier, no partition matrix and no history, so `defs/config.py` resolves
+  nothing for it and it is the standing exception to "sensor over cron" — there
+  is no per-date availability to diff. The history half of public contracts is
+  blocked in corpus and has no asset here.
+
+  Before it, the three sovereignty datasets landed complete through Gold: their
+  Silver assets, all five Gold derivatives and a readiness sensor each, with
+  nothing in the family materialised yet. The family also
   carries the assembled panel, which reads only Gold and no Silver at all —
   it declares its three same-day sibling trees, the trailing flip-window tree
   and the SDE snapshot as dependencies, so corpus ADR-0066's build order is a

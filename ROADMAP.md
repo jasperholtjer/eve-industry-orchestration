@@ -22,6 +22,10 @@ Verified against `crates/corpus-cli/src/main.rs`. `--sink-path` is a global flag
 - `corpus gold ready-dates --dataset <name> [--derivative <d>] --format json` —
   dates whose Gold partition is buildable (target Silver present, coverage gate
   passed, Gold not yet built).
+- `corpus live build --dataset <name> [--gold-path]` — fetch the newest EVE Ref
+  or ESI snapshot and overwrite the dataset's single `gold/<derivative>/current/`
+  partition (ADR-0039). No Silver, no day-partition tree, no history, no
+  run-state row — last write wins.
 - `corpus verify --dataset <name> [--date <d>] --tier <silver|gold> [--full]` —
   for Gold, `--dataset` is the **derivative** name (each derivative is its own
   Gold tree, `gold/<derivative>/...`).
