@@ -98,9 +98,11 @@ The homelab deployment (LXC, NFS mount, build order) is documented in
   `defs/config.py` to resolve. Each is driven by a fixed-cadence, default-stopped
   `dg.ScheduleDefinition` — the deliberate departure from "sensor over cron",
   because there is no per-date availability to diff, only "take whatever is
-  newest now": `*/30 * * * *` for `market-orders-live` and
-  `public-contracts-live` (EVE Ref's ~30-minute snapshot rhythm, ~47 a day),
-  hourly for `market-prices-live` and `industry-cost-indices-live`. The three
+  newest now". `market-orders-live` runs `*/30 * * * *` and
+  `public-contracts-live` `15,45 * * * *` — both EVE Ref's ~30-minute snapshot
+  rhythm (~47 a day), the second offset off the minute-:00/:30 pile-up, which
+  costs nothing on a last-write-wins tree. `market-prices-live` and
+  `industry-cost-indices-live` run hourly. The three
   EVE Ref ones join the `everef_download` politeness pool (one fetch per run,
   not memory, so never `heavy`); `market-prices-live` hits ESI and joins no
   pool. None is metadata-enriched — `corpus live build` writes no run-state row

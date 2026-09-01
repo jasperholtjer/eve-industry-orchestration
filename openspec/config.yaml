@@ -37,8 +37,10 @@ context: |
   `public-contracts-live`, the fourth member of the live current-overwrite
   family (`market-orders-live`, `market-prices-live`,
   `industry-cost-indices-live`): one non-partitioned Gold asset shelling
-  `corpus live build`, a default-stopped `*/30 * * * *` schedule on EVE Ref's
-  snapshot rhythm, and the `everef_download` politeness pool. That family has no
+  `corpus live build`, a default-stopped `15,45 * * * *` schedule on EVE Ref's
+  half-hourly snapshot rhythm (offset off the other live schedules' `*/30` and
+  `0 * * * *` cadences, since the tree is last-write-wins and the offset is
+  free), and the `everef_download` politeness pool. That family has no
   Silver tier, no partition matrix and no history, so `defs/config.py` resolves
   nothing for it and it is the standing exception to "sensor over cron" — there
   is no per-date availability to diff. The history half of public contracts is

@@ -39,7 +39,7 @@ def test_live_asset_is_not_partitioned() -> None:
 
 def test_live_schedule_targets_the_asset_half_hourly() -> None:
     # The upstream publishes on a ~30-minute rhythm (~47 snapshots a day).
-    assert public_contracts_live_schedule.cron_schedule == "*/30 * * * *"
+    assert public_contracts_live_schedule.cron_schedule == "15,45 * * * *"
     assert (
         public_contracts_live_schedule.default_status
         is dg.DefaultScheduleStatus.STOPPED
@@ -87,4 +87,28 @@ def test_absent_freshness_key_is_omitted_not_defaulted(corpus, monkeypatch) -> N
     assert "snapshot_at" not in result.metadata
     assert "snapshot_file" not in result.metadata
     assert result.metadata["rows"] == 1
+    assert result.metadata["date"] == "2026-06-26"
+
+
+def test_null_snapshot_at_is_omitted_not_defaulted(corpus, monkeypatch) -> None:
+    # `corpus live build` always emits `"snapshot_at": batch_snapshot_at(&batch)`,
+    # which serialises to JSON `null` when the built batch has zero rows (a
+    # truncated upstream snapshot whose contracts.csv decodes to no rows). The
+    # key is present but `null`, and must be treated the same as absent.
+    from eve_industry_orchestration.defs.corpus_resource import CorpusResource
+
+    def _run_with_null_snapshot_at(self, context, *args: str):
+        return {
+            "status": "written",
+            "dataset": DATASET,
+            "rows": 0,
+            "date": "2026-06-26",
+            "snapshot_at": None,
+        }
+
+    monkeypatch.setattr(CorpusResource, "run", _run_with_null_snapshot_at)
+    result = public_contracts_live_gold(dg.build_asset_context(), corpus)
+
+    assert "snapshot_at" not in result.metadata
+    assert result.metadata["rows"] == 0
     assert result.metadata["date"] == "2026-06-26"

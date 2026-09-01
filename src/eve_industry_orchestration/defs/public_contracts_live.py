@@ -77,10 +77,11 @@ def public_contracts_live_gold(
     if status is not None:
         # `snapshot_at` is the payload's own `scrape_start` — the freshness the
         # filename cannot give, because its seconds field drifts. Copy each key
-        # only when the binary reported it; a missing key stays absent rather
-        # than being defaulted, so metadata never claims a freshness the run did
-        # not observe.
+        # only when the binary reported a non-null value; a key that is absent,
+        # or present but `null` (as `snapshot_at` is when the built batch has
+        # zero rows), stays absent rather than being defaulted, so metadata
+        # never claims a freshness the run did not observe.
         for key in ("snapshot_at", "snapshot_file", "date", "rows"):
-            if key in status:
+            if status.get(key) is not None:
                 metadata[key] = status[key]
     return dg.MaterializeResult(metadata=metadata)

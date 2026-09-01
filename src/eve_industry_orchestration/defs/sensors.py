@@ -1137,11 +1137,17 @@ market_orders_live_schedule = dg.ScheduleDefinition(
 # diff — only "grab whatever EVE Ref published last". The cadence matches the
 # upstream ~30-min publish rhythm (~47 snapshots a day). The source is EVE Ref, so
 # the asset joins the `everef_download` pool (one fetch per run), not `heavy`, and
-# cannot starve the windowed backfills under max_concurrent_runs.
+# cannot starve the windowed backfills under max_concurrent_runs. Offset to
+# :15/:45 rather than :00/:30: only the half-hourly cadence matters, since the
+# tree is last-write-wins with no retention to protect, and upstream publishes
+# on no fixed offset anyway — so the offset is free to spend avoiding the
+# minute-:00/:30 pile-up with `market_orders_live_schedule` (`*/30`) and, at the
+# hour boundary, `market_prices_live_schedule` and
+# `industry_cost_indices_live_schedule` (both `0 * * * *`).
 public_contracts_live_schedule = dg.ScheduleDefinition(
     name="public_contracts_live_schedule",
     target=pcl.public_contracts_live_gold,
-    cron_schedule="*/30 * * * *",
+    cron_schedule="15,45 * * * *",
     default_status=dg.DefaultScheduleStatus.STOPPED,
 )
 
