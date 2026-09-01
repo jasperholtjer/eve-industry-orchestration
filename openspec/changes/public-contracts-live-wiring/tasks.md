@@ -43,10 +43,25 @@
   tests/test_public_contracts_live.py`.
 - [ ] 3.3 Add a test that a freshness key absent from the binary's status output
   is omitted from the metadata rather than defaulted, so the advisory rule the
-  spec states is pinned. Verify with the same pytest invocation.
+  spec states is pinned. Drive it by monkeypatching `CorpusResource.run` to
+  return a status dict without `snapshot_at` — the fake binary gains no knob for
+  it, because its job is to mimic the contract the real binary honours, not to
+  emit shapes that contract forbids. Verify with the same pytest invocation.
 
-## 4. Verification
+## 4. Documentation
 
-- [ ] 4.1 Run `uv run --project <worktree> ruff check .`, `ruff format --check .`
+- [ ] 4.1 Add one line for `corpus live build` to `ROADMAP.md`'s confirmed
+  corpus CLI surface list. One line only — the contract stays in corpus, and
+  this row is its fourth caller. Verify by reading the list.
+- [ ] 4.2 Add the dataset where `README.md` enumerates what this code location
+  drives, in the shape the sibling live datasets already use. Verify by reading
+  the enumeration.
+- [ ] 4.3 Update the **State of the repository** paragraph in
+  `openspec/config.yaml`, which currently reads as though the sovereignty family
+  is the newest thing here. Verify by reading the paragraph.
+
+## 5. Verification
+
+- [ ] 5.1 Run `uv run --project <worktree> ruff check .`, `ruff format --check .`
   and `pytest -q` — all three green, with `tests/test_concurrency_pools.py`
   unchanged and passing, since no pool is added.

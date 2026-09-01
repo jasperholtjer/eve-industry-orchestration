@@ -24,7 +24,8 @@ SHALL fail the run.
 - **WHEN** the live public-contracts asset is materialised
 - **THEN** the corpus binary is invoked with the live build operation for the
   `public-contracts-live` dataset and the configured sink root
-- **AND** the `current/` partition of the live Gold tree exists afterwards
+- **AND** the partition the run wrote is reported from the binary's own status
+  output, not from a path the code location composed
 
 #### Scenario: A failed build fails the run
 
