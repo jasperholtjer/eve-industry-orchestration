@@ -1,5 +1,5 @@
 ---
-status: open
+status: answered
 row: sde-gold-sensor-stall
 ---
 
@@ -75,4 +75,113 @@ what `develop` had.
 
 ## Answer
 
-<!-- The person writes here and sets `status: answered`. -->
+Neither option as written. Take the **third** and the **second**, and replace
+the blocking rule of the first with a bounded deferral. One follow-up row.
+
+### Why not "block on the sequence"
+
+The rule is correct — "the largest *registered* build below the target has
+committed Silver" does give the binary the predecessor it would pick — but it is
+too expensive for what it buys, on three counts:
+
+- **Its only maintenance path defeats it.** The rule reads the Dagster
+  dynamic-partitions store. Clearing a stuck build's key — the obvious operator
+  action, and the one this document's own escape hatch implies — silently
+  releases every build above it to diff across the resulting hole. A correctness
+  rule whose repair procedure produces the defect it prevents is not a rule.
+- **It compounds with the third option instead of cancelling it.** "The stall
+  becomes temporary because holes now heal" assumes a failed Silver is transient.
+  The one documented SDE failure is not: `skip_builds: [2960198]` is a
+  structurally incomplete archive, permanently excluded. Under the third option
+  that build is re-proposed every tick; under the first it also stops every later
+  changelog, for good.
+- **It moves the "sensor rule ≠ binary rule" defect rather than removing it.**
+  The binary reads committed Silver from run-state; the blocking rule would read
+  Dagster's partition store. Two stores joined by an unenforced assumption about
+  discovery order — the same class of defect, one step along.
+
+Against that, the damage it prevents is a diff over a wider interval that
+correctly labels itself (`prev_build_id`), plus one overlapping partition and one
+absent link, reachable only while two pooled Silver runs are genuinely in flight.
+A silent, dataset-wide stall is the worse failure.
+
+### Why the repair option is cheaper than this document assumed
+
+It does not need the recorded predecessor, and therefore needs no corpus work.
+The question "did a lower build's Silver commit after this Gold was built" is
+already answerable through the sanctioned `state query` seam, in the pattern
+`killmails_consumption_gold_repair_sensor` established. Only the **nearest**
+lower Silver matters, which makes the query exact rather than a superset — no
+rebuild storm when an old build is re-ingested, and no cascade:
+
+```sql
+SELECT CAST(substr(g.partition_key, 7) AS INTEGER) AS build
+FROM partitions g
+WHERE g.dataset = 'sde-changelog' AND g.tier = 'gold'
+  AND g.last_seen_at < (
+    SELECT s.last_seen_at FROM partitions s
+    WHERE s.dataset = 'sde' AND s.tier = 'silver'
+      AND CAST(substr(s.partition_key, 7) AS INTEGER)
+          < CAST(substr(g.partition_key, 7) AS INTEGER)
+    ORDER BY CAST(substr(s.partition_key, 7) AS INTEGER) DESC
+    LIMIT 1
+  )
+```
+
+A baseline build yields NULL and drops out on its own. Repair itself is already
+free: Gold overwrites in place and the binary recomputes the predecessor from
+currently committed Silver, so a flagged partition needs a rematerialise, nothing
+more.
+
+### The follow-up row
+
+Three parts, one row, one spec:
+
+1. **Fix `sde_build_discovery_sensor`** exactly as `sde-gold-sensor-stall` fixed
+   the Gold sensor: readiness from run-state (registered minus committed Silver),
+   `request_partitions` for the rotating key and the in-flight guard. Log the
+   build, its `release_date` and the attempt, so a permanently failing build is
+   visible rather than silent. Note the helper returns a `SensorResult` without
+   `dynamic_partitions_requests`, so discovery has to reassemble it, with `valid`
+   = registered ∪ newly discovered and `sort_key=int`.
+2. **Fold the stale term into `sde_gold_sensor`**, not a second sensor. Killmails
+   needs two because its terms target different assets; both terms here target
+   `sde_changelog_gold`, so it is a union in the existing outstanding set:
+   `(committed_silver − committed_gold − baseline) ∪ stale_gold`.
+3. **Defer, do not block.** Hold back a Gold build while a *lower* `sde_silver`
+   run is queued or in flight, reusing `_in_flight_partitions`. That closes the
+   real race window, and its worst case is bounded by a run's duration rather
+   than by human intervention — without run storage the helper reports nothing in
+   flight and the repair term covers it.
+
+Together: (3) makes a hole non-permanent, the deferral makes a wrong diff rare,
+and the repair term makes it temporary. None of the three can stop the changelog
+stream.
+
+### Keys and labels
+
+The build number stays the key everywhere — ordering, predecessor, deferral,
+detection. There are three release dates for a build (the index `last_modified`
+that `everef list` reports, the archive's internal `releaseDate`, and the
+`year=/month=/day=` in `done_path`) and they demonstrably disagree: that
+divergence is exactly why 2960198 is excluded by number rather than by an era
+date. A date is also not unique per build and describes upstream publication,
+not commit order, which is the axis both the race and the detection query turn
+on.
+
+Carry the date as a **label**: `sde_build_discovery_sensor` already fetches
+`release_date` and discards it — put it in the log lines and the materialisation
+metadata, and report build plus date in the stale-Gold log. Take it from
+`everef list` or the ingest status, never by parsing `done_path`; that layout is
+corpus's to own.
+
+### For the ADR
+
+State plainly that `sde-changelog` Gold is no longer write-once. That is
+precedent (killmails, corpus ADR-0060) but it changes the `parquet_sha256` a
+consumer may have recorded, so it belongs in the record rather than arriving as a
+surprise.
+
+Before the row lands, run the query above once against the NAS run-state: any
+rows are changelog partitions already built across a hole, and they need a
+rematerialise, because after the fix they are no longer proposed on their own.

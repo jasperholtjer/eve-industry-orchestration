@@ -62,3 +62,30 @@ items:
     areas: [orchestration]
     priority: 1
     status: done
+
+  - id: sde-build-sequence-integrity
+    title: Keep the SDE changelog chain intact across a build-sequence hole
+    goal: >
+      The Gold sensor asks for a build as soon as *any* smaller build has
+      committed Silver; the binary diffs against the largest committed one below
+      it. With a hole in the sequence those differ, and the wrong diff is
+      terminal. Three parts, one spec: give `sde_build_discovery_sensor` the
+      run-state readiness and rotating `run_key` that `sde-gold-sensor-stall`
+      gave the Gold sensor, so a failed ingest is retried and a hole heals; fold
+      a stale term into `sde_gold_sensor`'s outstanding set — the nearest lower
+      Silver committed after this Gold was built, via `state query` — so a wrong
+      diff is repaired on the next tick; and defer a Gold build while a *lower*
+      `sde_silver` run is in flight, rather than blocking on the registered
+      sequence, so the race narrows without a stall ever becoming permanent.
+      Build number stays the key throughout; `release_date` is carried as a log
+      and metadata label only.
+    areas: [orchestration]
+    depends_on: [sde-gold-sensor-stall]
+    priority: 1
+    status: todo
+    notes: >
+      Settled in docs/questions/2026-09-01-sde-build-sequence-holes.md, which
+      also carries the exact detection SQL, the reasons the blocking rule was
+      rejected, and the one-off check to run against the NAS run-state before
+      this lands. The ADR must record that `sde-changelog` Gold is no longer
+      write-once.
