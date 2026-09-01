@@ -38,6 +38,31 @@ def _ingest(corpus, date: str) -> None:
     )
 
 
+def _run_state_facts(metadata) -> dict:
+    """The run-state columns `partition_metadata` merged in, unwrapped.
+
+    A materialisation event wraps its metadata in `MetadataValue`s while a
+    directly-called asset returns the raw dict; one accessor reads both.
+    """
+    return {
+        key: getattr(value, "value", value)
+        for key, value in metadata.items()
+        if key in ("rows", "retention_class", "parquet_sha256")
+    }
+
+
+def _assert_enriched(metadata) -> None:
+    """Asserts the run-state facts for the partition corpus just wrote are there.
+
+    Keyed on the run-state key, not the bare Dagster partition key: a mismatched
+    key matches no row and enriches nothing, silently, so this asserts presence.
+    """
+    facts = _run_state_facts(metadata)
+    assert facts["rows"] == 1
+    assert facts["retention_class"] == "validated"
+    assert facts["parquet_sha256"]
+
+
 # --- Silver ingest skip on absent upstream day (ADR-0028) -----------------
 
 
@@ -72,7 +97,11 @@ def test_silver_materialises_present_upstream_day(
     )
 
     assert result.success
-    assert len(result.get_asset_materialization_events()) == 1
+    (materialisation,) = result.get_asset_materialization_events()
+    metadata = materialisation.materialization.metadata
+    assert metadata["dataset"].value == DATASET
+    assert metadata["partition"].value == "2024-05-15"
+    _assert_enriched(metadata)
 
 
 # --- Silver availability sensor -------------------------------------------
@@ -110,8 +139,8 @@ def test_gold_sensor_requests_ready_dates(corpus, _asset, sensor, derivative) ->
     )
 
 
-@pytest.mark.parametrize(("asset", "_sensor", "_derivative"), _GOLD_CASES)
-def test_gold_materialises_ready_day(corpus, asset, _sensor, _derivative) -> None:
+@pytest.mark.parametrize(("asset", "_sensor", "derivative"), _GOLD_CASES)
+def test_gold_materialises_ready_day(corpus, asset, _sensor, derivative) -> None:
     _ingest(corpus, "2024-05-15")
 
     result = dg.materialize(
@@ -122,7 +151,11 @@ def test_gold_materialises_ready_day(corpus, asset, _sensor, _derivative) -> Non
     )
 
     assert result.success
-    assert len(result.get_asset_materialization_events()) == 1
+    (materialisation,) = result.get_asset_materialization_events()
+    metadata = materialisation.materialization.metadata
+    assert metadata["derivative"].value == derivative
+    # Gold run-state is keyed on the derivative tree, not the dataset.
+    _assert_enriched(metadata)
 
 
 @pytest.mark.parametrize(("asset", "_sensor", "_derivative"), _GOLD_CASES)

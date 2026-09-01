@@ -39,7 +39,7 @@ serving-load assets in `serving.py` are left alone. Every group consults the
   `# TODO: enrich metadata from _INDEX.json / corpus state query` markers.
   Verify with `pytest -q -k market_history` and by grepping that neither TODO
   remains.
-- [ ] 2.2 `market_orders.py`, `system_jumps.py`, `system_kills.py`,
+- [x] 2.2 `market_orders.py`, `system_jumps.py`, `system_kills.py`,
   `structures.py`, `industry_cost_indices.py`. Verify with `pytest -q -k
   "market_orders or system_jumps or system_kills or structures or cost_indices"`.
 - [x] 2.3 `sde.py`, `mer.py` — the multi-derivative and per-build sites, whose

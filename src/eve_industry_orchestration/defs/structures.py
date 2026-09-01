@@ -40,7 +40,7 @@ import dagster as dg
 
 from eve_industry_orchestration.defs import sde
 from eve_industry_orchestration.defs.config import resolve_partition_starts
-from eve_industry_orchestration.defs.corpus_resource import CorpusResource
+from eve_industry_orchestration.defs.corpus_resource import CorpusResource, date_key
 
 DATASET = "structures"
 
@@ -126,8 +126,12 @@ def structures_silver(
         "--sink-path",
         corpus.sink_path,
     )
+    # The run-state facts corpus recorded for the partition it just wrote (rows,
+    # retention_class, parquet_sha256) merge over the identifying fields; the read
+    # is advisory and yields {} rather than failing a completed materialisation.
     yield dg.MaterializeResult(
         metadata={"dataset": DATASET, "tier": "silver", "partition": date}
+        | corpus.partition_metadata(DATASET, "silver", date_key(date))
     )
 
 
@@ -199,6 +203,8 @@ def _build_gold_asset(
             "--sink-path",
             corpus.sink_path,
         )
+        # A multi-derivative Gold row is keyed in run-state on the derivative
+        # (its own gold/<derivative>/ tree), not on the dataset name.
         yield dg.MaterializeResult(
             metadata={
                 "dataset": DATASET,
@@ -206,6 +212,7 @@ def _build_gold_asset(
                 "tier": "gold",
                 "partition": date,
             }
+            | corpus.partition_metadata(derivative, "gold", date_key(date))
         )
 
     return _gold
