@@ -1,6 +1,6 @@
 ---
 name: candidates
-description: Survey what could be built in THIS repository - the open rows on its roadmap.yaml, the work items ROADMAP.md names and has not finished, the future phases it describes without ever making a row, and what the decisions chose not to build. Use this whenever the user asks what could we build here, what is left in orchestration, what are the options, what should go on the roadmap, or what did we defer - as opposed to which existing row to start now, which is `roadmap-next`. Repo-scoped by design - the platform-wide version of this question, over all six repos, is the `candidates` skill one directory up. Reports and proposes; it never edits a roadmap and never starts the work.
+description: Survey what could be built in THIS repository - the open rows on its roadmap.yaml, the work items ROADMAP.md names and has not finished, the future phases it describes without ever making a row, and what the decisions chose not to build. Use this whenever the user asks what could we build here, what is left in orchestration, what are the options, what should go on the roadmap, or what did we defer - as opposed to which existing row to start now, which is `roadmap-next`. Repo-scoped by design - the platform-wide version of this question, over all six repos, is the `platform-candidates` skill one directory up. Reports and proposes; it never edits a roadmap and never starts the work.
 compatibility: Runs from the repo root or a worktree under .worktrees/. Needs uv.
 metadata:
   author: eve-industry
@@ -13,8 +13,11 @@ Two scopes, one question, and the boundary between them is the repository:
 
 | Where | Skill | Reads |
 | --- | --- | --- |
-| `C:\Projecten\eve` | `candidates` | six `roadmap.yaml`, six markdown roadmaps — the whole platform |
+| `C:\Projecten\eve` | `platform-candidates` | six `roadmap.yaml`, six markdown roadmaps — the whole platform |
 | here | `candidates` (this one) | `roadmap.yaml`, `ROADMAP.md`, `docs/adr/`, `docs/serving-seam.md`, `docs/decisions/not-taken/` — orchestration only |
+
+Only the root's two skills carry the `platform-` prefix; the unprefixed name is
+always the repo-level skill.
 
 This one never leaves the repository. A candidate that turns out to belong to
 `corpus`, `serving`, `predict`, `map` or `calc` is *named and handed over*, never

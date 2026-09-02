@@ -16,8 +16,8 @@ destroyed at exactly the moment the decision starts mattering.
 
 `ls` stops answering "is this handled". Two folders are readable at a glance and
 no frontmatter key can drift from them; three means the third grows without
-bound and is read by nobody, while the platform's `next` skill gains a state
-that is neither an inbox nor a block. The record that has to be right is the one
+bound and is read by nobody, while the platform's `platform-next` skill gains a
+state that is neither an inbox nor a block. The record that has to be right is the one
 something enforces — the ADR, the spec, the test, the partition definition — and
 keeping the question beside it means two places to read and one to forget.
 

@@ -47,10 +47,10 @@ This directory lives on `develop`, never on a row's branch: a parked row's
 branch may never merge, and a question committed there is one nobody can find.
 
 Across all six repositories, `uv run --with pyyaml python
-.agents/skills/next/next.py` from `C:\Projecten\eve` lists both folders, joins
-each file to its roadmap row, and reports the two states a question must never
-rest in: open on a row that already shipped, and answered on a row that is
-done.
+.agents/skills/platform-next/next.py` from `C:\Projecten\eve` lists both
+folders, joins each file to its roadmap row, and reports the two states a
+question must never rest in: open on a row that already shipped, and answered on
+a row that is done.
 
 ## What earns a question
 

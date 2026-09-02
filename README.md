@@ -227,6 +227,20 @@ uv run dg dev            # UI at http://localhost:3000
 `dg` loads `.env` automatically. Locally, point `CORPUS_SINK_PATH` at a throwaway
 directory and only materialise against dates the binary can reach.
 
+## How work is picked up
+
+Which row to start, across all six repositories, is asked one directory up at
+`C:\Projecten\eve` with the `platform-next` skill; that root has its own
+`README.md` describing the platform loop. Inside this repository:
+
+- `roadmap-next <id>` — build one named row from `roadmap.yaml` to merged.
+- `fix <what>` — one bounded change that is not a row.
+- `candidates` — what is left to build inside this repository.
+
+Questions for a person live in [`docs/questions/open/`](docs/questions/README.md),
+not in a terminal: an open question blocks its row whatever the row's `status`
+says.
+
 ## Deployment (Dagster LXC)
 
 The LXC and the NFS mount are stood up per the homelab how-tos; the `corpus`
