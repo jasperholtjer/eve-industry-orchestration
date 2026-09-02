@@ -103,6 +103,42 @@ only on what the ingest reports.
 - **THEN** that date's run succeeds without materialising it, and the remaining
   dates materialise as normal
 
+### Requirement: A day still being published is retried, not failed
+
+When the ingest for a date succeeds while reporting that it wrote no partition
+because the upstream publication for that day has not landed yet, the
+orchestrator SHALL NOT verify that date, SHALL NOT record a materialisation for
+it, and SHALL NOT fail the run. The partition SHALL be left unmaterialised and
+the run SHALL record an observation naming the reason as a retryable one, so it
+is distinguishable from a day the upstream never published at all.
+
+The two absences SHALL be distinguished, because their remedies differ: a day
+that was never published is settled and will not be reattempted on its own,
+while a day at the publication frontier is expected to settle and is re-proposed
+on a later tick. The orchestrator SHALL NOT decide which case applies; it acts
+only on what the ingest reports.
+
+#### Scenario: A frontier day is observed and left for the next tick
+
+- **WHEN** the ingest for a date succeeds and reports that it wrote no partition
+  because the day's publication is still incomplete
+- **THEN** verification is not invoked, the partition is left unmaterialised, the
+  run succeeds, and an observation records the reason as retryable
+
+#### Scenario: A frontier day does not turn into a red run per tick
+
+- **WHEN** a date is requested repeatedly while its upstream publication remains
+  incomplete
+- **THEN** each run completes green without materialising, rather than failing on
+  a verification of a partition that was never written
+
+#### Scenario: The two absences are told apart
+
+- **WHEN** one date is absent upstream permanently and another is merely still
+  publishing
+- **THEN** the observations recorded for them carry different reasons, and only
+  the second is expected to be re-proposed
+
 ### Requirement: A public-contracts materialisation records what corpus measured
 
 A successful materialisation SHALL record the facts corpus registered for the
