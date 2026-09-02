@@ -75,7 +75,7 @@ Consult the `dagster-expert` skill before adding these asset definitions.
 
 Consult the `dagster-expert` skill before adding these sensor definitions.
 
-- [ ] 4.1 Add one Gold-readiness sensor per derivative, mirroring the
+- [x] 4.1 Add one Gold-readiness sensor per derivative, mirroring the
       sovereignty builder at `sensors.py:636-721`: keyed on the run-state of
       `public_contracts_silver`, bounded by that derivative's own partition
       keys, proposing nothing for a date outside its matrix or already
@@ -84,6 +84,10 @@ Consult the `dagster-expert` skill before adding these sensor definitions.
 
 ## 5. The real run and the checks
 
+- [ ] 5.0 Fill `tests/fake_corpus.py`'s `_DERIVATIVES` / `_SERVED_START` in for
+      public-contracts. The tests pass without it because an explicit
+      `--derivative` resolves anyway, but a fake that does not know a wired
+      dataset's derivatives is the same lag this row exists to close.
 - [ ] 5.1 Real run, in a scratch Dagster instance under
       `C:\tmp\orchestration-scratch\public-contracts-gold-wiring` (`DAGSTER_HOME`
       and `CORPUS_SINK_PATH` both there) against the real `corpus` binary, `Y:\`
@@ -93,8 +97,12 @@ Consult the `dagster-expert` skill before adding these sensor definitions.
       — then materialise `contract_facts_gold` for the same date. Report what
       the Gold `_INDEX.json` and `_DONE` under the scratch sink show. If the
       local `corpus` binary predates the `public-contracts-gold` builders, say
-      so with the version and the exact error: that is evidence for the
-      reviewer, not a pass, and do not work around it by editing the row's code.
+      The binary was rebuilt for this row (`cargo build --release` at corpus
+      HEAD 168f3f5 / 0.19.0) and now parses the four shapes: a bare
+      `corpus gold build --dataset public-contracts --derivative contract-facts
+      --date 2021-06-17` reaches "target silver partition for 2021-06-17 is
+      absent", not a YAML parse error. Silver first is therefore the only thing
+      standing between here and the run.
 - [ ] 5.2 Preview one tick of the `contract_facts_gold` readiness sensor in the
       same scratch instance, with the run-state that 5.1 produced. Report the
       run requests it emitted.

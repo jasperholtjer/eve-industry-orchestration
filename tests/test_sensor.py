@@ -1,4 +1,4 @@
-"""Tests for the market-history and sovereignty availability sensors."""
+"""Tests for the market-history, sovereignty and public-contracts sensors."""
 
 from __future__ import annotations
 
@@ -7,6 +7,8 @@ from collections.abc import Callable
 import dagster as dg
 import pytest
 
+from eve_industry_orchestration.defs import public_contracts as pc
+from eve_industry_orchestration.defs import sensors as s
 from eve_industry_orchestration.defs.sensor_util import MAX_PARTITIONS_PER_TICK
 from eve_industry_orchestration.defs.sensors import (
     market_history_availability_sensor,
@@ -392,3 +394,173 @@ def test_sovereignty_sensor_caps_the_tick_and_carries_the_backlog(
     )
 
     assert [rr.partition_key for rr in second.run_requests] == [dates[-1]]
+
+
+# --- public-contracts Gold readiness (four derivatives, corpus ADR-0068) ---
+#
+# The four sensors come out of one factory, so what distinguishes them is the
+# `--derivative` each polls with, the single asset each targets and the matrix
+# each validates against; the behaviour is parametrised over the family. One
+# dataset per sink: the fake binary's Silver state is global rather than per
+# dataset, so these cases ingest `public-contracts` and nothing else.
+
+PUBLIC_CONTRACTS_GOLD_SENSORS = [
+    pytest.param(
+        s.contract_facts_gold_sensor,
+        "contract-facts",
+        pc.contract_facts_gold,
+        id="contract-facts",
+    ),
+    pytest.param(
+        s.contract_item_facts_gold_sensor,
+        "contract-item-facts",
+        pc.contract_item_facts_gold,
+        id="contract-item-facts",
+    ),
+    pytest.param(
+        s.contract_item_prices_gold_sensor,
+        "contract-item-prices",
+        pc.contract_item_prices_gold,
+        id="contract-item-prices",
+    ),
+    pytest.param(
+        s.courier_rates_gold_sensor,
+        "courier-rates",
+        pc.courier_rates_gold,
+        id="courier-rates",
+    ),
+]
+
+_READY_DATES = (
+    "eve_industry_orchestration.defs.corpus_resource.CorpusResource.gold_ready_dates"
+)
+
+
+def _build_derivative_gold(corpus, derivative: str, date: str) -> None:
+    corpus.run(
+        dg.build_asset_context(),
+        "gold",
+        "build",
+        "--dataset",
+        "public-contracts",
+        "--derivative",
+        derivative,
+        "--date",
+        date,
+        "--sink-path",
+        corpus.sink_path,
+    )
+
+
+@pytest.mark.parametrize(
+    ("sensor", "derivative", "_asset"), PUBLIC_CONTRACTS_GOLD_SENSORS
+)
+def test_public_contracts_gold_sensor_requests_a_date_whose_silver_is_sealed(
+    corpus, sensor: Callable[..., dg.SensorResult], derivative: str, _asset
+) -> None:
+    """Readiness is the run-state diff, never a listing of the storage tree.
+
+    The day drops out again once that derivative's own Gold is built, which is
+    the state-level diff the sensor runs on: the Silver stays on disk, so a
+    sensor reading the tree would keep requesting it.
+    """
+    _ingest_dataset(corpus, "public-contracts", "2024-01-15")
+    context = dg.build_sensor_context(resources={"corpus": corpus})
+
+    result = sensor(context)
+
+    by_partition = {rr.partition_key: rr for rr in result.run_requests}
+    assert sorted(by_partition) == ["2024-01-15"]
+    # Keyed on the derivative tree, not the dataset: four sensors ticking on the
+    # same date cannot dedup each other away.
+    assert by_partition["2024-01-15"].run_key.startswith(
+        f"{derivative}-gold-2024-01-15-"
+    )
+
+    _build_derivative_gold(corpus, derivative, "2024-01-15")
+    after = sensor(dg.build_sensor_context(resources={"corpus": corpus}))
+    assert after.run_requests == []
+
+
+@pytest.mark.parametrize(
+    ("sensor", "_derivative", "_asset"), PUBLIC_CONTRACTS_GOLD_SENSORS
+)
+def test_public_contracts_gold_sensor_requests_nothing_without_silver(
+    corpus, sensor: Callable[..., dg.SensorResult], _derivative, _asset
+) -> None:
+    """No built Silver partition, so corpus reports no ready date and no run."""
+    result = sensor(dg.build_sensor_context(resources={"corpus": corpus}))
+
+    assert result.run_requests == []
+
+
+@pytest.mark.parametrize(
+    ("sensor", "_derivative", "_asset"), PUBLIC_CONTRACTS_GOLD_SENSORS
+)
+def test_public_contracts_gold_sensor_ignores_a_date_before_its_own_start(
+    corpus, sensor: Callable[..., dg.SensorResult], _derivative, _asset
+) -> None:
+    """Each derivative filters against its own matrix, not the dataset's Silver.
+
+    A date corpus reports ready but that the derivative has no partition key for
+    would otherwise be asked of Dagster as a non-existent key.
+    """
+    _ingest_dataset(corpus, "public-contracts", "2021-06-01")
+    _ingest_dataset(corpus, "public-contracts", "2024-01-15")
+    context = dg.build_sensor_context(resources={"corpus": corpus})
+
+    result = sensor(context)
+
+    assert [rr.partition_key for rr in result.run_requests] == ["2024-01-15"]
+
+
+@pytest.mark.parametrize(
+    ("sensor", "derivative", "_asset"), PUBLIC_CONTRACTS_GOLD_SENSORS
+)
+def test_public_contracts_gold_sensor_polls_with_its_own_derivative(
+    corpus,
+    monkeypatch: pytest.MonkeyPatch,
+    sensor: Callable[..., dg.SensorResult],
+    derivative: str,
+    _asset,
+) -> None:
+    """One dataset, four trees: the selector is what separates the four polls."""
+    polls: list[tuple[str, str | None]] = []
+
+    def _ready(self, dataset: str, *, derivative: str | None = None) -> dict[str, list]:
+        polls.append((dataset, derivative))
+        return {"ready": []}
+
+    monkeypatch.setattr(_READY_DATES, _ready)
+
+    sensor(dg.build_sensor_context(resources={"corpus": corpus}))
+
+    assert polls == [("public-contracts", derivative)]
+
+
+@pytest.mark.parametrize(
+    ("sensor", "_derivative", "asset"), PUBLIC_CONTRACTS_GOLD_SENSORS
+)
+def test_public_contracts_gold_sensor_targets_only_its_own_asset(
+    sensor: dg.SensorDefinition, _derivative, asset: dg.AssetsDefinition
+) -> None:
+    """``deps=`` expresses build order; a sensor never fans out over the family."""
+    targeted = {
+        key
+        for target in sensor.targets
+        for assets_def in target.assets_defs
+        for key in assets_def.keys
+    }
+
+    assert targeted == {asset.key}
+
+
+def test_the_four_public_contracts_gold_sensors_are_named_per_derivative() -> None:
+    sensors = [case.values[0] for case in PUBLIC_CONTRACTS_GOLD_SENSORS]
+
+    assert [sensor.name for sensor in sensors] == [
+        "contract_facts_gold_sensor",
+        "contract_item_facts_gold_sensor",
+        "contract_item_prices_gold_sensor",
+        "courier_rates_gold_sensor",
+    ]

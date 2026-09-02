@@ -724,10 +724,12 @@ sovereignty_panel_gold_sensor = _build_sovereignty_gold_sensor(
 
 # --- public-contracts (history tier, corpus ADR-0068) ---------------------
 #
-# One availability sensor and no Gold sensor: the dataset declares no `gold:`
-# derivative yet (the 43x fold is corpus's `public-contracts-gold` row), so
-# there is nothing to poll `ready-dates` for. Availability is the same thin
-# cap-and-dedup loop as every other Silver sensor — the missing set comes from
+# One availability sensor for Silver and one readiness sensor per Gold
+# derivative: the dataset now declares four of them (corpus's
+# `public-contracts-gold` row, ADR-0068), each its own tree, its own `_DONE`
+# and its own run-state row, so each is polled with its own `--derivative`.
+# Availability is the same thin cap-and-dedup loop as every other Silver
+# sensor — the missing set comes from
 # corpus run-state, never from listing the NAS tree, and the `everef_download`
 # pool on the asset throttles the fetches across every launch path, so no
 # sensor tag is set here.
@@ -758,6 +760,73 @@ def public_contracts_availability_sensor(
         asset_key=pc.public_contracts_silver.key,
         label="availability",
     )
+
+
+def _build_public_contracts_gold_sensor(
+    derivative: str,
+    asset: dg.AssetsDefinition,
+    partitions: dg.DailyPartitionsDefinition,
+) -> dg.SensorDefinition:
+    """Builds a Gold readiness sensor for one public-contracts derivative.
+
+    One dataset, four derivatives, so the factory takes only the derivative;
+    unlike the sovereignty family the poll target is the module constant.
+
+    Polls ``corpus gold ready-dates --derivative <derivative>``, which answers
+    from the run-state ``partitions`` table — the day's Silver recorded built
+    and that derivative's Gold not yet built — never from listing the tree.
+    Each of the four folds the target day's Silver alone and holds no cross-day
+    state (ADR-0068 decision 5), so readiness is that one day's Silver and
+    nothing behind it; no window coverage is evaluated here or asked for.
+
+    Each derivative validates against **its own** partition matrix. The four
+    share a served start today, but each resolves the one its own configuration
+    declares, so a date reported ready for a sibling that moved its start is
+    still not proposed for a derivative that does not have that key.
+    """
+
+    @dg.sensor(
+        name=f"{derivative.replace('-', '_')}_gold_sensor",
+        target=asset,
+        minimum_interval_seconds=3600,
+        default_status=dg.DefaultSensorStatus.STOPPED,
+    )
+    def _sensor(
+        context: dg.SensorEvaluationContext, corpus: CorpusResource
+    ) -> dg.SensorResult:
+        report = corpus.gold_ready_dates(pc.DATASET, derivative=derivative)
+        return request_partitions(
+            context,
+            reported=report.get("ready", []),
+            valid=set(partitions.get_partition_keys()),
+            run_key_prefix=f"{derivative}-gold",
+            asset_key=asset.key,
+            label="gold-readiness",
+        )
+
+    return _sensor
+
+
+contract_facts_gold_sensor = _build_public_contracts_gold_sensor(
+    pc.CONTRACT_FACTS_DERIVATIVE,
+    pc.contract_facts_gold,
+    pc.contract_facts_gold_partitions,
+)
+contract_item_facts_gold_sensor = _build_public_contracts_gold_sensor(
+    pc.CONTRACT_ITEM_FACTS_DERIVATIVE,
+    pc.contract_item_facts_gold,
+    pc.contract_item_facts_gold_partitions,
+)
+contract_item_prices_gold_sensor = _build_public_contracts_gold_sensor(
+    pc.CONTRACT_ITEM_PRICES_DERIVATIVE,
+    pc.contract_item_prices_gold,
+    pc.contract_item_prices_gold_partitions,
+)
+courier_rates_gold_sensor = _build_public_contracts_gold_sensor(
+    pc.COURIER_RATES_DERIVATIVE,
+    pc.courier_rates_gold,
+    pc.courier_rates_gold_partitions,
+)
 
 
 # --- sde (build-versioned, ADR-0031) --------------------------------------
