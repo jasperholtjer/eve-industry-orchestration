@@ -100,6 +100,12 @@ def market_orders_silver(
     A genuinely-absent upstream day (corpus reports ``status: skipped``) is left
     Missing: the verify (which would 404 on the absent partition) is skipped and
     an ``AssetObservation`` records why, instead of a misleading materialisation.
+
+    ``incomplete`` gets no branch here: this dataset's ``hourly-folder`` layout
+    declares no ``member_suffix``, so corpus's ``FolderEmptiedByDeclaredSuffix``
+    → ``PublicationFrontier`` path never fires and every non-``skipped`` failure
+    is either a clean ``UpstreamAbsent`` skip or a fatal error, which leaves an
+    ``incomplete`` branch here unreachable rather than protective.
     """
     date = context.partition_key
     status = corpus.run(

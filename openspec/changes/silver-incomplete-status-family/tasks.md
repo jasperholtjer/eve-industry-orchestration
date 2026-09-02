@@ -39,10 +39,10 @@
       tests/test_killmails.py -q` passes.
 ## 3. Seven unreachable siblings — docstring only, no branch
 
-- [ ] 3.1 Consult the `dagster-expert` skill before touching these Dagster
+- [x] 3.1 Consult the `dagster-expert` skill before touching these Dagster
       asset definitions (docstring-only, but they remain Dagster asset
       definitions).
-- [ ] 3.2 Add one docstring sentence to the Silver function's docstring in
+- [x] 3.2 Add one docstring sentence to the Silver function's docstring in
       each of `defs/system_jumps.py`, `defs/system_kills.py`,
       `defs/market_orders.py`, `defs/industry_cost_indices.py`,
       `defs/sovereignty_map.py`, `defs/sovereignty_structures.py`,
