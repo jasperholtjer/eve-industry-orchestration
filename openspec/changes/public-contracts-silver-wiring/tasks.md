@@ -86,7 +86,7 @@
 
 ## 6. Real run
 
-- [ ] 6.1 In a scratch Dagster instance — `DAGSTER_HOME` and `CORPUS_SINK_PATH`
+- [x] 6.1 In a scratch Dagster instance — `DAGSTER_HOME` and `CORPUS_SINK_PATH`
       under `C:\tmp\orchestration-scratch\public-contracts-silver-wiring`, `Y:\`
       read and never written — against the real `corpus` binary, materialise
       `public_contracts_silver` for `2021-06-17` and preview one tick of
@@ -97,7 +97,7 @@
       requested. If the binary in the corpus checkout predates the
       public-contracts ingestor, say so and report what you ran instead — a run
       that could not happen is evidence, not a pass.
-- [ ] 6.2 While 6.1 runs, capture the peak working set of the `corpus` process
+- [x] 6.2 While 6.1 runs, capture the peak working set of the `corpus` process
       (PowerShell, e.g. sampling `Get-Process corpus | Select-Object PeakWorkingSet64`,
       or `Measure-Command` around it with the process peak read at exit). Report
       it as an **indicative Windows workstation number only** — it is not the
