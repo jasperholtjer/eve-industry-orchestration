@@ -15,7 +15,7 @@
 
 ## 2. `defs/public_contracts.py` — the Silver asset
 
-- [ ] 2.1 Consult the `dagster-expert` skill and the `add-dataset-to-orchestration`
+- [x] 2.1 Consult the `dagster-expert` skill and the `add-dataset-to-orchestration`
       skill before writing the definition. Add `defs/public_contracts.py` with
       `DATASET = "public-contracts"`, a `DailyPartitionsDefinition` whose start
       comes from task 1's resolver, and `public_contracts_silver` on the
@@ -28,14 +28,14 @@
       Gold derivatives are corpus's `public-contracts-gold` and are not this
       row's. Do not touch `defs/public_contracts_live.py`. Verify: `uv run ruff
       check` on the new module passes and it imports cleanly.
-- [ ] 2.2 Nothing is registered by hand: `src/eve_industry_orchestration/definitions.py`
+- [x] 2.2 Nothing is registered by hand: `src/eve_industry_orchestration/definitions.py`
       loads the code location with `load_from_defs_folder`, so a module placed in
       `defs/` is picked up. Verify: the loaded definitions list
       `public_contracts_silver` — assert it in a test rather than by eye.
 
 ## 3. `defs/sensors.py` — availability sensor
 
-- [ ] 3.1 Consult the `dagster-expert` skill before writing the sensor. Add
+- [x] 3.1 Consult the `dagster-expert` skill before writing the sensor. Add
       `public_contracts_availability_sensor` on the
       `market_history_availability_sensor` mould: `corpus everef
       missing-partitions` for `public-contracts` through the shared
@@ -49,13 +49,13 @@
 
 ## 4. `tests/fake_corpus.py` and `tests/test_public_contracts.py`
 
-- [ ] 4.1 Extend `tests/fake_corpus.py` with the `public-contracts` cases:
+- [x] 4.1 Extend `tests/fake_corpus.py` with the `public-contracts` cases:
       `ingest` (a written partition, and the skip status for an absent upstream
       day), `verify --tier silver`, `everef missing-partitions --format json` and
       the `state query --format json` row. Follow the closest existing dataset's
       fixtures. Verify: `uv run pytest -q` still passes for every dataset already
       exercising the fake binary.
-- [ ] 4.2 Write `tests/test_public_contracts.py` on
+- [x] 4.2 Write `tests/test_public_contracts.py` on
       `tests/test_public_contracts_live.py`'s structure: a partition
       materialises and seals `_DONE`; the metadata carries the identifying fields
       plus the run-state facts; a missing run-state row warns and still succeeds;

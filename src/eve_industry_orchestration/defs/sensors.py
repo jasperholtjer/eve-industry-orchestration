@@ -24,6 +24,7 @@ from eve_industry_orchestration.defs import market_orders as mo
 from eve_industry_orchestration.defs import market_orders_live as mol
 from eve_industry_orchestration.defs import market_prices_live as mpl
 from eve_industry_orchestration.defs import mer, sde, sensor_util
+from eve_industry_orchestration.defs import public_contracts as pc
 from eve_industry_orchestration.defs import public_contracts_live as pcl
 from eve_industry_orchestration.defs import sovereignty_campaigns as sc
 from eve_industry_orchestration.defs import sovereignty_map as sm
@@ -719,6 +720,44 @@ sovereignty_panel_gold_sensor = _build_sovereignty_gold_sensor(
     sm.sovereignty_panel_gold,
     sm.panel_gold_partitions,
 )
+
+
+# --- public-contracts (history tier, corpus ADR-0068) ---------------------
+#
+# One availability sensor and no Gold sensor: the dataset declares no `gold:`
+# derivative yet (the 43x fold is corpus's `public-contracts-gold` row), so
+# there is nothing to poll `ready-dates` for. Availability is the same thin
+# cap-and-dedup loop as every other Silver sensor — the missing set comes from
+# corpus run-state, never from listing the NAS tree, and the `everef_download`
+# pool on the asset throttles the fetches across every launch path, so no
+# sensor tag is set here.
+#
+# It covers the trailing edge only. The 1 892-day history behind it is an
+# operator backfill (ADR-0068 consequences: ~8.2 h at the politeness limit),
+# not this sensor's job: widening the per-tick cap to make it one would put an
+# 8-hour queue behind a 10-partition tick budget shared with every other
+# dataset. The live twin has no availability to diff and is driven by
+# `public_contracts_live_schedule` instead.
+
+
+@dg.sensor(
+    target=pc.public_contracts_silver,
+    minimum_interval_seconds=3600,
+    default_status=dg.DefaultSensorStatus.STOPPED,
+)
+def public_contracts_availability_sensor(
+    context: dg.SensorEvaluationContext, corpus: CorpusResource
+) -> dg.SensorResult:
+    """Requests Silver runs for public-contracts dates newly available upstream."""
+    report = corpus.everef_missing_partitions(pc.DATASET)
+    return request_partitions(
+        context,
+        reported=report.get("missing", []),
+        valid=set(pc.silver_partitions.get_partition_keys()),
+        run_key_prefix=f"{pc.DATASET}-silver",
+        asset_key=pc.public_contracts_silver.key,
+        label="availability",
+    )
 
 
 # --- sde (build-versioned, ADR-0031) --------------------------------------

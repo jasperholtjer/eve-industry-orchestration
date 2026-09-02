@@ -1,0 +1,20 @@
+name: public-contracts
+schema_version: 1
+source:
+  kind: everef
+  layout: hourly-folder
+  base_url: https://data.everef.net/public-contracts/history
+  member_suffix: .v2.tar.bz2
+  ignorable_member_suffixes:
+    - .json.gz
+bronze:
+  retention_days: 1
+silver:
+  parquet_codec: zstd
+  parquet_codec_level: 3
+  sort_keys: [snapshot_at, member]
+  # Coverage floor (ADR-0027): the first day of the `.v2.tar.bz2` era. Mirrors
+  # the corpus dataset config, which is the source this start is read from.
+  served_start: 2021-06-17
+# No `gold:` block, exactly as corpus declares it (ADR-0068 decision 5): the
+# derivatives are a later corpus row's, so Silver resolves from the floor alone.
