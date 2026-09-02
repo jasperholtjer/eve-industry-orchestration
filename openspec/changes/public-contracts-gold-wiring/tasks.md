@@ -84,11 +84,11 @@ Consult the `dagster-expert` skill before adding these sensor definitions.
 
 ## 5. The real run and the checks
 
-- [ ] 5.0 Fill `tests/fake_corpus.py`'s `_DERIVATIVES` / `_SERVED_START` in for
+- [x] 5.0 Fill `tests/fake_corpus.py`'s `_DERIVATIVES` / `_SERVED_START` in for
       public-contracts. The tests pass without it because an explicit
       `--derivative` resolves anyway, but a fake that does not know a wired
       dataset's derivatives is the same lag this row exists to close.
-- [ ] 5.1 Real run, in a scratch Dagster instance under
+- [x] 5.1 Real run, in a scratch Dagster instance under
       `C:\tmp\orchestration-scratch\public-contracts-gold-wiring` (`DAGSTER_HOME`
       and `CORPUS_SINK_PATH` both there) against the real `corpus` binary, `Y:\`
       read and never written. **No public-contracts Silver exists on `Y:\`**, so
@@ -103,7 +103,7 @@ Consult the `dagster-expert` skill before adding these sensor definitions.
       --date 2021-06-17` reaches "target silver partition for 2021-06-17 is
       absent", not a YAML parse error. Silver first is therefore the only thing
       standing between here and the run.
-- [ ] 5.2 Preview one tick of the `contract_facts_gold` readiness sensor in the
+- [x] 5.2 Preview one tick of the `contract_facts_gold` readiness sensor in the
       same scratch instance, with the run-state that 5.1 produced. Report the
       run requests it emitted.
-- [ ] 5.3 `uv run ruff check . && uv run ruff format --check . && uv run pytest -q`.
+- [x] 5.3 `uv run ruff check . && uv run ruff format --check . && uv run pytest -q`.

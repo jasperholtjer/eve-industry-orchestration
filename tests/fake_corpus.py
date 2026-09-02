@@ -127,6 +127,15 @@ _DERIVATIVES: dict[str, list[str]] = {
     ],
     "sovereignty-structures": ["sovereignty-adm"],
     "sovereignty-campaigns": ["sovereignty-contests"],
+    # Public contracts (corpus ADR-0068 decision 5): the fold ADR-0067 forbids at
+    # Silver, done at Gold as four day-partitioned trees over the same day's
+    # Silver, each with its own `_DONE` and run-state row.
+    "public-contracts": [
+        "contract-facts",
+        "contract-item-facts",
+        "contract-item-prices",
+        "courier-rates",
+    ],
 }
 # Per-derivative served_start, surfaced in `gold ready-dates` JSON.
 _SERVED_START: dict[str, str | None] = {
@@ -156,6 +165,12 @@ _SERVED_START: dict[str, str | None] = {
     "sovereignty-panel": "2022-01-31",
     "sovereignty-adm": "2022-01-01",
     "sovereignty-contests": "2022-01-01",
+    # No cross-day state in any of the four public-contracts builders, so every
+    # derivative serves from the Silver floor unchanged (corpus ADR-0068).
+    "contract-facts": "2021-06-17",
+    "contract-item-facts": "2021-06-17",
+    "contract-item-prices": "2021-06-17",
+    "courier-rates": "2021-06-17",
 }
 
 # Same-day Gold prerequisites the real binary's `gold ready-dates` gates on
