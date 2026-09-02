@@ -3,10 +3,11 @@
 ## Purpose
 
 Defines how a Silver partition of the public-contracts history tier is produced
-and offered: how the partition start of a dataset that declares no Gold
-derivative is derived, which corpus operations the asset invokes and in what
-order, what its availability sensor may decide on its own, and the concurrency
-bound its ingests run under.
+and offered: how a Silver partition start is derived where no Gold derivative
+reaches back past it — whether because the dataset declares none at all, or
+because every derivative it declares folds a single day — which corpus
+operations the asset invokes and in what order, what its availability sensor
+may decide on its own, and the concurrency bound its ingests run under.
 
 ## Requirements
 
