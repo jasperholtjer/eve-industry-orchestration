@@ -53,7 +53,7 @@
 
 ## 4. The real run
 
-- [ ] 4.1 Materialise `lp_store_offers_live_gold` once in a scratch Dagster
+- [x] 4.1 Materialise `lp_store_offers_live_gold` once in a scratch Dagster
   instance against the real `corpus` binary — `DAGSTER_HOME` and
   `CORPUS_SINK_PATH` under `C:\tmp\orchestration-scratch\lp-store-offers-live`,
   `Y:\` read and never written. Record the row counts, the corporation counts
@@ -73,6 +73,21 @@
 
 ## 6. Verification
 
-- [ ] 6.1 Run `uv run --project <worktree> ruff check .`, `ruff format --check
+- [x] 6.1 Run `uv run --project <worktree> ruff check .`, `ruff format --check
   .` and `pytest -q` — all three green, with `tests/test_concurrency_pools.py`
   unchanged and passing, since no pool is added.
+
+## Run evidence
+
+Materialised `lp_store_offers_live_gold` on 2026-09-02 15:08 CEST in a scratch
+Dagster instance (`DAGSTER_HOME` and `CORPUS_SINK_PATH` under
+`C:\tmp\orchestration-scratch\lp-store-offers-live`) against the real binary
+built from corpus `develop` at 014f7fd — `Y:\` neither read nor written, the
+dataset fetches its own ESI payloads. One invocation, `RUN_SUCCESS` in 3.36 s:
+283 corporations at four in flight, 102 empty stores, 31 847 `lp-store-offers`
+rows and 35 066 `lp-store-offer-items` rows, `snapshot_at`
+2026-09-02T11:06:52+00:00. Both `_INDEX.json` carry `run_id`
+`live-esi-20260902T110652Z` — the equality that says the two trees came from one
+fetch. The materialisation recorded `dataset`, `tier`, `partition`,
+`snapshot_at`, `source`, `corporations`, `empty_stores`,
+`rows.lp-store-offers` and `rows.lp-store-offer-items`, and no `rows`.
