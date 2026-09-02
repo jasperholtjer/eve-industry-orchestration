@@ -296,3 +296,78 @@ items:
       written, so the fall-through verify 404s and the run goes red once per
       sensor tick until upstream settles. This row's own asset branches on both;
       the siblings are a fix of their own.
+
+  - id: silver-incomplete-status-family
+    title: Branch every Silver asset on the status corpus can actually return
+    goal: >
+      A Silver asset that does not branch on an absence status corpus can emit
+      falls through to `corpus verify`, which fails on the partition the ingest
+      deliberately did not write — turning a successful ingest into a red run,
+      once per availability tick, because the sensors rotate their `run_key`.
+      `public_contracts_silver` had just been given both branches; nine siblings
+      carried only `skipped`. Establish per dataset whether `incomplete` is
+      reachable, add the branch only where it is, and where it is not, record why
+      in the module — a branch added where corpus cannot emit the status is dead
+      code, the argument `market_history.py` already makes for its own missing
+      `skipped` branch.
+    areas: [orchestration]
+    priority: 2
+    status: done
+    notes: >
+      Landed 2026-09-02. Two of the nine, not nine: `structures` (declares
+      `member_suffix: .v2.json.bz2`, so a listed folder with no member of that
+      suffix reaches `DeclaredSuffixVerdict::PublicationFrontier`, corpus
+      ADR-0064) and `killmails` (`daily-tar-of-json`, whose 404 resolves through
+      the year index to `IndexVerdict::NotYetPublished`, ADR-0028's 2026-09-01
+      extension). The other seven got one docstring sentence each and no branch.
+
+      The reachability argument is closed on three legs, all read in corpus
+      source rather than assumed: `member_suffix` appears in exactly three
+      dataset YAMLs (`structures`, `public-contracts`, `public-contracts-live`);
+      the `hourly-folder-tar` config variant hardcodes `member_suffix: None`
+      (`crates/corpus-everef/src/source.rs:79-86`), so those six have no field to
+      declare one even in principle; and `daily_completeness` returns `Some` only
+      for `daily-file`, so ADR-0041's stability and floor gates — the third
+      producer of `SkippedIncomplete` — are dead for all nine.
+
+      The `incomplete` branch cannot be shown against the real binary: it needs an
+      upstream day genuinely mid-publication, which is not reproducible on demand.
+      So each changed asset was run twice — an ordinary partition against the real
+      binary (structures 2026-08-29, 2 485 rows; killmails 2026-08-25, 243 020
+      rows) to prove the daily path still works, and the branch itself against the
+      fake binary with `FAKE_INCOMPLETE_DATES`. A row touching an absence branch
+      should expect the same shape.
+
+  - id: public-contracts-gold-wiring
+    title: Teach config.py the four public-contracts Gold shapes and wire them
+    goal: >
+      Corpus merged `public-contracts-gold` on 2026-09-02, adding a `gold:` block
+      to `public-contracts.yaml` with four derivatives — shapes `contract-facts`,
+      `contract-item-facts`, `contract-item-prices` and `courier-rates`.
+      `config.py`'s `_lookback_for_shape` knows none of them, so loading the code
+      location against the real datasets dir raises `PartitionConfigError` at
+      import and nothing loads at all. Teach it the four shapes and their
+      reach-back, wire the four Gold assets, and refresh
+      `tests/fixtures/datasets/public-contracts.yaml`, which still carries no
+      `gold:` block and is why the suite stayed green through the breakage.
+    areas: [orchestration]
+    depends_on: [corpus:public-contracts-gold]
+    priority: 1
+    status: todo
+    notes: >
+      Found 2026-09-02 by two builders of `silver-incomplete-status-family`
+      independently, both of whom worked around it with a scratch copy of the
+      datasets dir to run at all. Priority 1 because it is not a gap but a break:
+      the code location does not load.
+
+      `public-contracts-silver-wiring` added `resolve_silver_start`'s Gold-less
+      branch for this dataset. That branch is not wrong and other datasets may yet
+      need it, but public-contracts no longer takes it — with a `gold:` block the
+      Silver start resolves through the derivatives again, which is where the
+      unknown shapes bite. Do not delete the branch on the strength of this row;
+      check whether any dataset still has no `gold:` block first.
+
+      The fixture lagging reality is the second half of the lesson: a dataset
+      fixture that never gains the block the real YAML gained cannot catch this
+      class of break. Consider whether the fixture set should be checked against
+      the sibling checkout rather than hand-maintained.

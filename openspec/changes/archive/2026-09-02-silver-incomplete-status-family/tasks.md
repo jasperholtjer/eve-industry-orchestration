@@ -85,7 +85,7 @@
 
 ## 5. Whole-row verification
 
-- [ ] 5.1 Run `uv run ruff check . && uv run ruff format --check . && uv run
+- [x] 5.1 Run `uv run ruff check . && uv run ruff format --check . && uv run
       pytest -q` across the full repo and confirm all pass — no fake-binary
       change was needed (`tests/fake_corpus.py`'s `FAKE_INCOMPLETE_DATES`
       check in `_do_ingest` is already dataset-generic).

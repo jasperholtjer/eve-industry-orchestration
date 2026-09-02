@@ -89,6 +89,19 @@ context: |
   Gold) record their identifying fields as before, each with the reason in place
   and a test pinning it.
 
+  A Silver asset branches on the absence statuses `corpus ingest` can return for
+  its own dataset, and on no others. A day the upstream never published is
+  permanent and left Missing; a day still being published is retryable and left
+  Missing to be re-proposed on the next tick — falling through to `verify` on
+  either turns a successful ingest into a red run once per tick. Which of the two
+  a dataset can produce is corpus's fetch layer to decide, not this repo's, and
+  it varies: only `structures` and `public-contracts` declare the
+  `member_suffix` that opens the publication-frontier verdict, and only
+  `killmails` reaches it through the daily-tar year index. The other Silver
+  assets carry no such branch and say in their docstring why it would be
+  unreachable rather than protective, the argument `market_history.py` has made
+  for its own missing `skipped` branch since it landed.
+
   ## Concurrency, which is where this repo is easiest to get wrong
 
   Two layers in `deploy/dagster.yaml`: a global `max_concurrent_runs` I/O cap —
