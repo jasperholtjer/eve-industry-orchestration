@@ -45,10 +45,13 @@ context: |
   nothing for it and it is the standing exception to "sensor over cron" — there
   is no per-date availability to diff. The history half of public contracts is
   wired beside it as a day-partitioned Silver asset with an availability sensor
-  of its own; because that dataset declares no Gold derivative to anchor
-  against, its partition start resolves from the Silver coverage floor the
-  dataset YAML declares rather than from a Gold `served_start` minus a window.
-  Its Gold half is still corpus's, and has no asset here.
+  of its own, and — since corpus landed its `gold:` block — four day-partitioned
+  Gold assets, one per derivative, each with a readiness sensor of its own. All
+  four fold a single day of Silver and hold no state across days, so their
+  reach-back is zero and the Silver start stays the coverage floor the dataset
+  YAML declares rather than a Gold `served_start` minus a window. `mer-killdump`
+  is now the only dataset declaring no `gold:` block at all, which is what keeps
+  `_resolve_silver`'s Gold-less branch reachable.
 
   Before it, the three sovereignty datasets landed complete through Gold: their
   Silver assets, all five Gold derivatives and a readiness sensor each, with

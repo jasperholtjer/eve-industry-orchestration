@@ -353,7 +353,7 @@ items:
     areas: [orchestration]
     depends_on: [corpus:public-contracts-gold]
     priority: 1
-    status: todo
+    status: done
     notes: >
       Found 2026-09-02 by two builders of `silver-incomplete-status-family`
       independently, both of whom worked around it with a scratch copy of the
@@ -369,5 +369,30 @@ items:
 
       The fixture lagging reality is the second half of the lesson: a dataset
       fixture that never gains the block the real YAML gained cannot catch this
-      class of break. Consider whether the fixture set should be checked against
-      the sibling checkout rather than hand-maintained.
+      class of break.
+
+      Landed 2026-09-02. `mer-killdump` is now the only dataset declaring no
+      `gold:` block, so `_resolve_silver`'s Gold-less branch was kept. All four
+      shapes share one zero-reach-back arm: each folds a single day of Silver and
+      holds no cross-day state, so the Silver start stays the coverage floor and
+      Silver and Gold share 2021-06-17.
+
+      The guard against the next such break is a test that LOADS THE DEFS FOLDER
+      in a subprocess against the sibling datasets dir, skipped when absent — not
+      "resolve every YAML", which is permanently red because twelve datasets
+      declare shapes `_lookback_for_shape` has never known and resolve elsewhere,
+      and not "import definitions.py", which proves nothing because `@definitions`
+      is lazy. Whether the fixture SET should be generated from the sibling
+      checkout rather than hand-maintained is still open and still worth a row.
+
+      Real run: Silver 2021-06-17 gave 14 616 340 rows / 118.2 MiB in 35.4 s, and
+      `contract-facts` folded that to 3 758 Gold rows in 5 s — the fold is three
+      orders of magnitude narrower than its input, so a memory-bearing pool is
+      unlikely to be owed, but no `/usr/bin/time -v` peak was taken and none of
+      the four joined a pool. The other three derivatives have never been built.
+
+      The local `corpus` binary had to be rebuilt (`cargo build --release`) before
+      the run: the installed one predated the corpus row and rejected the four
+      shapes at YAML parse. Its `--version` still prints a stale build-script
+      stamp, so trust the mtime, not the string. The LXC needs the same release
+      before it can materialise these.
