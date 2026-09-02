@@ -44,7 +44,11 @@ context: |
   Silver tier, no partition matrix and no history, so `defs/config.py` resolves
   nothing for it and it is the standing exception to "sensor over cron" — there
   is no per-date availability to diff. The history half of public contracts is
-  blocked in corpus and has no asset here.
+  wired beside it as a day-partitioned Silver asset with an availability sensor
+  of its own; because that dataset declares no Gold derivative to anchor
+  against, its partition start resolves from the Silver coverage floor the
+  dataset YAML declares rather than from a Gold `served_start` minus a window.
+  Its Gold half is still corpus's, and has no asset here.
 
   Before it, the three sovereignty datasets landed complete through Gold: their
   Silver assets, all five Gold derivatives and a readiness sensor each, with

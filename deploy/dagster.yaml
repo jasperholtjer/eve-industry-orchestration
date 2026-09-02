@@ -65,9 +65,9 @@
 #        data.everef.net, NOT memory. The light Silver fetches (market-history,
 #        system-jumps, system-kills, killmails, sde, industry-cost-indices, mer,
 #        mer-killdump, structures, sovereignty-map, sovereignty-structures,
-#        sovereignty-campaigns, and the `_LIVE_POOL` assets, which alias this
-#        same name). EVE Ref endorses a small fan-out (its rclone example uses
-#        `--transfers 2`), so 2 concurrent.
+#        sovereignty-campaigns, public-contracts, and the `_LIVE_POOL` assets,
+#        which alias this same name). EVE Ref endorses a small fan-out (its
+#        rclone example uses `--transfers 2`), so 2 concurrent.
 #    `heavy` and `everef_download` want 2, so `default_limit: 2` covers them with
 #    no per-pool override. `market_orders` and `news_embed` need limit 1, which the
 #    yaml cannot express (only `default_limit` lives here) — redeploy.sh sets each
@@ -93,6 +93,23 @@
 # `memory.peak` counts since boot, so the 11.9 GiB high-water mark on the box
 # belongs to that same superseded configuration. There is no measurement of what
 # runs today, and buying RAM for a paper number is the wrong order.
+#
+# PUBLIC-CONTRACTS SILVER ADDS NOTHING TO THAT SUM, and not merely because
+# nobody measured it. The ingestor streams one archive at a time in ascending
+# `snapshot_at` and emits each (snapshot, member) pair as its own batch, "so a
+# day of ~47 snapshots never coexists"; one snapshot is held several times over
+# while its seven members are widened, so "peak is therefore a small multiple of
+# one decompressed archive" — ~63 MB for a recent day (corpus
+# `crates/ingestor-public-contracts/src/silver.rs:34-46`). It takes
+# `everef_download` for fetch politeness and no memory-bearing pool. No
+# `/usr/bin/time -v` figure exists to confirm the multiple: corpus
+# `tmp/contracts/measurements-2026-09-01.md` §7.5 states the scheduling problem
+# and gives no number. The full backfill is 1 892 partitions, ~8.2 h at
+# `everef_download`'s limit of 2, so it overlaps the daily schedules — and of
+# the two handlings §7.5 offers, this deployment takes the first: the daily
+# schedules are paused for the backfill's duration. It gets no bound of its own,
+# because length is not memory and a pool bought with an unmeasured peak is the
+# membership rule this file exists to hold.
 #
 # NEXT STEP, before any pool limit or box size moves: reset the high-water mark
 # (`echo > /sys/fs/cgroup/memory.peak`, kernel >= 6.9), let the current

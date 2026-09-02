@@ -67,7 +67,7 @@
 
 ## 5. `deploy/dagster.yaml` — the backfill's run-planning
 
-- [ ] 5.1 Add `public-contracts` to the `everef_download` member list, and add to
+- [x] 5.1 Add `public-contracts` to the `everef_download` member list, and add to
       the memory-budget block — not as prose elsewhere — a short paragraph
       recording *why* it is not memory-bearing rather than merely that nobody
       measured it: the ingestor streams one archive at a time, so a day's ~47
@@ -107,7 +107,7 @@
 
 ## 7. The claims the row falsifies
 
-- [ ] 7.1 `openspec/config.yaml`'s **State of the repository** paragraph says
+- [x] 7.1 `openspec/config.yaml`'s **State of the repository** paragraph says
       "The history half of public contracts is blocked in corpus and has no asset
       here." This row makes that false. Rewrite the sentence to what is then
       true: the history tier is wired as a day-partitioned Silver asset with its
