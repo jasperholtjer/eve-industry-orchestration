@@ -10,6 +10,7 @@ from eve_industry_orchestration.defs.config import (
     PartitionConfigError,
     _lookback_for_shape,
     resolve_partition_starts,
+    resolve_silver_start,
 )
 
 DATASETS_DIR = Path(__file__).parent / "fixtures" / "datasets"
@@ -363,3 +364,60 @@ def test_tenure_lookback_rejects_a_malformed_block(entry: dict[str, object]) -> 
     """A mistyped tenure key must fail loudly, never default to zero."""
     with pytest.raises(PartitionConfigError):
         _lookback_for_shape("sovereignty-ownership", "sov-ownership", entry)
+
+
+# --- Silver-only datasets: no `gold:` block at all (ADR-0068) -------------
+
+
+def _write_dataset(directory: Path, name: str, body: str) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"{name}.yaml").write_text(body, encoding="utf-8")
+    return directory
+
+
+def test_silver_only_dataset_resolves_from_its_coverage_floor(tmp_path: Path) -> None:
+    """No `gold:` block, so the ADR-0027 floor is the only anchor there is."""
+    directory = _write_dataset(
+        tmp_path,
+        "public-contracts",
+        "name: public-contracts\nsilver:\n  served_start: 2021-06-17\n",
+    )
+    assert resolve_silver_start("public-contracts", str(directory)) == "2021-06-17"
+
+
+def test_silver_only_dataset_without_a_floor_raises(tmp_path: Path) -> None:
+    """Neither a derivative to reach back from nor a floor: no default exists."""
+    directory = _write_dataset(
+        tmp_path, "floorless", "name: floorless\nsilver:\n  parquet_codec: zstd\n"
+    )
+    with pytest.raises(PartitionConfigError):
+        resolve_silver_start("floorless", str(directory))
+
+
+def test_silver_only_env_override_wins_over_the_floor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    directory = _write_dataset(
+        tmp_path,
+        "public-contracts",
+        "name: public-contracts\nsilver:\n  served_start: 2021-06-17\n",
+    )
+    monkeypatch.setenv("CORPUS_PUBLIC_CONTRACTS_SILVER_START", "2024-01-01")
+    assert resolve_silver_start("public-contracts", str(directory)) == "2024-01-01"
+
+
+@pytest.mark.parametrize(
+    ("dataset", "expected"),
+    [
+        (DATASET, "2020-01-02"),
+        (SYSTEM_JUMPS, "2021-07-01"),
+        (MARKET_ORDERS, "2021-07-09"),
+        (SOV_MAP, "2021-07-05"),
+    ],
+)
+def test_a_dataset_with_derivatives_resolves_unchanged(
+    dataset: str, expected: str
+) -> None:
+    """The derivative path is untouched: Silver is shared, so no selector is
+    needed even where `resolve_partition_starts` would demand one for Gold."""
+    assert resolve_silver_start(dataset, str(DATASETS_DIR)) == expected

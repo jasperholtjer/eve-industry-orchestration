@@ -1,6 +1,6 @@
 ## 1. `config.py` — Silver-only start resolution
 
-- [ ] 1.1 Add a resolver for a dataset that declares no `gold:` block: it returns
+- [x] 1.1 Add a resolver for a dataset that declares no `gold:` block: it returns
       the dataset's `silver.served_start` through the existing
       `_silver_served_start` helper, and raises `PartitionConfigError` when the
       dataset declares neither a Gold derivative nor a coverage floor. Do not
@@ -10,7 +10,7 @@
       date. Verify: new unit tests in `tests/test_config.py` cover a fixture with
       a floor and no `gold:` (resolves), a fixture with neither (raises), and a
       real dataset that has derivatives (unchanged).
-- [ ] 1.2 Verify no existing dataset regresses: `uv run pytest tests/test_config.py -q`
+- [x] 1.2 Verify no existing dataset regresses: `uv run pytest tests/test_config.py -q`
       passes for every dataset already calling `resolve_partition_starts`.
 
 ## 2. `defs/public_contracts.py` — the Silver asset

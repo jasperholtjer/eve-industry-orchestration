@@ -179,12 +179,52 @@ def resolve_partition_starts(
 
     gold_start = _gold_override(dataset, selected.name) or selected.served_start
 
-    silver_override = os.environ.get(_env_key(dataset, "SILVER"))
-    floor = _silver_served_start(cfg)
-    derived = _silver_start(dataset, derivatives)
-    silver_start = silver_override or (max(derived, floor) if floor else derived)
+    return PartitionStarts(silver=_resolve_silver(dataset, cfg), gold=gold_start)
 
-    return PartitionStarts(silver=silver_start, gold=gold_start)
+
+def resolve_silver_start(dataset: str, datasets_dir: str | None = None) -> str:
+    """Resolves the Silver partition start of a dataset, Gold or not.
+
+    A dataset that declares no ``gold`` list at all (public-contracts, ADR-0068:
+    the derivatives are a later row's to declare) has no derivative to reach back
+    from, so its Silver start is the ``silver.served_start`` coverage floor
+    (ADR-0027) — the earliest day its Silver contract serves. A dataset that does
+    declare derivatives resolves exactly as :func:`resolve_partition_starts`
+    does, since Silver is shared across a dataset's derivatives and needs no
+    selector.
+
+    ``CORPUS_<DATASET>_SILVER_START`` overrides either path.
+
+    Args:
+        dataset: Dataset name, e.g. ``public-contracts``.
+        datasets_dir: Directory holding ``<dataset>.yaml``. Falls back to the
+            ``CORPUS_DATASETS_DIR`` environment variable.
+
+    Returns:
+        The inclusive first Silver partition date, as ``YYYY-MM-DD``.
+
+    Raises:
+        PartitionConfigError: When the dataset declares neither a Gold derivative
+            to reach back from nor a Silver coverage floor, and no environment
+            override supplies the date.
+    """
+    return _resolve_silver(dataset, _load_config(dataset, datasets_dir))
+
+
+def _resolve_silver(dataset: str, cfg: dict[str, Any]) -> str:
+    override = os.environ.get(_env_key(dataset, "SILVER"))
+    if override:
+        return override
+    floor = _silver_served_start(cfg)
+    if cfg.get("gold") is None:
+        if floor is None:
+            raise PartitionConfigError(
+                f"dataset {dataset} declares neither a gold derivative nor a "
+                "`silver.served_start` coverage floor to anchor Silver"
+            )
+        return floor
+    derived = _silver_start(dataset, _derivatives(cfg))
+    return max(derived, floor) if floor else derived
 
 
 def _select_derivative(
