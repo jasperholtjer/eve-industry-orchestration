@@ -396,3 +396,58 @@ items:
       shapes at YAML parse. Its `--version` still prints a stale build-script
       stamp, so trust the mtime, not the string. The LXC needs the same release
       before it can materialise these.
+
+  - id: lp-store-offers-live
+    title: Wire the lp-store-offers-live dataset into Dagster
+    goal: >
+      One non-partitioned asset shelling `corpus live build --dataset
+      lp-store-offers-live`, on a daily schedule. One binary call fetches the 284
+      ESI responses once and overwrites three Gold `current/` trees —
+      `lp-npc-corps` (283 rows), `lp-store-offers` (~31 800) and
+      `lp-store-offer-items` (~35 100) — so three assets would mean three
+      processes re-fetching the same payload. Modelled on `market_prices_live.py`
+      and `tests/test_market_prices_live.py`; it should read as the near-copy it
+      is.
+    areas: [orchestration]
+    depends_on: [corpus:lp-store-offers-live]
+    priority: 3
+    status: todo
+    notes: >
+      Blocked, and doubly so as of 2026-09-02: `eve-industry-corpus` has no
+      `datasets/lp-store-offers-live.yaml`, and no row for one in its
+      `roadmap.yaml` either. The dependency names a row that does not exist yet,
+      which is the intent — it can never resolve ready until corpus makes it.
+      `corpus/tmp/lp/` holds the probe behind this (`NOTES.md` opens "Scratch.
+      Not a row, not a proposal") and `tmp/lp/orchestration-prompt.md` the brief
+      for this row, whose banner says do not start it yet.
+
+      Decisions already taken there, so the row does not re-derive them:
+
+      A schedule, not a sensor — there is no per-date availability to diff, only
+      "overwrite `current/` with what ESI serves now". Follow
+      `market_prices_live_schedule` in `sensors.py`, `DefaultScheduleStatus.STOPPED`.
+
+      Daily at 11:30 UTC (`30 11 * * *`), not hourly. All 283 stores carried an
+      identical `Last-Modified` of 2026-08-31 11:03:28 UTC when measured, minutes
+      after the 11:00 downtime: LP offers move on deployments, not on player
+      action, so half an hour past downtime is the first moment a change can
+      exist. The two live siblings are hourly because their sources move daily,
+      which is not an argument that carries here.
+
+      No pool, and nothing added to `deploy/dagster.yaml`. ESI rather than EVE
+      Ref, so it shares no endpoint with the Silver transfers and joins no
+      `everef_download` pool; ~6 MB of JSON is not memory-bearing. Global
+      `max_concurrent_runs` only.
+
+      `corpus live build` writes no run-state row, so `state query` has nothing to
+      match: no `partition_metadata` enrichment. Do not call `corpus verify` — it
+      resolves a day-partitioned path and this tree is non-partitioned `current/`.
+      Confirm the status-line keys against the shipped binary before pinning them
+      in metadata; expect the `market-prices-live` shape (`snapshot_at`, `rows`,
+      `source`).
+
+      One thing to weigh rather than assume: a run is 284 ESI requests, two orders
+      of magnitude more than any existing live asset. Retries, the concurrency cap
+      and backoff belong in the corpus fetch arm; a shipped binary that lets a
+      partial fetch look like a success is a corpus finding to hand back, not
+      something to paper over in the asset.
