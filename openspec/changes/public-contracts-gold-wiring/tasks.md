@@ -1,6 +1,6 @@
 ## 1. `config.py` — teach the four shapes
 
-- [ ] 1.1 Add `_CONTRACTS_FOLD_LOOKBACK_DAYS = 0` beside the two existing
+- [x] 1.1 Add `_CONTRACTS_FOLD_LOOKBACK_DAYS = 0` beside the two existing
       zero-lookback constants and one `_lookback_for_shape` arm covering
       `contract-facts`, `contract-item-facts`, `contract-item-prices` and
       `courier-rates`, with a comment citing corpus ADR-0068's "no cross-day
@@ -11,7 +11,7 @@
       `resolve_partition_starts("public-contracts", "contract-facts", ...)`
       returns `gold="2021-06-17"` with no `PartitionConfigError`, and the same
       for the other three.
-- [ ] 1.2 Confirm `resolve_silver_start("public-contracts")` still returns
+- [x] 1.2 Confirm `resolve_silver_start("public-contracts")` still returns
       `2021-06-17`: with a `gold:` block present the resolver now takes the
       derived branch rather than the Gold-less floor branch added by
       `public-contracts-silver-wiring`, and at zero reach-back the two must
@@ -22,22 +22,25 @@
 
 ## 2. `tests/fixtures/datasets/public-contracts.yaml` — stop lagging reality
 
-- [ ] 2.1 Add the real `gold:` block — four derivatives, each with the `shape`,
+- [x] 2.1 Add the real `gold:` block — four derivatives, each with the `shape`,
       `sort_keys` and `served_start: 2021-06-17` the corpus YAML declares — and
       drop the stale "no `gold:` block" comment. Copy the shapes and starts
       field-by-field from `../eve-industry-corpus/datasets/public-contracts.yaml`.
-- [ ] 2.2 Add `test_config.py` cases, reading the **fixture** and never the
+- [x] 2.2 Add `test_config.py` cases, reading the **fixture** and never the
       sibling checkout: one per derivative asserting `gold == "2021-06-17"`,
       one asserting `resolve_silver_start` is still the `2021-06-17` coverage
       floor, and one asserting an unknown shape still raises
       `PartitionConfigError` naming the derivative and the shape. Verify:
       `uv run pytest tests/test_config.py -q`.
-- [ ] 2.3 Add one guard test that resolves every dataset YAML in
-      `../eve-industry-corpus/datasets` and fails on any `PartitionConfigError`,
-      skipped when that directory is absent. This is the class of break the row
-      exists for: a fixture that never gains the block the real YAML gained
-      cannot catch it. Keep it a guard, not the coverage — 2.2 is the coverage.
-      Verify: it passes now, and fails if you temporarily rename one shape arm.
+- [x] 2.3 Add one guard test that **loads the defs folder** in a subprocess
+      against `../eve-industry-corpus/datasets`, skipped when that directory is
+      absent. Not "resolve every YAML": twelve corpus datasets declare shapes
+      `_lookback_for_shape` has never known and are resolved elsewhere, so a
+      blanket resolve-all guard is permanently red — and `@definitions` is lazy,
+      so importing `definitions.py` alone proves nothing. Loading the defs
+      folder is the break's exact shape. Keep it a guard, not the coverage —
+      2.2 is the coverage. Proven red with one shape name typo'd, green
+      restored.
 
 ## 3. `defs/public_contracts.py` — four Gold assets
 

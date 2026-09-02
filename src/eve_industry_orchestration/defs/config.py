@@ -51,6 +51,12 @@ _STRUCTURES_SNAPSHOT_LOOKBACK_DAYS = 0
 # so its ``panel.flip_window_days`` constrains no Silver start.
 _SOVEREIGNTY_SNAPSHOT_LOOKBACK_DAYS = 0
 
+# The four public-contracts folds (corpus ADR-0068 decision 5) hold "no
+# cross-day state": each day's Gold partition is a function of that day's Silver
+# alone, so none of them reaches back. Zero, not None: every one of the four
+# still anchors Silver, unlike a `recency-weighted` derivative.
+_CONTRACTS_FOLD_LOOKBACK_DAYS = 0
+
 
 class PartitionConfigError(RuntimeError):
     """Raised when the dataset config cannot yield partition start dates."""
@@ -185,9 +191,9 @@ def resolve_partition_starts(
 def resolve_silver_start(dataset: str, datasets_dir: str | None = None) -> str:
     """Resolves the Silver partition start of a dataset, Gold or not.
 
-    A dataset that declares no ``gold`` list at all (public-contracts, ADR-0068:
-    the derivatives are a later row's to declare) has no derivative to reach back
-    from, so its Silver start is the ``silver.served_start`` coverage floor
+    A dataset that declares no ``gold`` list at all (mer-killdump, the only one
+    left since corpus gave public-contracts its four folds) has no derivative to
+    reach back from, so its Silver start is the ``silver.served_start`` floor
     (ADR-0027) — the earliest day its Silver contract serves. A dataset that does
     declare derivatives resolves exactly as :func:`resolve_partition_starts`
     does, since Silver is shared across a dataset's derivatives and needs no
@@ -389,6 +395,19 @@ def _lookback_for_shape(name: str, shape: str, entry: dict[str, Any]) -> int | N
         # No Silver window at all — same "no reach-back" rule as
         # structures-snapshot. Zero, not None: both still anchor Silver.
         return _SOVEREIGNTY_SNAPSHOT_LOOKBACK_DAYS
+    if shape in (
+        "contract-facts",
+        "contract-item-facts",
+        "contract-item-prices",
+        "courier-rates",
+    ):
+        # The public-contracts fold (corpus ADR-0068 decision 5): "every builder
+        # holds NO cross-day state", so each of the four folds one day of Silver
+        # into one day of Gold and reaches back no further than its own Gold
+        # date. `courier-rates` resolves `end_region_id` against sibling
+        # datasets, but those are builder-pinned reads fingerprinted into
+        # `_INDEX.json`, not a window over this dataset's Silver.
+        return _CONTRACTS_FOLD_LOOKBACK_DAYS
     raise PartitionConfigError(f"gold derivative {name!r} has unknown shape {shape!r}")
 
 

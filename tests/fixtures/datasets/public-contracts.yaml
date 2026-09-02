@@ -16,5 +16,24 @@ silver:
   # Coverage floor (ADR-0027): the first day of the `.v2.tar.bz2` era. Mirrors
   # the corpus dataset config, which is the source this start is read from.
   served_start: 2021-06-17
-# No `gold:` block, exactly as corpus declares it (ADR-0068 decision 5): the
-# derivatives are a later corpus row's, so Silver resolves from the floor alone.
+# The four folds corpus declares (ADR-0068 decision 5), mirroring
+# `../eve-industry-corpus/datasets/public-contracts.yaml`. Every builder holds
+# no cross-day state, so each day's Gold is a function of that day's Silver
+# alone and `served_start` is the Silver floor unchanged.
+gold:
+  - name: contract-facts
+    shape: contract-facts
+    sort_keys: [region_id, contract_id]
+    served_start: 2021-06-17
+  - name: contract-item-facts
+    shape: contract-item-facts
+    sort_keys: [contract_id, record_id]
+    served_start: 2021-06-17
+  - name: contract-item-prices
+    shape: contract-item-prices
+    sort_keys: [date, region_id, type_id]
+    served_start: 2021-06-17
+  - name: courier-rates
+    shape: courier-rates
+    sort_keys: [date, start_region_id, end_region_id]
+    served_start: 2021-06-17

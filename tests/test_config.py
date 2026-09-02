@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -421,3 +424,103 @@ def test_a_dataset_with_derivatives_resolves_unchanged(
     """The derivative path is untouched: Silver is shared, so no selector is
     needed even where `resolve_partition_starts` would demand one for Gold."""
     assert resolve_silver_start(dataset, str(DATASETS_DIR)) == expected
+
+
+# --- public-contracts: the four folds (corpus ADR-0068 decision 5) ---------
+
+PUBLIC_CONTRACTS = "public-contracts"
+CONTRACT_FOLDS = (
+    "contract-facts",
+    "contract-item-facts",
+    "contract-item-prices",
+    "courier-rates",
+)
+
+
+@pytest.mark.parametrize("derivative", CONTRACT_FOLDS)
+def test_public_contracts_fold_gold_start_is_its_served_start(derivative: str) -> None:
+    """Each fold declares the same `served_start` as the Silver floor."""
+    starts = resolve_partition_starts(
+        PUBLIC_CONTRACTS, derivative, datasets_dir=str(DATASETS_DIR)
+    )
+    assert starts.gold == "2021-06-17"
+
+
+@pytest.mark.parametrize("derivative", CONTRACT_FOLDS)
+def test_public_contracts_fold_has_no_silver_reach_back(derivative: str) -> None:
+    """No cross-day state, so Silver starts on the Gold date, not before it."""
+    starts = resolve_partition_starts(
+        PUBLIC_CONTRACTS, derivative, datasets_dir=str(DATASETS_DIR)
+    )
+    assert starts.silver == "2021-06-17"
+
+
+def test_public_contracts_silver_start_is_still_the_coverage_floor() -> None:
+    """The `gold:` block moved public-contracts off the Gold-less branch.
+
+    At zero reach-back the derived preload equals the ADR-0027 floor, so the
+    Silver partition matrix must not move.
+    """
+    assert resolve_silver_start(PUBLIC_CONTRACTS, str(DATASETS_DIR)) == "2021-06-17"
+
+
+def test_public_contracts_ambiguous_without_selector() -> None:
+    """Four derivatives, so `_select_derivative` demands a name for Gold."""
+    with pytest.raises(PartitionConfigError):
+        resolve_partition_starts(PUBLIC_CONTRACTS, datasets_dir=str(DATASETS_DIR))
+
+
+def test_an_unknown_shape_still_names_the_derivative_and_the_shape() -> None:
+    """The break this row fixes: an unmapped shape fails loudly at load."""
+    with pytest.raises(PartitionConfigError) as excinfo:
+        _lookback_for_shape("contract-facts", "contract-vibes", {})
+    message = str(excinfo.value)
+    assert "contract-facts" in message
+    assert "contract-vibes" in message
+
+
+# --- guard: the code location loads against the real datasets dir ------------
+
+
+def _sibling_datasets_dir() -> Path | None:
+    """Locates `../eve-industry-corpus/datasets` from a checkout or a worktree."""
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / "eve-industry-corpus" / "datasets"
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+# What `dagster dev` does on start-up: `definitions.py`'s `@definitions` factory
+# is lazy, so importing it resolves nothing — the defs folder has to be loaded.
+_LOAD_CODE_LOCATION = (
+    "from pathlib import Path;"
+    "import eve_industry_orchestration as pkg;"
+    "from dagster import load_from_defs_folder;"
+    "load_from_defs_folder(path_within_project=Path(pkg.__file__).parent)"
+)
+
+
+def test_code_location_loads_against_the_real_datasets_dir() -> None:
+    """The break this row exists for, in the shape it actually took.
+
+    A fixture that never gains the block the real YAML gained cannot catch the
+    drift; a shape `_lookback_for_shape` does not know raises while the defs
+    folder is loaded, so nothing in the code location loads at all. Run in a
+    subprocess: the resolvers fire at module scope, and the defs modules are
+    already imported here against the fixture directory.
+
+    A guard, not the coverage: it asserts only that the import succeeds. The
+    resolved dates are pinned against the fixture above.
+    """
+    directory = _sibling_datasets_dir()
+    if directory is None:
+        pytest.skip("sibling eve-industry-corpus checkout is not present")
+    result = subprocess.run(  # noqa: S603 - fixed argv, this interpreter
+        [sys.executable, "-c", _LOAD_CODE_LOCATION],
+        env={**os.environ, "CORPUS_DATASETS_DIR": str(directory)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr

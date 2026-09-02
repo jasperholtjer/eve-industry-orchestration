@@ -66,8 +66,15 @@ def test_silver_starts_at_the_declared_coverage_floor() -> None:
     )
     # YAML types a bare `2021-06-17` as a date; the partition keys are ISO strings.
     floor = str(config["silver"]["served_start"])
-    # The premise of the resolution: no derivative to reach back from.
-    assert config.get("gold") is None
+    # The premise of the resolution: every derivative folds one day of Silver
+    # into one day of Gold (corpus ADR-0068), so none reaches back past the
+    # floor and the derived preload lands on the floor itself.
+    assert [d["name"] for d in config["gold"]] == [
+        "contract-facts",
+        "contract-item-facts",
+        "contract-item-prices",
+        "courier-rates",
+    ]
 
     keys = silver_partitions.get_partition_keys()
     assert keys[0] == floor
