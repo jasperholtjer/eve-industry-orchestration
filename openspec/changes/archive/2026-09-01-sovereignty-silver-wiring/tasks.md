@@ -29,5 +29,5 @@
 
 ## 5. Verify the whole change
 
-- [x] 5.1 Confirm the row declares no new pool and changes no pool limit: `tests/test_concurrency_pools.py` is unmodified and `EXPECTED_POOLS` still passes. `deploy/dagster.yaml` gains only the three dataset names in the `everef_download` holder list — CLAUDE.md makes that file the one place membership is recorded, so leaving it stale would understate the pool's contention. Verify with `git diff` showing the comment-only edit and `uv run pytest tests/test_concurrency_pools.py -q`.
+- [x] 5.1 Confirm the row declares no new pool and changes no pool limit: `tests/test_concurrency_pools.py` is unmodified and `EXPECTED_POOLS` still passes. `deploy/dagster.yaml` gains only the three dataset names in the `everef_download` holder list — AGENTS.md makes that file the one place membership is recorded, so leaving it stale would understate the pool's contention. Verify with `git diff` showing the comment-only edit and `uv run pytest tests/test_concurrency_pools.py -q`.
 - [x] 5.2 Run the full gate: `uv run ruff check . && uv run ruff format --check . && uv run pytest -q`.

@@ -1,11 +1,14 @@
 ---
 name: row-scout
 description: Reads the contract a roadmap row has to satisfy - the architecture invariants and recorded decisions it touches, what the specs and the corpus CLI surface already require, which asset and resource boundaries it sits inside, what it must not break, what it can mirror, and what the run-state, the trees on Y:\ and the corpus dataset YAML actually show - writes it to disk as the row's brief, and drafts the row's proposal.md and tasks.md from it. Use once per row, before anything else. Never modifies source.
-tools: Read, Grep, Glob, Bash, Write
-model: sonnet
-effort: medium
-maxTurns: 30
-color: cyan
+tools: read, write, grep, find, ls, bash
+thinking: medium
+defaultContext: fresh
+inheritProjectContext: true
+inheritSkills: true
+acceptanceRole: read-only
+completionGuard: false
+timeoutMs: 900000
 ---
 
 You produce three artefacts on disk: the row's brief, and drafts of its
@@ -23,7 +26,7 @@ The caller names a roadmap row from `roadmap.yaml`: an id, a goal, one or more
 areas, the absolute path of the row's worktree, and the change directory
 `openspec/changes/<id>/` inside it. Answer six questions, and nothing else.
 
-1. **Invariants and ADRs.** Which of the architecture invariants in `CLAUDE.md`
+1. **Invariants and ADRs.** Which of the architecture invariants in `AGENTS.md`
    does this row touch, and which decision in `docs/adr/`,
    `docs/serving-seam.md` or the Decisions section of `ROADMAP.md` does each
    rest on? Name the invariant and the clause — never a summary. Grep for the

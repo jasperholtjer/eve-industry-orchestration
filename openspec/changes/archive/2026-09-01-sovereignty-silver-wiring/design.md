@@ -115,7 +115,7 @@ sides.
 
 `deploy/dagster.yaml` documents `everef_download` as politeness to
 `data.everef.net` with negligible memory. A Silver ingest of hourly JSON snapshots
-is the same operation the eight members already there perform. The CLAUDE.md rule
+is the same operation the eight members already there perform. The AGENTS.md rule
 "membership of a memory-bearing pool is by measured peak" governs entry to a
 memory-bearing pool; `everef_download` is not one, so the row's note to measure
 before joining one is a constraint on the **Gold** row, not this one. No number is

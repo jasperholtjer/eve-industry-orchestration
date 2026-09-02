@@ -21,7 +21,7 @@ description: >-
 
 This codifies the path `market-history` took so the next dataset lands with the
 same contracts instead of being reinvented. The hard rule of this repo
-(`CLAUDE.md`): **assets are thin Python shims that `subprocess.run` the `corpus`
+(`AGENTS.md`): **assets are thin Python shims that `subprocess.run` the `corpus`
 binary or read its `--json` subcommands.** No `pandas`/`pyarrow`/`rusqlite`, no
 business logic, no partition bytes in a Python process. If a shim grows past a
 trivial dispatch, push the logic into a Rust subcommand instead — consult the

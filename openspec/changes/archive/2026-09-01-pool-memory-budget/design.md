@@ -34,9 +34,9 @@ already is. The seam is the unit file, not the resource.
 
 **The arithmetic lives in `deploy/dagster.yaml`, and only there.** It has to be
 correct for the box to run at all, which is the property a source of truth
-needs. `CLAUDE.md` and `ROADMAP.md` keep the invariant — membership by measured
+needs. `AGENTS.md` and `ROADMAP.md` keep the invariant — membership by measured
 peak, every memory-bearing pool counts against one box budget — and point at
-the file. *Alternative considered:* replace `CLAUDE.md`'s stale formula with a
+the file. *Alternative considered:* replace `AGENTS.md`'s stale formula with a
 correct, richer one. Rejected: the root cause is not a wrong number but four
 copies of a number, and a better fourth copy still drifts.
 
@@ -73,7 +73,7 @@ the unit comment says so — but it is a sizing decision, and sizing waits.
 
 **No ADR.** This row exists because one decision was written down in four
 places. Recording it a fifth time in `docs/adr/` would recreate the failure the
-row is closing. The invariant is in `CLAUDE.md`, the arithmetic in
+row is closing. The invariant is in `AGENTS.md`, the arithmetic in
 `deploy/dagster.yaml`, the mechanism in the test.
 
 **`ROADMAP.md` gets a one-line factual fix, not a rewrite.** Its pool sentence
@@ -90,7 +90,7 @@ live in `deploy/dagster.yaml` and nowhere else. So the mechanism guards the
 thing that can be mechanically guarded - a pool name entering the deployment -
 and the budget itself stays prose in one file, guarded by review.
 
-**The host-provisioning pointer moves with the arithmetic.** `CLAUDE.md` is
+**The host-provisioning pointer moves with the arithmetic.** `AGENTS.md` is
 today the only place carrying "set RAM/cores on the Proxmox host, not here",
 the `pct set 211` example and the `homelab_docs`
 (`docs/howto/deploy-dagster-lxc.md`) reference. Shrinking that bullet without

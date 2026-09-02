@@ -62,7 +62,7 @@ gold_partitions = dg.DailyPartitionsDefinition(start_date=_starts.gold)
 # memory pool exists to bound.
 _SILVER_POOL = "everef_download"
 # Provisional `heavy` membership. The repo rule is "measure the peak first"
-# (CLAUDE.md), and this build is NOT yet measured — but it is the one plausible
+# (AGENTS.md), and this build is NOT yet measured — but it is the one plausible
 # candidate in the dataset: a 365-day window over the corpus's largest Silver.
 # Being wrong here costs one contended slot; being wrong the other way OOMs the
 # LXC mid-backfill. Measure with `/usr/bin/time -v` on a real day and drop the

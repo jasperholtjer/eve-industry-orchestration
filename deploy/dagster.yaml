@@ -2,7 +2,7 @@
 # Storage defaults to SQLite under DAGSTER_HOME (NVMe) — no DB-VM dependency.
 
 # Bounded concurrency, two independent layers. THIS FILE OWNS THE MEMORY
-# ARITHMETIC: CLAUDE.md and ROADMAP.md carry only the invariant and point here,
+# ARITHMETIC: AGENTS.md and ROADMAP.md carry only the invariant and point here,
 # so the budget below is the one copy that is maintained. A new pool means an
 # edit here, and tests/test_concurrency_pools.py fails until it lands.
 #

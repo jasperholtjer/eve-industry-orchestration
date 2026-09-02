@@ -70,7 +70,7 @@ git worktree move .worktrees/<slug> .worktrees/<id>
    showed.
 
 4. **Review** only when the fix touches an architecture invariant in
-   `CLAUDE.md`, the storage boundary, a pool, or a run-state key helper: one
+   `AGENTS.md`, the storage boundary, a pool, or a run-state key helper: one
    `row-reviewer` with the diff. Otherwise none.
 
 5. **Land.** Commit by pathspec; this repository keeps no `CHANGELOG.md`. From

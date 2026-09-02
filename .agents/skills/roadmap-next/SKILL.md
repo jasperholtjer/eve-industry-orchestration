@@ -50,7 +50,7 @@ when it returns. So:
 - The roles are definitions. `row-scout`, `row-builder`, `row-reviewer`,
   `row-fixer` and `check-runner` carry their own instructions, model and
   budget in their agent definitions; hand over the task and the paths, never
-  what they already carry. `CLAUDE.md` reaches every subagent on its own.
+  what they already carry. `AGENTS.md` reaches every subagent on its own.
   Override a model at the call only for a named reason, and name it in the
   report.
 - Any bundle that adds or changes a Dagster definition consults the
@@ -60,10 +60,13 @@ when it returns. So:
 ## Two trees
 
 - **The row's worktree**: `.worktrees/<id>` on `feature/<id>`, inside the
-  repository and gitignored so `.claude/settings.json` reaches it. Everything
-  this session builds happens there, and every command says so:
-  `git -C .worktrees/<id>`, `uv run --project .worktrees/<id>`. The shell's
-  working directory resets between calls.
+  repository and gitignored. A worktree is a full checkout, so `AGENTS.md`,
+  `.agents/skills/` and `.pi/` are already there — what does not travel is
+  Orca's registration of it, which is why Orca's per-repo *Worktree Location*
+  points at this same path. Everything this session builds happens there, and
+  every command says so: `git -C .worktrees/<id>`,
+  `uv run --project .worktrees/<id>`. The shell's working directory resets
+  between calls.
 - **The root checkout** stays on `develop` and belongs to the person, who has
   it open in an editor. Reach into it for three things only: reading
   `docs/questions/`, writing a question there, and the merge.

@@ -24,7 +24,7 @@
       Proxmox host and not here (`pct set 211 --cores 8 --memory 12288 --swap
       2048`), and the authoritative provisioning lives in `homelab_docs`
       (`docs/howto/deploy-dagster-lxc.md`). These exist today only in
-      `CLAUDE.md` and would otherwise be lost when task 3.1 shrinks it. Verify
+      `AGENTS.md` and would otherwise be lost when task 3.1 shrinks it. Verify
       `grep -n "homelab_docs\|pct set" deploy/dagster.yaml` finds both.
 - [x] 1.5 Reconcile the comment at `deploy/redeploy.sh:245-247` with the
       rewritten arithmetic — it names which pools sit below `default_limit` and
@@ -51,7 +51,7 @@
 
 ## 3. Reduce the duplicate copies to invariant plus pointer
 
-- [x] 3.1 Shrink the Concurrency bullet in `CLAUDE.md` to the invariant —
+- [x] 3.1 Shrink the Concurrency bullet in `AGENTS.md` to the invariant —
       pools key on the assets' `pool=` and gate every launch path; membership
       of a memory-bearing pool is by measured peak; every memory-bearing pool
       counts against one box budget — plus a pointer to `deploy/dagster.yaml`

@@ -1,0 +1,9 @@
+{
+  "subagents": {
+    "defaultModel": "claude-bridge/claude-sonnet-5",
+    "agentOverrides": {
+      "row-builder": { "model": "claude-bridge/claude-opus-5" },
+      "row-reviewer": { "model": "claude-bridge/claude-opus-5" }
+    }
+  }
+}
