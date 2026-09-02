@@ -69,18 +69,20 @@
 
 - [ ] 5.1 Add `public-contracts` to the `everef_download` member list, and add to
       the memory-budget block — not as prose elsewhere — a short paragraph
-      recording: that no `/usr/bin/time -v` peak exists for this build (corpus
+      recording *why* it is not memory-bearing rather than merely that nobody
+      measured it: the ingestor streams one archive at a time, so a day's ~47
+      snapshots never coexist and the peak is a small multiple of one
+      decompressed archive (~63 MB) — corpus
+      `crates/ingestor-public-contracts/src/silver.rs:34-46` states this
+      directly. Note that no `/usr/bin/time -v` figure exists (corpus
       `tmp/contracts/measurements-2026-09-01.md` §7.5 states the problem and
-      gives no number; the run-state on the NAS holds zero rows for the dataset),
-      that it therefore declares no memory-bearing pool; that the full backfill is
-      1 892 partitions and ~8.2 h at the politeness limit of 2, so it overlaps the
-      daily schedules; and that launching it against the box is gated on taking
-      that measurement first, after which the choice is pausing the daily
-      schedules for its duration or giving it a bound of its own. Keep it short —
-      this file is already long, and the arithmetic table is what readers come
-      for. Do not restate these numbers in `CLAUDE.md` or `ROADMAP.md`. Verify:
-      `uv run pytest tests/test_concurrency_pools.py -q` passes with the pinned
-      pool set unchanged.
+      gives no number), that the full backfill is 1 892 partitions and ~8.2 h at
+      the politeness limit of 2 and so overlaps the daily schedules, and which of
+      the two handlings applies — paused schedules, or a bound of its own. Keep it
+      short: this file is already long and the arithmetic table is what readers
+      come for. Do not restate these numbers in `CLAUDE.md` or `ROADMAP.md`.
+      Verify: `uv run pytest tests/test_concurrency_pools.py -q` passes with the
+      pinned pool set unchanged.
 
 ## 6. Real run
 
@@ -102,3 +104,13 @@
       `/usr/bin/time -v` measurement on the LXC that pool membership requires, and
       it must not be written into `deploy/dagster.yaml` as if it were. It goes in
       the report so the next row starts from something rather than nothing.
+
+## 7. The claims the row falsifies
+
+- [ ] 7.1 `openspec/config.yaml`'s **State of the repository** paragraph says
+      "The history half of public contracts is blocked in corpus and has no asset
+      here." This row makes that false. Rewrite the sentence to what is then
+      true: the history tier is wired as a day-partitioned Silver asset with its
+      own availability sensor, its start resolved from the Silver coverage floor
+      because the dataset declares no Gold derivative, and the Gold half still
+      corpus's. Do not restate the memory arithmetic here.
