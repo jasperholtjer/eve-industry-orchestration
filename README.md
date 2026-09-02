@@ -97,7 +97,8 @@ The homelab deployment (LXC, NFS mount, build order) is documented in
   partition matrix.
 - **Live snapshot assets** (`defs/market_orders_live.py`,
   `defs/market_prices_live.py`, `defs/industry_cost_indices_live.py`,
-  `defs/public_contracts_live.py`, ADR-0039/0040/0043/0068) — the
+  `defs/public_contracts_live.py`, `defs/lp_store_offers_live.py`,
+  ADR-0039/0040/0043/0068/0070) — the
   current-overwrite lifecycle: `corpus live build` fetches the single newest
   upstream snapshot and overwrites a fixed `gold/<derivative>/current/`
   partition. No Silver tier, no `year=/month=/day=` matrix and no history, so
@@ -111,11 +112,23 @@ The homelab deployment (LXC, NFS mount, build order) is documented in
   costs nothing on a last-write-wins tree. `market-prices-live` and
   `industry-cost-indices-live` run hourly. The three
   EVE Ref ones join the `everef_download` politeness pool (one fetch per run,
-  not memory, so never `heavy`); `market-prices-live` hits ESI and joins no
-  pool. None is metadata-enriched — `corpus live build` writes no run-state row
+  not memory, so never `heavy`); the two ESI ones join no pool. None is
+  metadata-enriched — `corpus live build` writes no run-state row
   — so the materialisation carries the freshness fields the binary prints
   (`snapshot_file`, `date`, `rows`, and `snapshot_at` where the shape publishes
   it) and nothing else.
+  `lp-store-offers-live` is the family's odd member on three counts, and each is
+  measured rather than inherited. One build fans out over all 283 NPC
+  corporations and writes **two** Gold trees — `lp-store-offers` and
+  `lp-store-offer-items` — before either is committed, so it is **one asset**:
+  a second would repeat the 284-request fan-out and could leave one tree fresh
+  against a stale other. Its status object is therefore the one that is
+  multi-partition, carrying a row count per derivative under `partitions`
+  instead of a top-level `rows`, and the metadata records them as
+  `rows.<derivative>`. And it runs **daily** at `30 11 * * *`: every store's
+  response expired at the same 11:05 UTC instant when measured, so the caches
+  roll together once a day and an hourly poll would only repeat the fan-out
+  against a payload that moves on deployments.
 - **Context datasets** (`defs/news.py`, `defs/transcripts.py`, ADR-0045/0046/0048) —
   archival datasets keyed on the *fetch* date, the exception to the partition-matrix
   mould. Each shells `corpus context fetch` (raw CCP news RSS + article HTML, or the

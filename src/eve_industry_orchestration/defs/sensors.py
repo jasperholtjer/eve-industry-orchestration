@@ -20,6 +20,7 @@ import dagster as dg
 from eve_industry_orchestration.defs import industry_cost_indices as ici
 from eve_industry_orchestration.defs import industry_cost_indices_live as icil
 from eve_industry_orchestration.defs import killmails as km
+from eve_industry_orchestration.defs import lp_store_offers_live as lpsol
 from eve_industry_orchestration.defs import market_orders as mo
 from eve_industry_orchestration.defs import market_orders_live as mol
 from eve_industry_orchestration.defs import market_prices_live as mpl
@@ -1271,6 +1272,24 @@ market_prices_live_schedule = dg.ScheduleDefinition(
     name="market_prices_live_schedule",
     target=mpl.market_prices_live_gold,
     cron_schedule="0 * * * *",
+    default_status=dg.DefaultScheduleStatus.STOPPED,
+)
+
+
+# Daily refresh of the live LP store offers (corpus ADR-0070). Same schedule-not-
+# sensor rationale as the live siblings — no per-date matrix to diff, only
+# "overwrite current/ with what ESI serves now" — but daily rather than hourly,
+# and that is measured, not inherited: on 2026-09-02 all 283 stores returned
+# `Expires: 11:05:00 UTC` the following day, so the caches roll together once a
+# day at 11:05. 11:30 is comfortably past the roll and fetches one clean
+# generation. Hourly would repeat the 284-request fan-out against a payload that
+# only moves on deployments. One schedule for one asset, which writes both Gold
+# trees; the source is ESI, so no `everef_download` pool and no memory pool —
+# the global cap alone.
+lp_store_offers_live_schedule = dg.ScheduleDefinition(
+    name="lp_store_offers_live_schedule",
+    target=lpsol.lp_store_offers_live_gold,
+    cron_schedule="30 11 * * *",
     default_status=dg.DefaultScheduleStatus.STOPPED,
 )
 
