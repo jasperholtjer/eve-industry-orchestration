@@ -213,11 +213,12 @@ items:
       `config.py`, `deploy/dagster.yaml` and the pool set are untouched, as a
       live dataset owes them nothing.
 
-      The two history rows are not this row and must not be anticipated:
-      corpus `public-contracts-silver` is blocked on
-      `everef-fetch-completeness-guards` and on an open question about how one
-      day stores four Silver tables, and `public-contracts-gold` waits on
-      that. An asset for either would be dead code.
+      The two history rows are not this row and were not anticipated here.
+      Corpus `public-contracts-silver` has since landed — ADR-0068 decision 5
+      settled the four-tables question as one table with the fold moved to
+      Gold — and is wired by `public-contracts-silver-wiring` below. Corpus
+      `public-contracts-gold` is still `todo`, so a Gold asset would still be
+      dead code.
 
       No pool is added and none is owed a measured peak: the live build holds
       one 4.3-6.2 MiB archive, and `everef_download` is politeness rather than
@@ -238,3 +239,60 @@ items:
       against `tests/fake_corpus.py` regardless, as the sovereignty rows were.
       The schedule ships default-stopped, so nothing queues doomed runs in the
       meantime.
+
+  - id: public-contracts-silver-wiring
+    title: Wire the public-contracts history Silver into the code location
+    goal: >
+      `public-contracts` — the history tier over EVE Ref's public-contract
+      snapshots, corpus ADR-0067/0068 — is built and has no asset. Land the
+      Silver half on the `system_jumps` mould: one day-partitioned
+      `public_contracts_silver` asset over `corpus ingest` then `corpus verify
+      --tier silver`, the availability sensor off `corpus everef
+      missing-partitions` keyed on run-state, the fake-binary tests, and the
+      backfill's run-planning in `deploy/dagster.yaml`. The dataset declares no
+      `gold:` block — the derivatives are corpus's `public-contracts-gold`, still
+      open — so `config.py` cannot resolve it at all: every partition start here
+      is derived from a dataset's Gold derivatives. It gains a Silver-only path
+      that resolves from the `silver.served_start` coverage floor instead. The
+      already-wired live twin is a separate dataset and is not touched.
+    areas: [orchestration]
+    depends_on: [corpus:public-contracts-silver]
+    priority: 3
+    status: done
+    notes: >
+      Landed 2026-09-02. `resolve_silver_start` in `config.py` is one code path
+      with `resolve_partition_starts`, so a Gold-bearing dataset resolves exactly
+      as before; the Silver start is 2021-06-17, the coverage floor. No ADR: a
+      resolution path under ADR-0027 is not a new decision.
+
+      The real run materialised 2021-06-17 against the corpus binary and wrote
+      14 616 340 rows — exactly the figure corpus measured independently for that
+      day — 28/28 archives, 118.2 MiB of Silver in 21.9 s. Peak working set ~374
+      MiB across three agreeing measurements. That number is indicative only: it
+      is a Windows workstation peak, not the `/usr/bin/time -v` maximum RSS on the
+      LXC that pool membership requires, and `deploy/dagster.yaml` labels it as
+      such. It is enough to say the build is sub-GiB rather than multi-GiB, which
+      is why it joins `everef_download` and no memory-bearing pool — and the
+      ingestor's own source says the same, streaming one archive at a time so a
+      day's ~47 snapshots never coexist.
+
+      The budget line moved: `everef_download` is no longer "negligible", because
+      public-contracts is its heaviest holder at ~0.37 GiB per slot, and the paper
+      worst case is now ~17.15 GiB on a 12 GiB box rather than ~16.4. Nothing
+      about that is new risk — it was always there, uncounted.
+
+      The 1 892-partition backfill is an operator action, not this row and not the
+      sensor's: `everef missing-partitions` defaults to a 30-day window, so the
+      sensor is structurally trailing-edge. Launching the backfill pauses the
+      daily schedules for its ~8.2 h, and it is gated on someone taking the LXC
+      measurement first. Materialising anything on the LXC still waits on a corpus
+      release, as the live twin's row already notes.
+
+      Found while reviewing, and NOT fixed here: nine sibling Silver assets —
+      `system_jumps`, `system_kills`, `market_orders`, `industry_cost_indices`,
+      `structures`, `killmails` and the three sovereignty datasets — branch only
+      on `status: skipped` and not on `status: incomplete`. corpus maps a
+      publication-frontier day to `incomplete` on exit 0 with no partition
+      written, so the fall-through verify 404s and the run goes red once per
+      sensor tick until upstream settles. This row's own asset branches on both;
+      the siblings are a fix of their own.

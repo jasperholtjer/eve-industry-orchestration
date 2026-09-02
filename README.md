@@ -29,10 +29,17 @@ The homelab deployment (LXC, NFS mount, build order) is documented in
 - **Dataset assets** (`defs/market_history.py`, `defs/system_jumps.py`,
   `defs/market_orders.py`, `defs/system_kills.py`, `defs/structures.py`,
   `defs/killmails.py`, `defs/sovereignty_map.py`,
-  `defs/sovereignty_structures.py` and `defs/sovereignty_campaigns.py`) —
+  `defs/sovereignty_structures.py`, `defs/sovereignty_campaigns.py` and
+  `defs/public_contracts.py`) —
   daily-partitioned Silver and
   Gold assets, with **distinct** partition start dates (Silver reaches back one
-  window before Gold). Gold depends on Silver via `deps=` (lineage only). A
+  window before Gold). Gold depends on Silver via `deps=` (lineage only).
+  `public-contracts` (ADR-0067/0068) is the one Silver-only member: its Gold
+  derivatives are corpus's to declare and do not exist yet, so there is no Gold
+  asset and nothing to reach back from. Its Silver start is the dataset's
+  `silver.served_start` coverage floor, resolved by `config.resolve_silver_start`
+  — the same function every other dataset reaches through, taking its Gold-less
+  branch. A
   multi-derivative dataset (ADR-0025) gets one Gold asset per derivative, each
   passing `--derivative`: a `flat-multi-horizon` /​ `rolling` /​
   `orderbook-aggregate` /​ `orderbook-delta` /​ `kills-flat` derivative is a
