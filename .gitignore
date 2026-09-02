@@ -208,10 +208,14 @@ __marimo__/
 # Local scratch: throwaway plans, prototypes, exploration. Never committed.
 tmp/
 
-# Claude Code
-.claude/settings.local.json
-.claude/scheduled_tasks.lock
+# Personal, per-machine agent overrides — never committed
+AGENTS.override.md
+.pi/settings.local.json
 .mcp.json
 
-# Agent worktrees
+# Agent worktrees. Point Orca's per-repo Worktree Location here too, so the
+# editor and the skills share one worktree home instead of two.
 .worktrees/
+
+# pi-subagents runtime artefacts (pane bindings, views)
+.pi/subagents/

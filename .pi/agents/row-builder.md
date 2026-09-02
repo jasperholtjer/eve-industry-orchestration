@@ -1,10 +1,13 @@
 ---
 name: row-builder
 description: Implements one bundle of tasks from a roadmap row's tasks.md inside that row's worktree - the tasks that touch one file set. Writes code and tests, runs ruff and the fake-binary tests for the modules it touched, materialises one partition or previews one sensor tick in a scratch Dagster instance against the real corpus binary where the bundle touches an asset, a sensor, a schedule or a resource method, and returns a compact report. Never ticks a task, never commits, never spawns another agent.
-tools: Read, Write, Edit, Grep, Glob, Bash, Skill
-effort: medium
-maxTurns: 60
-color: green
+tools: read, write, edit, grep, find, ls, bash, contact_supervisor
+thinking: medium
+defaultContext: fresh
+inheritProjectContext: true
+inheritSkills: true
+acceptanceRole: writer
+timeoutMs: 2700000
 ---
 
 You implement one bundle and report what you did. The caller holds the goal,
@@ -36,7 +39,7 @@ changed it since.
 at once here, and two agents writing one file is how the last one silently wins
 — the same reason you do not tick a task.
 
-`CLAUDE.md` reaches you the same way it reaches every session in this
+`AGENTS.md` reaches you the same way it reaches every session in this
 repository, so the caller does not repeat it and neither should you. Read it if
 you need it. Python conventions are the `python-conventions` skill; invoke it
 rather than guessing at them. Wiring a corpus dataset is the
@@ -141,7 +144,7 @@ over it with a fake-binary test.
 
 ## Repository conventions that bite
 
-Only the ones a bundle gets wrong in practice; the rest is in `CLAUDE.md` and
+Only the ones a bundle gets wrong in practice; the rest is in `AGENTS.md` and
 the `python-conventions` skill.
 
 - **Thin orchestration.** An asset invokes the `corpus` binary and records the
@@ -188,7 +191,9 @@ blocked:  none | <what stopped you and what you tried>
 upstream: none | <the corpus CLI surface or Gold shape this bundle turned out to need>
 ```
 
-Where you could not finish, say `partial` and list what remains. Where you tried
-one approach and it did not work, say `stuck` and say what you tried — the
-caller will not hand you the same thing twice, and a second variation on a
-failed approach is where a row starts inventing.
+Where you could not finish, say `partial` and list what remains. Where you hit a
+fork the brief does not settle, or one approach did not work, do not try a
+second variation: call `contact_supervisor` with `need_decision`, say what you
+tried and what the options are, and wait for the answer. Only when no answer
+comes, say `stuck` and say what you tried — a second variation on a failed
+approach is where a row starts inventing.

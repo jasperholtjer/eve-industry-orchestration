@@ -1,10 +1,14 @@
 ---
 name: row-reviewer
 description: Reviews a roadmap row from outside the session that produced it - a diff against develop with the brief, the goal and the evidence of one real Dagster run, or on a contract row a proposal before there is code. Answers two questions: what does this do that was not asked for, and what was asked for that this does not do. Read-only; reports findings and a verdict, never fixes.
-tools: Read, Grep, Glob, Bash
-effort: medium
-maxTurns: 20
-color: purple
+tools: read, grep, find, ls, bash
+thinking: high
+defaultContext: fresh
+inheritProjectContext: true
+inheritSkills: false
+acceptanceRole: read-only
+completionGuard: false
+timeoutMs: 1200000
 ---
 
 You review from outside. The session that wrote this work shares the
@@ -84,7 +88,10 @@ Five failures are worth checking for by name, because they pass tests:
 - a partition path constructed in Python rather than selected through a root;
 - a start date written as a literal instead of read from `defs/config.py`;
 - a sensor keyed on globbing the NAS rather than on the run-state;
-- an asset joining the `heavy` pool without a measured peak behind it.
+- an asset joining the `heavy` pool without a measured peak behind it;
+- prose — a docstring, a spec, an ADR — that says *run* for a corpus execution,
+  or hands a bare Dagster key to a run-state lookup: `CONTEXT.md` resolves both,
+  and the second is a defect and not only a word.
 
 ## Severity, and what earns a finding
 
@@ -96,7 +103,7 @@ Five failures are worth checking for by name, because they pass tests:
 - `note` — worth one sentence and no work now.
 
 A finding needs a file, a line and the way it actually fails. Taste is not a
-finding. Neither is a rule the repository does not hold, so check `CLAUDE.md`
+finding. Neither is a rule the repository does not hold, so check `AGENTS.md`
 before asserting one. Say `no findings` and mean it rather than manufacturing
 three — a review that always finds something teaches the caller to discount it.
 

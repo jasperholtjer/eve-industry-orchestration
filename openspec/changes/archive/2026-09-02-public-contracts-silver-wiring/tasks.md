@@ -84,7 +84,7 @@
       the politeness limit of 2 and so overlaps the daily schedules, and which of
       the two handlings applies — paused schedules, or a bound of its own. Keep it
       short: this file is already long and the arithmetic table is what readers
-      come for. Do not restate these numbers in `CLAUDE.md` or `ROADMAP.md`.
+      come for. Do not restate these numbers in `AGENTS.md` or `ROADMAP.md`.
       Verify: `uv run pytest tests/test_concurrency_pools.py -q` passes with the
       pinned pool set unchanged.
 

@@ -10,7 +10,7 @@ forbids no combination of them and the paper worst case is ~16.4 GiB on a
 12 GiB LXC.
 
 The budget that is supposed to prevent this is stated in four places that have
-already drifted apart — `CLAUDE.md` counts one pool, `deploy/dagster.yaml`
+already drifted apart — `AGENTS.md` counts one pool, `deploy/dagster.yaml`
 counts two, `deploy/redeploy.sh` names the two that need an override, and
 `ROADMAP.md` still describes the original two-pool decision. Nothing fails when
 a new memory-bearing pool arrives unaccounted, which is precisely how
@@ -25,7 +25,7 @@ a new memory-bearing pool arrives unaccounted, which is precisely how
 - The reasoning at `deploy/dagster.yaml:40` is corrected. A limit-1 CPU pool
   bounds `market-orders` Silver against *itself*; it says nothing about overlap
   with `heavy` or `news_embed`, which is the entire gap.
-- `CLAUDE.md`'s concurrency bullet shrinks to the invariant plus a pointer, and
+- `AGENTS.md`'s concurrency bullet shrinks to the invariant plus a pointer, and
   the stale two-pool sentence in `ROADMAP.md` does the same. Neither restates
   the numbers; a third and fourth copy of an arithmetic is what produced this
   row.
@@ -73,7 +73,7 @@ None.
   environment line each, mirrored, beside `RAYON_NUM_THREADS`.
 - `deploy/redeploy.sh` — the comment naming which pools sit below
   `default_limit` is reconciled with the rewritten arithmetic.
-- `CLAUDE.md`, `ROADMAP.md` — prose reduced to invariant plus pointer.
+- `AGENTS.md`, `ROADMAP.md` — prose reduced to invariant plus pointer.
 - `tests/` — one new test module pinning the declared pool set.
 - No `src/` behaviour change, no partition, sensor or schedule touched, no
   corpus CLI surface involved.

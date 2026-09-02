@@ -104,11 +104,11 @@ items:
       `news_embed` (1) — and `max_concurrent_runs: 4` equals their combined slot
       count, so no combination is forbidden and the paper worst case exceeds the
       12 GiB box. The budget is stated in three places that have already drifted:
-      `CLAUDE.md` counts only `heavy` and still lists market-orders Silver as a
+      `AGENTS.md` counts only `heavy` and still lists market-orders Silver as a
       member (`fc594e2` moved it out) and prescribes `--cores 4` (the LXC has 8);
       `deploy/dagster.yaml` counts two pools and argues at line 40 that a limit-1
       CPU pool bounds memory, which holds only against itself. Make the deploy
-      config the single source of the arithmetic, reduce `CLAUDE.md` to the
+      config the single source of the arithmetic, reduce `AGENTS.md` to the
       invariant plus a pointer, and pin the set of declared pools in a test so a
       fourth memory-bearing pool cannot arrive unaccounted the way `news_embed`
       did. Set `CORPUS_PARSE_CONCURRENCY` explicitly in both unit files: corpus

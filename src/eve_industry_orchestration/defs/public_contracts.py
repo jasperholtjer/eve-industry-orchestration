@@ -63,7 +63,7 @@ silver_partitions = dg.DailyPartitionsDefinition(
 
 # One EVE Ref archive-set fetch per partition: the same politeness cap every
 # other Silver ingest joins. Deliberately not a memory-bearing pool — no
-# `/usr/bin/time -v` peak has been measured for this ingest, and CLAUDE.md
+# `/usr/bin/time -v` peak has been measured for this ingest, and AGENTS.md
 # makes membership of such a pool a measurement, never a guess. See
 # deploy/dagster.yaml for the budget this does and does not count against.
 _SILVER_POOL = "everef_download"

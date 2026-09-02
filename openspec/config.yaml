@@ -5,8 +5,8 @@ context: |
 
   The *when* of the EVE Industry platform. A thin Dagster project that decides
   which partitions are materialised and records that they were. It is one of six
-  independent repositories; the platform-level rules live in `../CLAUDE.md`,
-  this repo's in `CLAUDE.md`.
+  independent repositories; the platform-level rules live in `../AGENTS.md`,
+  this repo's in `AGENTS.md`.
 
   ## The boundary everything else is subordinate to
 

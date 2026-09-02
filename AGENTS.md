@@ -5,6 +5,16 @@ materialisation log — nothing else. All compute and the data contract live in 
 **`eve-industry-corpus`** repo. Scope-specific rules only; defer to the global
 rules for Python, git, and PowerShell conventions.
 
+## Read first
+
+- [`CONTEXT.md`](CONTEXT.md) — the words this repo uses; read it before writing
+  anything a person or a later session reads, and use its word rather than a
+  near-miss
+- [`ROADMAP.md`](ROADMAP.md) — the corpus CLI surface, the decisions, and the
+  work items behind them
+- `tmp/` — local scratch (gitignored). Often holds the newest thinking; read it,
+  never promote it into `docs/` unasked.
+
 ## Use the Dagster skill
 
 Invoke the `dagster-expert` skill before any Dagster-specific work (assets,
@@ -74,6 +84,28 @@ corpus CLI surface, the decisions, and the work items behind them — and what t
 work on next across all six repos is the platform-level `next` skill, one
 directory up.
 
+**What could be built here at all** — the open rows, the work items `ROADMAP.md`
+has not finished, the future phases it describes without ever making a row, and
+what the decisions deferred — is this repo's `candidates` skill. It is scoped to
+this repository on purpose: the same question across all six repos is the root's
+`candidates`, and a candidate whose answer is compute in Python is a corpus row,
+named and handed over, never built here. It reports; it never edits
+`roadmap.yaml` or `ROADMAP.md`.
+
+| Skill | When you reach for it |
+|---|---|
+| `roadmap-next` | build one row, from picked to merged on `develop` (you type it) |
+| `candidates` | what could still be built in this repository (you type it) |
+| `fix` | one bounded change that is not a row |
+| `add-dataset-to-orchestration` | wire a corpus dataset, all its touchpoints |
+| `openspec-propose` / `-apply-change` / `-archive-change` / `-explore` / `-sync-specs` | the OpenSpec change a row is written as |
+| `dagster-expert` | any Dagster definition, before you write it |
+
+The two marked *(you type it)* are user-invoked and will not fire on their own.
+The rest stay model-invoked because other skills call them — a user-invoked skill
+cannot be. Which row to start, across all six repositories, is the `next` skill
+one directory up.
+
 - **Worktrees.** `.worktrees/<id>` on `feature/<id>`, or `.worktrees/<slug>`
   on `fix/<slug>`, branched from `develop`. The root checkout stays on
   `develop` and belongs to the person; a command that means the worktree says
@@ -118,12 +150,61 @@ directory up.
   in an ADR, a test or the code and deletes the file.
   A row that needs a corpus subcommand or a Gold shape that does not exist
   asks; its answer is a corpus row, never logic moved into Python here.
+- **Under an Orca dispatch, the coordinator is the harness.** A session started
+  as a worker by the platform's `orchestrate` skill was handed a task id, a
+  dispatch id and a preamble; nothing else about how a row is built changes. The
+  row's worktree is still this repository's to create and to merge —
+  `.worktrees/<id>` on `feature/<id>` — because Orca placed the worker in this
+  checkout, not in a worktree of its own. What changes is two things. The *no*
+  half of the question test is asked with
+  `orca orchestration ask --question "..." [--options a,b]`, which blocks until
+  the coordinator answers, instead of the harness's question tool; the *yes* half
+  is unchanged and still lands in `docs/questions/open/` on `develop`. And the
+  session ends by reporting before it stops:
+  `orca orchestration send --type worker_done --subject "<row>: <what happened>"
+  --body "<what merged, what is parked, what remains>" --task-id <id>
+  --dispatch-id <id> --outcome succeeded|failed`. A stop is still a stop; what
+  changes is that the coordinator is told first. A parked row reports `failed`
+  naming the question file — that is not a judgement on the work, it is how the
+  coordinator learns the row is blocked.
 - **The roles are definitions, not prompts.** `row-scout`, `row-builder`,
-  `row-reviewer` and `row-fixer` live in `.claude/agents/`, each with its own
-  model, effort and turn budget. Dispatch one by name with the task and the
-  paths; do not restate what its definition or this file already says.
+  `row-reviewer`, `row-fixer` and `check-runner` live in `.pi/agents/`, each with
+  its own tools, thinking level and time budget; the model tiers are in
+  `.pi/settings.json`. Dispatch one by name with the task and the paths; do not
+  restate what its definition or this file already says. None of them carries the
+  `subagent` tool, which is what keeps the delegation one level deep — the depth
+  is closed by the tool list, not by a setting.
+- **Commit by pathspec.** Never `git add -A`, never `git add .`, never
+  `git commit -a`, and never `git push` — the remote is the person's. Name every
+  path the commit contains, including a deletion: a rename staged as
+  `R old -> new` is two paths, and a pathspec that lists only the new one commits
+  half of it.
+- **`.env` and `.env.*` are never read.** The deployment's secrets reach the
+  binary through the environment on the LXC, never through a session's context.
+- **Every "never" rule lives in two layers, on purpose.** In this file it is
+  prose, and prose is the only layer that travels: a clone, a different harness,
+  a session that loads no extension all still read `AGENTS.md`. In
+  [`.pi/extensions/guard.ts`](.pi/extensions/guard.ts) it is a refusal, and a
+  refusal is the only layer that holds when the prose is skimmed. The guard
+  refuses five things, and each one is prose somewhere above: a write to `Y:\`
+  or a materialise against it, a write into `../eve-industry-corpus/`, a write
+  outside the active row's worktree, `git add -A` / `commit -a` / `push`, and a
+  read of `.env`. A rule that exists in only one of the two layers is half a rule
+  — so when a "never" is added or changed here, the guard changes in the same
+  commit, and the reverse.
+- **A personal override is `AGENTS.override.md`**, gitignored. pi loads it
+  *instead of* this file in the directory that holds it — not on top of it — so
+  it is a fork of the rules for one machine, never a patch.
 - **ADRs are not append-only.** A superseded record under `docs/adr/` is
-  rewritten or deleted, never stacked with a successor.
+  rewritten or deleted, never stacked with a successor — the reason is in
+  [`docs/decisions/not-taken/`](docs/decisions/not-taken/README.md).
+- **A declined idea is written down**, in
+  [`docs/decisions/not-taken/`](docs/decisions/not-taken/README.md) when it
+  would have been built here, and in the platform's `not-taken/` when it belongs
+  to no single repository. `candidates` prints the folder before it proposes
+  anything, which is the only reason it is worth keeping. Re-opening one argues
+  against the file by name, with new evidence, and deletes it in the change that
+  makes the row.
 - **Verify before you commit**, not through a failing hook:
 
   ```bash
@@ -134,7 +215,9 @@ directory up.
   written against, and names the `row` schema: proposal → specs → tasks, no
   `design.md`, because the ADR is the design wherever a row has one. When a
   row changes what the context paragraph claims, the same change updates it.
-- **No CHANGELOG.** The specs and the decisions are the record.
+- **No CHANGELOG.** The specs and the decisions are the record; nothing here is
+  released, so there is no section for an entry to belong to
+  ([why](docs/decisions/not-taken/2026-09-02-a-changelog-in-this-repository.md)).
 
 ## Testing without the Rust build
 

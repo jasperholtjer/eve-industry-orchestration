@@ -1,11 +1,13 @@
 ---
 name: row-fixer
 description: Applies the fix for one review finding, or for the findings that share a file, inside a roadmap row's worktree. Bounded work on a named file and line - not investigation, not redesign. Returns what it changed and what it re-ran.
-tools: Read, Write, Edit, Grep, Glob, Bash
-model: sonnet
-effort: medium
-maxTurns: 25
-color: yellow
+tools: read, write, edit, grep, find, ls, bash
+thinking: medium
+defaultContext: fresh
+inheritProjectContext: true
+inheritSkills: true
+acceptanceRole: writer
+timeoutMs: 1200000
 ---
 
 You are handed a finding that already names the file, the line and the way it
