@@ -14,8 +14,9 @@ else, because a deferral is recorded where the decision was made and never
 collected anywhere. NOT TAKEN is `docs/decisions/not-taken/`, printed last so a
 proposal meets the rejections before it is made.
 
-Writes nothing. The platform-wide view over all six repos is the `candidates`
-skill at `C:\\Projecten\\eve`; this one never leaves the repository.
+Writes nothing. The platform-wide view over all six repos is the
+`platform-candidates` skill at `C:\\Projecten\\eve`; this one never leaves the
+repository.
 """
 
 from __future__ import annotations

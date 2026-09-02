@@ -81,15 +81,15 @@ recorded decision, wires no dataset and adds nothing to shell out to, and needs
 no design choice with options is a **fix**: the `fix` skill, a `fix/<slug>`
 worktree, no row and no OpenSpec change. `ROADMAP.md` stays what it is — the
 corpus CLI surface, the decisions, and the work items behind them — and what to
-work on next across all six repos is the platform-level `next` skill, one
-directory up.
+work on next across all six repos is the platform-level `platform-next` skill,
+one directory up.
 
 **What could be built here at all** — the open rows, the work items `ROADMAP.md`
 has not finished, the future phases it describes without ever making a row, and
 what the decisions deferred — is this repo's `candidates` skill. It is scoped to
-this repository on purpose: the same question across all six repos is the root's
-`candidates`, and a candidate whose answer is compute in Python is a corpus row,
-named and handed over, never built here. It reports; it never edits
+this repository on purpose: the same question across all six repos is the
+root's `platform-candidates`, and a candidate whose answer is compute in Python
+is a corpus row, named and handed over, never built here. It reports; it never edits
 `roadmap.yaml` or `ROADMAP.md`.
 
 | Skill | When you reach for it |
@@ -103,8 +103,8 @@ named and handed over, never built here. It reports; it never edits
 
 The two marked *(you type it)* are user-invoked and will not fire on their own.
 The rest stay model-invoked because other skills call them — a user-invoked skill
-cannot be. Which row to start, across all six repositories, is the `next` skill
-one directory up.
+cannot be. Which row to start, across all six repositories, is the
+`platform-next` skill one directory up.
 
 - **Worktrees.** `.worktrees/<id>` on `feature/<id>`, or `.worktrees/<slug>`
   on `fix/<slug>`, branched from `develop`. The root checkout stays on
