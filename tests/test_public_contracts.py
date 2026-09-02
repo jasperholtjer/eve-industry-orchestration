@@ -225,6 +225,30 @@ def test_an_absent_day_does_not_stop_neighbouring_days(
         assert len(outcomes[date].get_asset_materialization_events()) == 1
 
 
+# --- a publication-frontier day (ADR-0041 classifier) ----------------------
+
+
+def test_incomplete_upstream_day_is_observed_not_materialised(
+    corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("FAKE_INCOMPLETE_DATES", DATE)
+    calls = _record_runs(monkeypatch)
+
+    result = dg.materialize(
+        [public_contracts_silver], partition_key=DATE, resources={"corpus": corpus}
+    )
+
+    assert result.success
+    # No verify: it would 404 on a partition that was deliberately not written.
+    assert _subcommands(calls) == ["ingest"]
+    # No materialisation → the partition stays Missing, not empty.
+    assert result.get_asset_materialization_events() == []
+    (observation,) = result.get_asset_observation_events()
+    metadata = observation.event_specific_data.asset_observation.metadata
+    assert metadata["skip_reason"].value == "upstream_incomplete"
+    assert metadata["skip_reason"].value != "upstream_absent"
+
+
 # --- run-state enrichment -------------------------------------------------
 
 

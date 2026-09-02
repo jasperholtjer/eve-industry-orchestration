@@ -56,6 +56,13 @@ _SILVER_POOL = "everef_download"
     # with status "skipped" and writes no partition, so the asset must be
     # allowed to complete without materialising — the partition stays Missing
     # rather than failing the run or materialising empty.
+    #
+    # A day at the publication frontier — the date folder exists but the
+    # `.v2.tar.bz2` has not landed yet — reports status "incomplete" instead
+    # (the `PublicationFrontier` verdict corpus's declared-suffix classifier
+    # reaches because this dataset declares both `member_suffix` and
+    # `ignorable_member_suffixes`). Unlike "skipped", this is not permanent:
+    # the day is expected to settle and is re-proposed on the next sensor tick.
     output_required=False,
 )
 def public_contracts_silver(
@@ -65,10 +72,19 @@ def public_contracts_silver(
 
     Every date is requested the same way — the binary owns which archives a day
     holds and how they are merged, so the asset never branches on the packaging
-    era or the snapshot count. A genuinely-absent upstream day (corpus reports
-    ``status: skipped``) is left Missing: the verify (which would 404 on the
-    absent partition) is skipped and an ``AssetObservation`` records why,
-    instead of a misleading materialisation.
+    era or the snapshot count.
+
+    Two distinct non-materialising outcomes are left Missing, each with its own
+    ``AssetObservation`` reason, instead of letting the fall-through verify 404
+    on an absent partition:
+
+    - ``status: skipped`` — a genuinely-absent upstream day (permanent,
+      ADR-0028/0029): EVE Ref never published it and never will.
+    - ``status: incomplete`` — a day at the publication frontier (retryable):
+      the date folder exists but the day's ``.v2.tar.bz2`` has not landed yet.
+      The availability sensor rotates its ``run_key`` per tick (see
+      :mod:`sensor_util`), so the date is re-proposed and picked up once
+      upstream settles, rather than red-looping the run every tick.
     """
     date = context.partition_key
     status = corpus.run(
@@ -90,6 +106,21 @@ def public_contracts_silver(
             partition=date,
             metadata={
                 "skip_reason": "upstream_absent",
+                "detail": str(status.get("reason", "")),
+            },
+        )
+        return
+    if status is not None and status.get("status") == "incomplete":
+        context.log.info(
+            "public-contracts %s: upstream publication incomplete, leaving "
+            "partition missing (retryable)",
+            date,
+        )
+        yield dg.AssetObservation(
+            asset_key=context.asset_key,
+            partition=date,
+            metadata={
+                "skip_reason": "upstream_incomplete",
                 "detail": str(status.get("reason", "")),
             },
         )
