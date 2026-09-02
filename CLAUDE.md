@@ -98,12 +98,26 @@ directory up.
   skill carries the touchpoints and the polymorphic-Gold mapping; a change
   invokes it rather than reassembling them. Any Dagster definition consults
   the `dagster-expert` skill first.
-- **A question for the person goes to [`docs/questions/`](docs/questions/README.md)**
-  on `develop`, never to the terminal and never onto the row's branch — and
-  only for the four cases its README names, on one screen. What a measurement
-  can answer is measured, not asked. A row that needs a corpus subcommand or a
-  Gold shape that does not exist asks; its answer is a corpus row, never logic
-  moved into Python here.
+- **Work autonomously.** Do not ask unless the answer materially blocks correct
+  implementation; what a measurement can answer is measured, not asked. When one
+  thread is blocked, carry on with the independent work in hand rather than
+  stopping the session. Where the harness has a checkpoint surface, update it
+  after meaningful progress and when blocked, so the state is legible without
+  reading the transcript; under Orca that is `orca worktree set --worktree
+  active --comment "..."`. It is a checkpoint, never a third place to ask
+  something.
+- **Two ways to ask, and one test decides which.** *Would this question still
+  have to exist if this session were killed right now?* **No** — it blocks only
+  this session, and it is asked with the harness's own question tool, which
+  surfaces it as work waiting on the person; nothing is written down. **Yes** —
+  it blocks a roadmap row, and it is a file in
+  [`docs/questions/open/`](docs/questions/README.md), committed on `develop`,
+  never onto the row's branch, and only for the four cases its README names, on
+  one screen. The folder is the state: `open/` waits on the person, `answered/`
+  waits on a session, and there is no `resolved/` — applying an answer lands it
+  in an ADR, a test or the code and deletes the file.
+  A row that needs a corpus subcommand or a Gold shape that does not exist
+  asks; its answer is a corpus row, never logic moved into Python here.
 - **The roles are definitions, not prompts.** `row-scout`, `row-builder`,
   `row-reviewer` and `row-fixer` live in `.claude/agents/`, each with its own
   model, effort and turn budget. Dispatch one by name with the task and the
