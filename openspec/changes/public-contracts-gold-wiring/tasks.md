@@ -46,7 +46,7 @@
 
 Consult the `dagster-expert` skill before adding these asset definitions.
 
-- [ ] 3.1 Add a `_build_gold(context, corpus, derivative)` helper mirroring
+- [x] 3.1 Add a `_build_gold(context, corpus, derivative)` helper mirroring
       `sovereignty_map.py#_build_gold`: shell the corpus Gold build naming that
       derivative and date, branch on a reported skip (leave the partition
       Missing, emit an `AssetObservation`), otherwise run the Gold-tier
@@ -55,11 +55,11 @@ Consult the `dagster-expert` skill before adding these asset definitions.
       `corpus.partition_metadata(...)`. Follow the sovereignty module's
       advisory-read rule: a missing run-state row warns and yields nothing
       rather than failing a run corpus passed.
-- [ ] 3.2 Add a `_gold_start(derivative)` helper and four
+- [x] 3.2 Add a `_gold_start(derivative)` helper and four
       `DailyPartitionsDefinition`s, each from
       `resolve_partition_starts("public-contracts", <derivative>).gold`. No
       literal start dates.
-- [ ] 3.3 Add the four `@dg.asset` definitions — `contract_facts_gold`,
+- [x] 3.3 Add the four `@dg.asset` definitions — `contract_facts_gold`,
       `contract_item_facts_gold`, `contract_item_prices_gold`,
       `courier_rates_gold` — `deps=[public_contracts_silver]`, the module's
       existing `group_name`, `kinds={"corpus"}`, `output_required=False`, and
@@ -67,7 +67,7 @@ Consult the `dagster-expert` skill before adding these asset definitions.
       membership of a memory-bearing pool is by measured peak. They take the
       global cap only, exactly as the sovereignty Gold assets do. Do not touch
       `deploy/dagster.yaml`.
-- [ ] 3.4 Correct the module docstring, which still claims "there is no Gold
+- [x] 3.4 Correct the module docstring, which still claims "there is no Gold
       asset and no `ready-dates` sensor here" (lines 19-22) — stale against the
       merged corpus `gold:` block.
 

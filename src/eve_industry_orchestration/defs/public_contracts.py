@@ -7,19 +7,25 @@ source-faithful Silver stream at snapshot grain (ADR-0068 decision 5 — one
 table, one ``data.parquet`` per day). No Bronze is written: the archives are
 streamed and discarded (ADR-0067), so there is no Bronze tier to wire.
 
-**Why the start comes from the coverage floor, not from a derivative.**
-``datasets/public-contracts.yaml`` declares no ``gold:`` block at all, so there
-is no windowed derivative to reach back from — the usual
-``gold.served_start`` minus the look-back has nothing to anchor to. Its
-``silver.served_start`` (ADR-0027) is the only anchor the config declares: the
-first day of the ``.v2.tar.bz2`` era, below which the eight 2019 ``.json.gz``
-days are a different payload entirely. :func:`config.resolve_silver_start` reads
-that floor, so no date literal appears here.
+**Why the Silver start comes from the coverage floor, not from a derivative.**
+All four Gold derivatives fold one day of Silver into one day of Gold and hold
+no cross-day state (ADR-0068 decision 5), so none reaches back past its own
+``served_start`` and the derived preload lands on the floor itself. The
+``silver.served_start`` (ADR-0027) is therefore the binding anchor: the first
+day of the ``.v2.tar.bz2`` era, below which the eight 2019 ``.json.gz`` days are
+a different payload entirely. :func:`config.resolve_silver_start` reads that
+floor, so no date literal appears here.
 
-**The Gold derivatives are corpus's ``public-contracts-gold`` row, not this
-one.** The 43x fold from snapshot grain to a served shape is a Gold concern
-(ADR-0068 decision 5) and the derivatives are that row's to declare; until the
-YAML carries them there is no Gold asset and no ``ready-dates`` sensor here.
+**Four Gold derivatives, four assets.** The 43x fold from snapshot grain to a
+served shape is a Gold concern (ADR-0068 decision 5), and
+``datasets/public-contracts.yaml`` now declares it as four day-partitioned
+trees — ``contract-facts``, ``contract-item-facts``, ``contract-item-prices``
+and ``courier-rates`` — each with its own builder, its own ``_DONE`` and its own
+run-state row. Each builds here under its own ``--derivative`` and its own
+partitions definition; no tree's seal stands for another's. ``courier-rates``
+resolves its ``end_region_id`` against sealed ``structures-snapshot`` and SDE
+trees, but those are builder-pinned reads fingerprinted into ``_INDEX.json``
+(ADR-0052), never a Dagster dependency edge.
 
 The live twin ``public-contracts-live`` (:mod:`public_contracts_live`) is a
 separate dataset with a separate YAML, a current-overwrite ``current/``
@@ -30,10 +36,17 @@ from collections.abc import Iterator
 
 import dagster as dg
 
-from eve_industry_orchestration.defs.config import resolve_silver_start
+from eve_industry_orchestration.defs.config import (
+    resolve_partition_starts,
+    resolve_silver_start,
+)
 from eve_industry_orchestration.defs.corpus_resource import CorpusResource, date_key
 
 DATASET = "public-contracts"
+CONTRACT_FACTS_DERIVATIVE = "contract-facts"
+CONTRACT_ITEM_FACTS_DERIVATIVE = "contract-item-facts"
+CONTRACT_ITEM_PRICES_DERIVATIVE = "contract-item-prices"
+COURIER_RATES_DERIVATIVE = "courier-rates"
 
 silver_partitions = dg.DailyPartitionsDefinition(
     start_date=resolve_silver_start(DATASET)
@@ -144,3 +157,188 @@ def public_contracts_silver(
         metadata={"dataset": DATASET, "tier": "silver", "partition": date}
         | corpus.partition_metadata(DATASET, "silver", date_key(date))
     )
+
+
+def _build_gold(
+    context: dg.AssetExecutionContext, corpus: CorpusResource, derivative: str
+) -> Iterator[dg.MaterializeResult | dg.AssetObservation]:
+    """The body all four Gold assets share, differing only in ``--derivative``.
+
+    Build, then — unless corpus reported a skipped day — Gold-tier verify and a
+    ``MaterializeResult``. Nothing here inspects the day's Silver, a coverage
+    ratio or a sibling tree: whether a date can be built is the binary's answer
+    (ADR-0068), and this asset only reports the status it was given.
+    """
+    date = context.partition_key
+    status = corpus.run(
+        context,
+        "gold",
+        "build",
+        "--dataset",
+        DATASET,
+        "--derivative",
+        derivative,
+        "--date",
+        date,
+        "--sink-path",
+        corpus.sink_path,
+    )
+    if status is not None and status.get("status") == "skipped":
+        context.log.info(
+            "%s %s: prerequisite permanently absent, leaving partition missing",
+            derivative,
+            date,
+        )
+        yield dg.AssetObservation(
+            asset_key=context.asset_key,
+            partition=date,
+            metadata={
+                "skip_reason": "upstream_gap",
+                "detail": str(status.get("reason", "")),
+            },
+        )
+        return
+    corpus.run(
+        context,
+        "verify",
+        "--dataset",
+        derivative,
+        "--date",
+        date,
+        "--tier",
+        "gold",
+        "--sink-path",
+        corpus.sink_path,
+    )
+    # `corpus gold build` writes both the partition tree and the run-state row
+    # under the *derivative* name, not the dataset, so Gold verify and the
+    # run-state read both key on the derivative. Four derivatives of one dataset
+    # therefore record their own facts, never each other's.
+    yield dg.MaterializeResult(
+        metadata={
+            "dataset": DATASET,
+            "derivative": derivative,
+            "tier": "gold",
+            "partition": date,
+        }
+        | corpus.partition_metadata(derivative, "gold", date_key(date))
+    )
+
+
+def _gold_start(derivative: str) -> str:
+    """The derivative's own configured ``served_start``.
+
+    Resolved by name rather than derived from the Silver matrix: the four trees
+    share a start today, but each is free to move its own in corpus, so each
+    asset resolves the one its own configuration declares.
+    """
+    start = resolve_partition_starts(DATASET, derivative).gold
+    if start is None:
+        raise ValueError(
+            f"{DATASET} resolved no Gold served_start for {derivative}; every "
+            "public-contracts derivative declares one"
+        )
+    return start
+
+
+contract_facts_gold_partitions = dg.DailyPartitionsDefinition(
+    start_date=_gold_start(CONTRACT_FACTS_DERIVATIVE)
+)
+contract_item_facts_gold_partitions = dg.DailyPartitionsDefinition(
+    start_date=_gold_start(CONTRACT_ITEM_FACTS_DERIVATIVE)
+)
+contract_item_prices_gold_partitions = dg.DailyPartitionsDefinition(
+    start_date=_gold_start(CONTRACT_ITEM_PRICES_DERIVATIVE)
+)
+courier_rates_gold_partitions = dg.DailyPartitionsDefinition(
+    start_date=_gold_start(COURIER_RATES_DERIVATIVE)
+)
+
+
+@dg.asset(
+    name="contract_facts_gold",
+    partitions_def=contract_facts_gold_partitions,
+    deps=[public_contracts_silver],
+    group_name="public_contracts",
+    kinds={"corpus"},
+    # No `pool=`: membership of a memory-bearing pool is by measured peak and
+    # this build has none yet (see deploy/dagster.yaml). The global cap applies.
+    #
+    # A day whose Silver can never arrive is reported by corpus as "skipped"
+    # with exit 0 and no partition written (ADR-0029), so the asset must be
+    # allowed to complete without materialising.
+    output_required=False,
+)
+def contract_facts_gold(
+    context: dg.AssetExecutionContext, corpus: CorpusResource
+) -> Iterator[dg.MaterializeResult | dg.AssetObservation]:
+    """Gold partition: one row per contract that is new on the day.
+
+    ``deps=`` is lineage only; the readiness sensor drives this. The build reads
+    that day's Silver alone — no cross-day state (ADR-0068) — and owns whatever
+    gate it applies to it; there is no Python pre-check.
+    """
+    yield from _build_gold(context, corpus, CONTRACT_FACTS_DERIVATIVE)
+
+
+@dg.asset(
+    name="contract_item_facts_gold",
+    partitions_def=contract_item_facts_gold_partitions,
+    deps=[public_contracts_silver],
+    group_name="public_contracts",
+    kinds={"corpus"},
+    # No `pool=`: see contract_facts_gold.
+    output_required=False,
+)
+def contract_item_facts_gold(
+    context: dg.AssetExecutionContext, corpus: CorpusResource
+) -> Iterator[dg.MaterializeResult | dg.AssetObservation]:
+    """Gold partition: the item side of the same fold.
+
+    Shares the day's Silver with ``contract_facts_gold`` on purpose, but is a
+    separate build under its own ``--derivative``: the two trees are written and
+    registered separately, and neither run produces the other's partition.
+    """
+    yield from _build_gold(context, corpus, CONTRACT_ITEM_FACTS_DERIVATIVE)
+
+
+@dg.asset(
+    name="contract_item_prices_gold",
+    partitions_def=contract_item_prices_gold_partitions,
+    deps=[public_contracts_silver],
+    group_name="public_contracts",
+    kinds={"corpus"},
+    # No `pool=`: see contract_facts_gold.
+    output_required=False,
+)
+def contract_item_prices_gold(
+    context: dg.AssetExecutionContext, corpus: CorpusResource
+) -> Iterator[dg.MaterializeResult | dg.AssetObservation]:
+    """Gold partition: the per-type item price distribution for the day.
+
+    Which contracts qualify — unmutated single-item exchanges — is the builder's
+    rule (ADR-0068 section 7), never filtered here.
+    """
+    yield from _build_gold(context, corpus, CONTRACT_ITEM_PRICES_DERIVATIVE)
+
+
+@dg.asset(
+    name="courier_rates_gold",
+    partitions_def=courier_rates_gold_partitions,
+    deps=[public_contracts_silver],
+    group_name="public_contracts",
+    kinds={"corpus"},
+    # No `pool=`: see contract_facts_gold.
+    output_required=False,
+)
+def courier_rates_gold(
+    context: dg.AssetExecutionContext, corpus: CorpusResource
+) -> Iterator[dg.MaterializeResult | dg.AssetObservation]:
+    """Gold partition: the volume-weighted freight rate per route for the day.
+
+    The builder resolves ``end_region_id`` against sealed ``structures-snapshot``
+    and SDE trees and fingerprints them into ``_INDEX.json`` (ADR-0052). Those
+    are its own reads, so they are deliberately not ``deps=`` here: a Dagster
+    edge would claim an ordering the binary already owns.
+    """
+    yield from _build_gold(context, corpus, COURIER_RATES_DERIVATIVE)

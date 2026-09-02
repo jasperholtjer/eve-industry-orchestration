@@ -1,10 +1,14 @@
-"""Tests for the public-contracts history Silver asset and its sensor (ADR-0068).
+"""Tests for the public-contracts history tier: Silver, its sensor, and Gold.
 
-The history tier is a Silver-only dataset: its YAML declares no ``gold:`` block,
-so its partition start comes from the ``silver.served_start`` coverage floor and
-there is no Gold asset or readiness sensor to exercise. The live twin
-``public-contracts-live`` is a separate dataset and is asserted untouched here
-rather than assumed so.
+The dataset declares four Gold derivatives that each fold one day of Silver into
+one day of Gold (ADR-0068 decision 5), so the Silver matrix still starts at the
+``silver.served_start`` coverage floor — no derivative reaches back past it — and
+each Gold tree carries its own partition matrix, its own build invocation and its
+own run-state row. The four Gold assets are parametrised together because they
+are deliberately identical in shape: only ``--derivative`` differs.
+
+The live twin ``public-contracts-live`` is a separate dataset and is asserted
+untouched here rather than assumed so.
 """
 
 from __future__ import annotations
@@ -17,7 +21,19 @@ import yaml
 
 from eve_industry_orchestration.defs.corpus_resource import CorpusResource
 from eve_industry_orchestration.defs.public_contracts import (
+    CONTRACT_FACTS_DERIVATIVE,
+    CONTRACT_ITEM_FACTS_DERIVATIVE,
+    CONTRACT_ITEM_PRICES_DERIVATIVE,
+    COURIER_RATES_DERIVATIVE,
     DATASET,
+    contract_facts_gold,
+    contract_facts_gold_partitions,
+    contract_item_facts_gold,
+    contract_item_facts_gold_partitions,
+    contract_item_prices_gold,
+    contract_item_prices_gold_partitions,
+    courier_rates_gold,
+    courier_rates_gold_partitions,
     public_contracts_silver,
     silver_partitions,
 )
@@ -29,6 +45,38 @@ from eve_industry_orchestration.defs.sensors import public_contracts_availabilit
 from tests.conftest import DATASETS_DIR, _assert_enriched, _run_state_facts
 
 DATE = "2024-01-15"
+# Any day other than DATE. Naming it as the only upstream-present day makes DATE
+# a recorded upstream gap, which is how the fake reaches its "skipped" branch.
+OTHER_DATE = "2024-01-14"
+
+# The four Gold assets, each with the derivative it builds and the partitions
+# definition its own configuration declares (corpus ADR-0068 decision 5).
+GOLD_ASSETS = [
+    pytest.param(
+        contract_facts_gold,
+        CONTRACT_FACTS_DERIVATIVE,
+        contract_facts_gold_partitions,
+        id="contract-facts",
+    ),
+    pytest.param(
+        contract_item_facts_gold,
+        CONTRACT_ITEM_FACTS_DERIVATIVE,
+        contract_item_facts_gold_partitions,
+        id="contract-item-facts",
+    ),
+    pytest.param(
+        contract_item_prices_gold,
+        CONTRACT_ITEM_PRICES_DERIVATIVE,
+        contract_item_prices_gold_partitions,
+        id="contract-item-prices",
+    ),
+    pytest.param(
+        courier_rates_gold,
+        COURIER_RATES_DERIVATIVE,
+        courier_rates_gold_partitions,
+        id="courier-rates",
+    ),
+]
 
 
 def _record_runs(
@@ -91,12 +139,19 @@ def test_the_asset_module_carries_no_date_literal() -> None:
     assert "2021-06-17" not in code
 
 
-def test_the_code_location_registers_the_asset() -> None:
+def test_the_code_location_registers_every_asset() -> None:
     """`load_from_defs_folder` picks the module up; nothing is registered by hand."""
     from eve_industry_orchestration.definitions import defs
 
     keys = {spec.key for spec in defs().resolve_all_asset_specs()}
     assert dg.AssetKey("public_contracts_silver") in keys
+    for name in (
+        "contract_facts_gold",
+        "contract_item_facts_gold",
+        "contract_item_prices_gold",
+        "courier_rates_gold",
+    ):
+        assert dg.AssetKey(name) in keys
 
 
 # --- ingest, then verify --------------------------------------------------
@@ -402,6 +457,227 @@ def test_sensor_ignores_a_date_below_the_coverage_floor(
     )
 
     assert [rr.partition_key for rr in result.run_requests] == ["2024-01-15"]
+
+
+# --- the Gold matrix ------------------------------------------------------
+
+
+def _ingest(corpus, date: str) -> None:
+    """Seals one day's Silver, which is all any of the four folds reads."""
+    assert dg.materialize(
+        [public_contracts_silver], partition_key=date, resources={"corpus": corpus}
+    ).success
+
+
+def _gold_partition_dir(corpus, derivative: str, date: str) -> Path:
+    """Where corpus writes a Gold partition — under the *derivative* tree."""
+    year, month, day = (int(part) for part in date.split("-"))
+    return (
+        Path(corpus.sink_path)
+        / "gold"
+        / derivative
+        / f"year={year}"
+        / f"month={month:02d}"
+        / f"day={day:02d}"
+    )
+
+
+@pytest.mark.parametrize(("asset", "derivative", "partitions"), GOLD_ASSETS)
+def test_each_derivative_starts_at_its_own_served_start(
+    asset, derivative: str, partitions
+) -> None:
+    """Read from that derivative's own config entry, never from a literal."""
+    config = yaml.safe_load(
+        (DATASETS_DIR / f"{DATASET}.yaml").read_text(encoding="utf-8")
+    )
+    (entry,) = [d for d in config["gold"] if d["name"] == derivative]
+    assert partitions.get_partition_keys()[0] == str(entry["served_start"])
+
+
+@pytest.mark.parametrize(("asset", "derivative", "partitions"), GOLD_ASSETS)
+def test_no_memory_bearing_pool_is_declared(asset, derivative: str, partitions) -> None:
+    """Pool membership is by measured peak, and none of the four has one yet."""
+    assert asset.op.pool is None
+
+
+# --- build, then verify ---------------------------------------------------
+
+
+@pytest.mark.parametrize(("asset", "derivative", "partitions"), GOLD_ASSETS)
+def test_successful_build_is_followed_by_gold_verify(
+    asset, derivative: str, partitions, corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _ingest(corpus, DATE)
+    calls = _record_runs(monkeypatch)
+
+    result = dg.materialize([asset], partition_key=DATE, resources={"corpus": corpus})
+
+    assert result.success
+    # Exactly two calls: nothing inspects availability, coverage or completeness
+    # before the build — whether a date can be built is the build's own answer.
+    assert _subcommands(calls) == ["gold", "verify"]
+    build, verify = calls
+    assert build[:7] == (
+        "gold",
+        "build",
+        "--dataset",
+        DATASET,
+        "--derivative",
+        derivative,
+        "--date",
+    )
+    # Gold verify keys on the *derivative*, because that is the tree corpus
+    # wrote (`gold/<derivative>/...`); passing the dataset would 404.
+    assert verify[:5] == ("verify", "--dataset", derivative, "--date", DATE)
+    assert verify[5:7] == ("--tier", "gold")
+
+
+@pytest.mark.parametrize(("asset", "derivative", "partitions"), GOLD_ASSETS)
+def test_failing_build_fails_without_verifying(
+    asset, derivative: str, partitions, corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The binary owns whatever gate it applies; a rejection fails the run here.
+
+    The fake keys the gate rejection on ``dataset:derivative:date``, so only a
+    build carrying exactly those three values can trip it.
+    """
+    _ingest(corpus, DATE)
+    monkeypatch.setenv("FAKE_GOLD_GATE_FAIL_DATES", f"{DATASET}:{derivative}:{DATE}")
+    calls = _record_runs(monkeypatch)
+
+    result = dg.materialize(
+        [asset],
+        partition_key=DATE,
+        resources={"corpus": corpus},
+        raise_on_error=False,
+    )
+
+    assert not result.success
+    assert _subcommands(calls) == ["gold"]
+    assert result.get_asset_materialization_events() == []
+
+
+@pytest.mark.parametrize(("asset", "derivative", "partitions"), GOLD_ASSETS)
+def test_failing_gold_verify_fails_the_materialisation(
+    asset, derivative: str, partitions, corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _ingest(corpus, DATE)
+    monkeypatch.setenv("FAKE_VERIFY_FAIL_DATES", f"{derivative}:gold:{DATE}")
+
+    result = dg.materialize(
+        [asset],
+        partition_key=DATE,
+        resources={"corpus": corpus},
+        raise_on_error=False,
+    )
+
+    assert not result.success
+
+
+@pytest.mark.parametrize(("asset", "derivative", "partitions"), GOLD_ASSETS)
+def test_gold_materialisation_metadata_is_keyed_on_the_derivative(
+    asset, derivative: str, partitions, corpus
+) -> None:
+    _ingest(corpus, DATE)
+
+    result = dg.materialize([asset], partition_key=DATE, resources={"corpus": corpus})
+
+    assert result.success
+    (materialisation,) = result.get_asset_materialization_events()
+    metadata = materialisation.materialization.metadata
+    assert metadata["dataset"].value == DATASET
+    assert metadata["derivative"].value == derivative
+    assert metadata["tier"].value == "gold"
+    assert metadata["partition"].value == DATE
+    # The run-state row corpus wrote is registered under the derivative name, so
+    # a lookup keyed on the dataset would silently enrich nothing.
+    _assert_enriched(metadata)
+
+
+@pytest.mark.parametrize(("asset", "derivative", "partitions"), GOLD_ASSETS)
+def test_gold_skipped_day_is_observed_not_materialised(
+    asset, derivative: str, partitions, corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A permanently-absent prerequisite leaves the partition Missing, run green."""
+    # DATE is not in the upstream set, so the Silver run records it as a
+    # permanent gap and the Gold build reports "skipped" for it.
+    monkeypatch.setenv("FAKE_EVEREF_DATES", OTHER_DATE)
+    assert dg.materialize(
+        [public_contracts_silver], partition_key=DATE, resources={"corpus": corpus}
+    ).success
+    calls = _record_runs(monkeypatch)
+
+    result = dg.materialize([asset], partition_key=DATE, resources={"corpus": corpus})
+
+    assert result.success
+    assert result.get_asset_materialization_events() == []
+    # Verify is not invoked on a day that wrote no partition — it would 404.
+    assert _subcommands(calls) == ["gold"]
+    (observation,) = result.get_asset_observation_events()
+    metadata = observation.event_specific_data.asset_observation.metadata
+    assert metadata["skip_reason"].value == "upstream_gap"
+    assert metadata["detail"].value
+
+
+@pytest.mark.parametrize(("asset", "derivative", "partitions"), GOLD_ASSETS)
+def test_gold_missing_run_state_row_still_succeeds_and_warns(
+    asset,
+    derivative: str,
+    partitions,
+    corpus,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The enrichment is advisory: no row is a warning, not a failed partition."""
+    _ingest(corpus, DATE)
+    monkeypatch.setattr(CorpusResource, "state_query", lambda self, sql, **kw: [])
+
+    result = dg.materialize([asset], partition_key=DATE, resources={"corpus": corpus})
+
+    assert result.success
+    (materialisation,) = result.get_asset_materialization_events()
+    assert _run_state_facts(materialisation.materialization.metadata) == {}
+    assert "partition metadata unavailable" in caplog.text
+
+
+# --- four derivatives of one dataset --------------------------------------
+
+
+def test_each_derivative_writes_only_its_own_tree(corpus) -> None:
+    """One Silver fold, four Gold trees, each built by an invocation naming
+    only itself: materialising one must leave the other three absent."""
+    _ingest(corpus, DATE)
+    derivatives = [param.values[1] for param in GOLD_ASSETS]
+
+    def _trees_on_disk() -> set[str]:
+        return {
+            name
+            for name in derivatives
+            if _gold_partition_dir(corpus, name, DATE).is_dir()
+        }
+
+    assert _trees_on_disk() == set()
+    expected: set[str] = set()
+    for param in GOLD_ASSETS:
+        asset, derivative, _ = param.values
+        assert dg.materialize(
+            [asset], partition_key=DATE, resources={"corpus": corpus}
+        ).success
+        expected.add(derivative)
+        # Only the derivatives materialised so far exist: no build produced
+        # another derivative's partition.
+        assert _trees_on_disk() == expected
+
+
+def test_gold_assets_depend_on_the_silver_fold_only(corpus) -> None:
+    """Lineage is the day's Silver. ``courier-rates``' cross-dataset reads are
+    the builder's own, fingerprinted into ``_INDEX.json`` (ADR-0052), so they
+    are deliberately not Dagster edges."""
+    silver_key = next(iter(public_contracts_silver.specs)).key
+    for param in GOLD_ASSETS:
+        asset = param.values[0]
+        spec = next(iter(asset.specs))
+        assert [dep.asset_key for dep in spec.deps] == [silver_key]
 
 
 # --- independence from the live twin --------------------------------------
