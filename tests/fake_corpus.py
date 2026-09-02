@@ -614,6 +614,9 @@ def _do_live(args: list[str], sink: str) -> int:
     if dataset is None:
         print("live build: --dataset required", file=sys.stderr)
         return 2
+    if dataset == "lp-store-offers-live":
+        return _do_live_lp_store_offers(sink)
+
     _write_flat(sink, "gold", f"{dataset}/current")
     print(f"wrote 1 live gold rows -> {dataset}/current", file=sys.stderr)
     # The live datasets emit different status shapes, mirroring the real binary:
@@ -645,6 +648,51 @@ def _do_live(args: list[str], sink: str) -> int:
         status["snapshot_file"] = f"{dataset}-2026-06-26_12-00-00.v3.csv.bz2"
         status["date"] = "2026-06-26"
     print(json.dumps(status))
+    return 0
+
+
+def _do_live_lp_store_offers(sink: str) -> int:
+    """Mimics ``corpus live build --dataset lp-store-offers-live`` (ADR-0070).
+
+    The one live dataset whose single build writes **two** Gold trees off one ESI
+    fan-out, and therefore the one whose status object is multi-partition: the
+    row counts arrive per derivative in ``partitions``, with no top-level
+    ``rows``. Both trees carry the same ``run_id`` in the real binary, which is
+    how a reader tells one fetch from two.
+    """
+    derivatives = {"lp-store-offers": 2, "lp-store-offer-items": 3}
+    for derivative in derivatives:
+        _write_flat(sink, "gold", f"{derivative}/current")
+    print(
+        "wrote 283 corporations -> lp-store-offers/current, "
+        "lp-store-offer-items/current",
+        file=sys.stderr,
+    )
+    print(
+        json.dumps(
+            {
+                "status": "written",
+                "dataset": "lp-store-offers-live",
+                "source": "esi",
+                "url": (
+                    "https://esi.evetech.net/latest/corporations/npccorps/"
+                    "?datasource=tranquility"
+                ),
+                "snapshot_at": "2026-06-26T12:00:00+00:00",
+                "corporations": 283,
+                "empty_stores": 102,
+                "partitions": [
+                    {
+                        "derivative": derivative,
+                        "rows": rows,
+                        "parquet_sha256": "fake",
+                        "partition_dir": f"{derivative}/current",
+                    }
+                    for derivative, rows in derivatives.items()
+                ],
+            }
+        )
+    )
     return 0
 
 

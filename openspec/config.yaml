@@ -34,16 +34,29 @@ context: |
 
   Twenty-odd asset modules under `src/eve_industry_orchestration/defs/`, one per
   dataset family, all reaching corpus through `corpus_resource`. The newest is
-  `public-contracts-live`, the fourth member of the live current-overwrite
+  `lp-store-offers-live`, the fifth member of the live current-overwrite
   family (`market-orders-live`, `market-prices-live`,
-  `industry-cost-indices-live`): one non-partitioned Gold asset shelling
-  `corpus live build`, a default-stopped `15,45 * * * *` schedule on EVE Ref's
-  half-hourly snapshot rhythm (offset off the other live schedules' `*/30` and
-  `0 * * * *` cadences, since the tree is last-write-wins and the offset is
-  free), and the `everef_download` politeness pool. That family has no
+  `industry-cost-indices-live`, `public-contracts-live`): each is one
+  non-partitioned Gold asset shelling `corpus live build` on a default-stopped
+  fixed-cadence schedule. That family has no
   Silver tier, no partition matrix and no history, so `defs/config.py` resolves
   nothing for it and it is the standing exception to "sensor over cron" — there
-  is no per-date availability to diff. The history half of public contracts is
+  is no per-date availability to diff. The three EVE Ref members join the
+  `everef_download` politeness pool; the two ESI ones share no endpoint with the
+  Silver transfers and join no pool at all.
+
+  `lp-store-offers-live` is where the family's mould bends, on measured grounds
+  rather than inherited ones. One build fans out over all 283 NPC corporations
+  and writes **two** Gold trees — `lp-store-offers` and `lp-store-offer-items` —
+  before either is committed, so it is one asset and not one per tree: a second
+  asset would repeat the 284-request fan-out and could leave one tree fresh
+  against a stale other. Its status object is consequently the only
+  multi-partition one here, a row count per derivative under `partitions` with
+  no top-level `rows`, recorded as `rows.<derivative>`. Its cadence is daily,
+  `30 11 * * *`, because every store's response expired at the same 11:05 UTC
+  instant when measured — the caches roll together once a day, and an hourly
+  poll would repeat the fan-out against a payload that only moves on
+  deployments. The history half of public contracts is
   wired beside it as a day-partitioned Silver asset with an availability sensor
   of its own, and — since corpus landed its `gold:` block — four day-partitioned
   Gold assets, one per derivative, each with a readiness sensor of its own. All

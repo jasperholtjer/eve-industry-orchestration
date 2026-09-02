@@ -402,52 +402,56 @@ items:
     goal: >
       One non-partitioned asset shelling `corpus live build --dataset
       lp-store-offers-live`, on a daily schedule. One binary call fetches the 284
-      ESI responses once and overwrites three Gold `current/` trees —
-      `lp-npc-corps` (283 rows), `lp-store-offers` (~31 800) and
-      `lp-store-offer-items` (~35 100) — so three assets would mean three
-      processes re-fetching the same payload. Modelled on `market_prices_live.py`
-      and `tests/test_market_prices_live.py`; it should read as the near-copy it
-      is.
+      ESI responses once and overwrites two Gold `current/` trees —
+      `lp-store-offers` (31 847 rows) and `lp-store-offer-items` (35 066) — so
+      two assets would mean two processes re-fetching the same payload. Modelled
+      on `market_prices_live.py` and `tests/test_market_prices_live.py`; it
+      should read as the near-copy it is.
     areas: [orchestration]
     depends_on: [corpus:lp-store-offers-live]
     priority: 3
-    status: todo
+    status: done
     notes: >
-      Blocked, and doubly so as of 2026-09-02: `eve-industry-corpus` has no
-      `datasets/lp-store-offers-live.yaml`, and no row for one in its
-      `roadmap.yaml` either. The dependency names a row that does not exist yet,
-      which is the intent — it can never resolve ready until corpus makes it.
-      `corpus/tmp/lp/` holds the probe behind this (`NOTES.md` opens "Scratch.
-      Not a row, not a proposal") and `tmp/lp/orchestration-prompt.md` the brief
-      for this row, whose banner says do not start it yet.
+      Landed 2026-09-02, the day corpus shipped the dataset (ADR-0070). The goal
+      above is corrected in the same commit: it said **three** Gold trees, with
+      `lp-npc-corps` among them, because it was written against the probe in
+      `corpus/tmp/lp/`. What shipped is **two** — the 283 NPC corporations are
+      the fan-out root the binary derives, not a derivative anything consumes.
+      Trust the corpus dataset YAML over a pre-landing sketch.
 
-      Decisions already taken there, so the row does not re-derive them:
+      The other correction the same sketch owed: the status object is
+      **multi-partition**, the only one in this repository that is. Row counts
+      arrive per derivative under `partitions`, and there is no top-level `rows`
+      — an asset copying the `market-prices-live` shape would have recorded
+      nothing and said so nowhere. The metadata records them as
+      `rows.<derivative>`, alongside `corporations` and `empty_stores`, which are
+      the numbers that say whether a thin result is real (102 of 283 stores are
+      legitimately empty).
 
-      A schedule, not a sensor — there is no per-date availability to diff, only
-      "overwrite `current/` with what ESI serves now". Follow
-      `market_prices_live_schedule` in `sensors.py`, `DefaultScheduleStatus.STOPPED`.
+      What held: a schedule and not a sensor; daily at `30 11 * * *` and not
+      hourly; no pool and nothing in `deploy/dagster.yaml`; no
+      `partition_metadata` enrichment and no `corpus verify`. The cadence's
+      reasoning firmed up on measurement — every store returns `Expires:
+      11:05:00 UTC` the following day, so the caches roll together once a day and
+      11:30 is comfortably past the roll, which is a stronger argument than the
+      shared `Last-Modified` the probe reasoned from.
 
-      Daily at 11:30 UTC (`30 11 * * *`), not hourly. All 283 stores carried an
-      identical `Last-Modified` of 2026-08-31 11:03:28 UTC when measured, minutes
-      after the 11:00 downtime: LP offers move on deployments, not on player
-      action, so half an hour past downtime is the first moment a change can
-      exist. The two live siblings are hourly because their sources move daily,
-      which is not an argument that carries here.
+      Real run: RUN_SUCCESS in 3.36 s against the real binary — 283 corporations
+      at four in flight, 102 empty stores, 31 847 + 35 066 rows. Both
+      `_INDEX.json` carried the same `run_id`, `live-esi-20260902T110652Z`, which
+      is the check that the two trees came from one fetch; a kill between the two
+      commits is what would break it. The 284-request fan-out needed nothing in
+      Python: the retries, the four-in-flight bound and the rule that an
+      exhausted GET fails the whole run all held in the Rust fetch arm.
 
-      No pool, and nothing added to `deploy/dagster.yaml`. ESI rather than EVE
-      Ref, so it shares no endpoint with the Silver transfers and joins no
-      `everef_download` pool; ~6 MB of JSON is not memory-bearing. Global
-      `max_concurrent_runs` only.
+      Left on the table, and no work now: the status object carries a
+      `parquet_sha256` per partition that the materialisation does not record.
+      It would be the cheapest per-tree signal a reader has, but no spec asks for
+      it and no consumer has yet.
 
-      `corpus live build` writes no run-state row, so `state query` has nothing to
-      match: no `partition_metadata` enrichment. Do not call `corpus verify` — it
-      resolves a day-partitioned path and this tree is non-partitioned `current/`.
-      Confirm the status-line keys against the shipped binary before pinning them
-      in metadata; expect the `market-prices-live` shape (`snapshot_at`, `rows`,
-      `source`).
-
-      One thing to weigh rather than assume: a run is 284 ESI requests, two orders
-      of magnitude more than any existing live asset. Retries, the concurrency cap
-      and backoff belong in the corpus fetch arm; a shipped binary that lets a
-      partial fetch look like a success is a corpus finding to hand back, not
-      something to paper over in the asset.
+      The local `corpus` binary had to be built before the run — none existed at
+      `target/release/` — and `cargo build --release` failed twice on MSVC
+      `C1056` (`cannot update the time date stamp field`) in `ring` and
+      `onig_sys` before succeeding on a third attempt. Cargo keeps what compiled,
+      so retrying is the fix. The LXC needs a corpus release containing this
+      dataset before it can materialise the asset.
