@@ -1,6 +1,5 @@
 ---
-status: open
-row: none (daily production failure)
+row: none
 ---
 
 # Should the LXC be able to run `corpus enrich embed`, or is embedding an operator step?

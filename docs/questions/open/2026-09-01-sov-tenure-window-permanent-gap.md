@@ -1,5 +1,4 @@
 ---
-status: open
 row: sovereignty-gold-panel
 ---
 
