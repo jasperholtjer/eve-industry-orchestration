@@ -94,17 +94,22 @@
 # belongs to that same superseded configuration. There is no measurement of what
 # runs today, and buying RAM for a paper number is the wrong order.
 #
-# PUBLIC-CONTRACTS SILVER ADDS NOTHING TO THAT SUM, and not merely because
-# nobody measured it. The ingestor streams one archive at a time in ascending
-# `snapshot_at` and emits each (snapshot, member) pair as its own batch, "so a
-# day of ~47 snapshots never coexists"; one snapshot is held several times over
-# while its seven members are widened, so "peak is therefore a small multiple of
-# one decompressed archive" — ~63 MB for a recent day (corpus
+# PUBLIC-CONTRACTS SILVER ADDS A BOUNDED, SMALL AMOUNT TO THAT SUM, not zero.
+# The ingestor streams one archive at a time in ascending `snapshot_at` and
+# emits each (snapshot, member) pair as its own batch, "so a day of ~47
+# snapshots never coexists"; one snapshot is held several times over while its
+# seven members are widened, so "peak is therefore a small multiple of one
+# decompressed archive" — ~63 MB for a recent day (corpus
 # `crates/ingestor-public-contracts/src/silver.rs:34-46`). It takes
 # `everef_download` for fetch politeness and no memory-bearing pool. No
-# `/usr/bin/time -v` figure exists to confirm the multiple: corpus
+# `/usr/bin/time -v` figure exists to confirm the multiple on the LXC: corpus
 # `tmp/contracts/measurements-2026-09-01.md` §7.5 states the scheduling problem
-# and gives no number. The full backfill is 1 892 partitions, ~8.2 h at
+# and gives no number. This row's own indicative measurement — a Windows-
+# workstation peak working set, NOT the `/usr/bin/time -v` maximum RSS pool
+# membership requires — came in at 374.5 MiB for one `corpus ingest --dataset
+# public-contracts --date 2021-06-17`, roughly 6x one archive; that order of
+# magnitude, not a budgeted per-holder figure, is what the next row measures
+# from on the LXC. The full backfill is 1 892 partitions, ~8.2 h at
 # `everef_download`'s limit of 2, so it overlaps the daily schedules — and of
 # the two handlings §7.5 offers, this deployment takes the first: the daily
 # schedules are paused for the backfill's duration. It gets no bound of its own,

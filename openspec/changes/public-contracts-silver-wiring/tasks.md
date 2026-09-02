@@ -49,7 +49,11 @@
 
 ## 4. `tests/fake_corpus.py` and `tests/test_public_contracts.py`
 
-- [x] 4.1 Extend `tests/fake_corpus.py` with the `public-contracts` cases:
+- [x] 4.1 (No change needed.) `tests/fake_corpus.py` required no `public-contracts`
+      branch: its `ingest`, `verify`, `everef missing-partitions` and `state
+      query` paths are already dataset-generic, and the new tests drive all four
+      against it unmodified. The original task read: extend `tests/fake_corpus.py`
+      with the `public-contracts` cases:
       `ingest` (a written partition, and the skip status for an absent upstream
       day), `verify --tier silver`, `everef missing-partitions --format json` and
       the `state query --format json` row. Follow the closest existing dataset's
