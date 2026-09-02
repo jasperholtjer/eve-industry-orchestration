@@ -430,10 +430,10 @@ def test_a_dataset_with_derivatives_resolves_unchanged(
 
 PUBLIC_CONTRACTS = "public-contracts"
 CONTRACT_FOLDS = (
-    "contract-facts",
-    "contract-item-facts",
-    "contract-item-prices",
-    "courier-rates",
+    "contracts-facts",
+    "contracts-item-facts",
+    "contracts-item-prices",
+    "contracts-courier-rates",
 )
 
 
@@ -473,9 +473,9 @@ def test_public_contracts_ambiguous_without_selector() -> None:
 def test_an_unknown_shape_still_names_the_derivative_and_the_shape() -> None:
     """The break this row fixes: an unmapped shape fails loudly at load."""
     with pytest.raises(PartitionConfigError) as excinfo:
-        _lookback_for_shape("contract-facts", "contract-vibes", {})
+        _lookback_for_shape("contracts-facts", "contract-vibes", {})
     message = str(excinfo.value)
-    assert "contract-facts" in message
+    assert "contracts-facts" in message
     assert "contract-vibes" in message
 
 

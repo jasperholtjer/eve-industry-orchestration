@@ -19,13 +19,22 @@ floor, so no date literal appears here.
 **Four Gold derivatives, four assets.** The 43x fold from snapshot grain to a
 served shape is a Gold concern (ADR-0068 decision 5), and
 ``datasets/public-contracts.yaml`` now declares it as four day-partitioned
-trees — ``contract-facts``, ``contract-item-facts``, ``contract-item-prices``
-and ``courier-rates`` — each with its own builder, its own ``_DONE`` and its own
-run-state row. Each builds here under its own ``--derivative`` and its own
-partitions definition; no tree's seal stands for another's. ``courier-rates``
-resolves its ``end_region_id`` against sealed ``structures-snapshot`` and SDE
-trees, but those are builder-pinned reads fingerprinted into ``_INDEX.json``
-(ADR-0052), never a Dagster dependency edge.
+trees — ``contracts-facts``, ``contracts-item-facts``,
+``contracts-item-prices`` and ``contracts-courier-rates`` — each with its own
+builder, its own ``_DONE`` and its own run-state row. Each builds here under
+its own ``--derivative`` and its own partitions definition; no tree's seal
+stands for another's. ``contracts-courier-rates`` resolves its
+``end_region_id`` against sealed ``structures-snapshot`` and SDE trees, but
+those are builder-pinned reads fingerprinted into ``_INDEX.json`` (ADR-0052),
+never a Dagster dependency edge.
+
+The asset name is the derivative name, which is also the tree under ``gold/``
+and the run-state key — so an asset in the Dagster list names the bytes it
+produces. It is deliberately *not* the ``shape:`` beside it in the YAML
+(``contract-facts``, ``courier-rates``): a shape is corpus's builder-dispatch
+key, is never written to disk, and is what :func:`config._lookback_for_shape`
+keys the Silver preload on — which is why that mapping is untouched by a tree
+rename.
 
 The live twin ``public-contracts-live`` (:mod:`public_contracts_live`) is a
 separate dataset with a separate YAML, a current-overwrite ``current/``
@@ -43,10 +52,10 @@ from eve_industry_orchestration.defs.config import (
 from eve_industry_orchestration.defs.corpus_resource import CorpusResource, date_key
 
 DATASET = "public-contracts"
-CONTRACT_FACTS_DERIVATIVE = "contract-facts"
-CONTRACT_ITEM_FACTS_DERIVATIVE = "contract-item-facts"
-CONTRACT_ITEM_PRICES_DERIVATIVE = "contract-item-prices"
-COURIER_RATES_DERIVATIVE = "courier-rates"
+CONTRACTS_FACTS_DERIVATIVE = "contracts-facts"
+CONTRACTS_ITEM_FACTS_DERIVATIVE = "contracts-item-facts"
+CONTRACTS_ITEM_PRICES_DERIVATIVE = "contracts-item-prices"
+CONTRACTS_COURIER_RATES_DERIVATIVE = "contracts-courier-rates"
 
 silver_partitions = dg.DailyPartitionsDefinition(
     start_date=resolve_silver_start(DATASET)
@@ -241,23 +250,23 @@ def _gold_start(derivative: str) -> str:
     return start
 
 
-contract_facts_gold_partitions = dg.DailyPartitionsDefinition(
-    start_date=_gold_start(CONTRACT_FACTS_DERIVATIVE)
+contracts_facts_gold_partitions = dg.DailyPartitionsDefinition(
+    start_date=_gold_start(CONTRACTS_FACTS_DERIVATIVE)
 )
-contract_item_facts_gold_partitions = dg.DailyPartitionsDefinition(
-    start_date=_gold_start(CONTRACT_ITEM_FACTS_DERIVATIVE)
+contracts_item_facts_gold_partitions = dg.DailyPartitionsDefinition(
+    start_date=_gold_start(CONTRACTS_ITEM_FACTS_DERIVATIVE)
 )
-contract_item_prices_gold_partitions = dg.DailyPartitionsDefinition(
-    start_date=_gold_start(CONTRACT_ITEM_PRICES_DERIVATIVE)
+contracts_item_prices_gold_partitions = dg.DailyPartitionsDefinition(
+    start_date=_gold_start(CONTRACTS_ITEM_PRICES_DERIVATIVE)
 )
-courier_rates_gold_partitions = dg.DailyPartitionsDefinition(
-    start_date=_gold_start(COURIER_RATES_DERIVATIVE)
+contracts_courier_rates_gold_partitions = dg.DailyPartitionsDefinition(
+    start_date=_gold_start(CONTRACTS_COURIER_RATES_DERIVATIVE)
 )
 
 
 @dg.asset(
-    name="contract_facts_gold",
-    partitions_def=contract_facts_gold_partitions,
+    name="contracts_facts_gold",
+    partitions_def=contracts_facts_gold_partitions,
     deps=[public_contracts_silver],
     group_name="public_contracts",
     kinds={"corpus"},
@@ -269,7 +278,7 @@ courier_rates_gold_partitions = dg.DailyPartitionsDefinition(
     # allowed to complete without materialising.
     output_required=False,
 )
-def contract_facts_gold(
+def contracts_facts_gold(
     context: dg.AssetExecutionContext, corpus: CorpusResource
 ) -> Iterator[dg.MaterializeResult | dg.AssetObservation]:
     """Gold partition: one row per contract that is new on the day.
@@ -278,40 +287,40 @@ def contract_facts_gold(
     that day's Silver alone — no cross-day state (ADR-0068) — and owns whatever
     gate it applies to it; there is no Python pre-check.
     """
-    yield from _build_gold(context, corpus, CONTRACT_FACTS_DERIVATIVE)
+    yield from _build_gold(context, corpus, CONTRACTS_FACTS_DERIVATIVE)
 
 
 @dg.asset(
-    name="contract_item_facts_gold",
-    partitions_def=contract_item_facts_gold_partitions,
+    name="contracts_item_facts_gold",
+    partitions_def=contracts_item_facts_gold_partitions,
     deps=[public_contracts_silver],
     group_name="public_contracts",
     kinds={"corpus"},
-    # No `pool=`: see contract_facts_gold.
+    # No `pool=`: see contracts_facts_gold.
     output_required=False,
 )
-def contract_item_facts_gold(
+def contracts_item_facts_gold(
     context: dg.AssetExecutionContext, corpus: CorpusResource
 ) -> Iterator[dg.MaterializeResult | dg.AssetObservation]:
     """Gold partition: the item side of the same fold.
 
-    Shares the day's Silver with ``contract_facts_gold`` on purpose, but is a
+    Shares the day's Silver with ``contracts_facts_gold`` on purpose, but is a
     separate build under its own ``--derivative``: the two trees are written and
     registered separately, and neither run produces the other's partition.
     """
-    yield from _build_gold(context, corpus, CONTRACT_ITEM_FACTS_DERIVATIVE)
+    yield from _build_gold(context, corpus, CONTRACTS_ITEM_FACTS_DERIVATIVE)
 
 
 @dg.asset(
-    name="contract_item_prices_gold",
-    partitions_def=contract_item_prices_gold_partitions,
+    name="contracts_item_prices_gold",
+    partitions_def=contracts_item_prices_gold_partitions,
     deps=[public_contracts_silver],
     group_name="public_contracts",
     kinds={"corpus"},
-    # No `pool=`: see contract_facts_gold.
+    # No `pool=`: see contracts_facts_gold.
     output_required=False,
 )
-def contract_item_prices_gold(
+def contracts_item_prices_gold(
     context: dg.AssetExecutionContext, corpus: CorpusResource
 ) -> Iterator[dg.MaterializeResult | dg.AssetObservation]:
     """Gold partition: the per-type item price distribution for the day.
@@ -319,19 +328,19 @@ def contract_item_prices_gold(
     Which contracts qualify — unmutated single-item exchanges — is the builder's
     rule (ADR-0068 section 7), never filtered here.
     """
-    yield from _build_gold(context, corpus, CONTRACT_ITEM_PRICES_DERIVATIVE)
+    yield from _build_gold(context, corpus, CONTRACTS_ITEM_PRICES_DERIVATIVE)
 
 
 @dg.asset(
-    name="courier_rates_gold",
-    partitions_def=courier_rates_gold_partitions,
+    name="contracts_courier_rates_gold",
+    partitions_def=contracts_courier_rates_gold_partitions,
     deps=[public_contracts_silver],
     group_name="public_contracts",
     kinds={"corpus"},
-    # No `pool=`: see contract_facts_gold.
+    # No `pool=`: see contracts_facts_gold.
     output_required=False,
 )
-def courier_rates_gold(
+def contracts_courier_rates_gold(
     context: dg.AssetExecutionContext, corpus: CorpusResource
 ) -> Iterator[dg.MaterializeResult | dg.AssetObservation]:
     """Gold partition: the volume-weighted freight rate per route for the day.
@@ -341,4 +350,4 @@ def courier_rates_gold(
     are its own reads, so they are deliberately not ``deps=`` here: a Dagster
     edge would claim an ordering the binary already owns.
     """
-    yield from _build_gold(context, corpus, COURIER_RATES_DERIVATIVE)
+    yield from _build_gold(context, corpus, CONTRACTS_COURIER_RATES_DERIVATIVE)

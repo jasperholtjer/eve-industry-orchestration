@@ -406,28 +406,28 @@ def test_sovereignty_sensor_caps_the_tick_and_carries_the_backlog(
 
 PUBLIC_CONTRACTS_GOLD_SENSORS = [
     pytest.param(
-        s.contract_facts_gold_sensor,
-        "contract-facts",
-        pc.contract_facts_gold,
-        id="contract-facts",
+        s.contracts_facts_gold_sensor,
+        "contracts-facts",
+        pc.contracts_facts_gold,
+        id="contracts-facts",
     ),
     pytest.param(
-        s.contract_item_facts_gold_sensor,
-        "contract-item-facts",
-        pc.contract_item_facts_gold,
-        id="contract-item-facts",
+        s.contracts_item_facts_gold_sensor,
+        "contracts-item-facts",
+        pc.contracts_item_facts_gold,
+        id="contracts-item-facts",
     ),
     pytest.param(
-        s.contract_item_prices_gold_sensor,
-        "contract-item-prices",
-        pc.contract_item_prices_gold,
-        id="contract-item-prices",
+        s.contracts_item_prices_gold_sensor,
+        "contracts-item-prices",
+        pc.contracts_item_prices_gold,
+        id="contracts-item-prices",
     ),
     pytest.param(
-        s.courier_rates_gold_sensor,
-        "courier-rates",
-        pc.courier_rates_gold,
-        id="courier-rates",
+        s.contracts_courier_rates_gold_sensor,
+        "contracts-courier-rates",
+        pc.contracts_courier_rates_gold,
+        id="contracts-courier-rates",
     ),
 ]
 
@@ -559,8 +559,8 @@ def test_the_four_public_contracts_gold_sensors_are_named_per_derivative() -> No
     sensors = [case.values[0] for case in PUBLIC_CONTRACTS_GOLD_SENSORS]
 
     assert [sensor.name for sensor in sensors] == [
-        "contract_facts_gold_sensor",
-        "contract_item_facts_gold_sensor",
-        "contract_item_prices_gold_sensor",
-        "courier_rates_gold_sensor",
+        "contracts_facts_gold_sensor",
+        "contracts_item_facts_gold_sensor",
+        "contracts_item_prices_gold_sensor",
+        "contracts_courier_rates_gold_sensor",
     ]

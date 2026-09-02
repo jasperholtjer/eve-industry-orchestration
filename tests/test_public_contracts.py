@@ -21,19 +21,19 @@ import yaml
 
 from eve_industry_orchestration.defs.corpus_resource import CorpusResource
 from eve_industry_orchestration.defs.public_contracts import (
-    CONTRACT_FACTS_DERIVATIVE,
-    CONTRACT_ITEM_FACTS_DERIVATIVE,
-    CONTRACT_ITEM_PRICES_DERIVATIVE,
-    COURIER_RATES_DERIVATIVE,
+    CONTRACTS_COURIER_RATES_DERIVATIVE,
+    CONTRACTS_FACTS_DERIVATIVE,
+    CONTRACTS_ITEM_FACTS_DERIVATIVE,
+    CONTRACTS_ITEM_PRICES_DERIVATIVE,
     DATASET,
-    contract_facts_gold,
-    contract_facts_gold_partitions,
-    contract_item_facts_gold,
-    contract_item_facts_gold_partitions,
-    contract_item_prices_gold,
-    contract_item_prices_gold_partitions,
-    courier_rates_gold,
-    courier_rates_gold_partitions,
+    contracts_courier_rates_gold,
+    contracts_courier_rates_gold_partitions,
+    contracts_facts_gold,
+    contracts_facts_gold_partitions,
+    contracts_item_facts_gold,
+    contracts_item_facts_gold_partitions,
+    contracts_item_prices_gold,
+    contracts_item_prices_gold_partitions,
     public_contracts_silver,
     silver_partitions,
 )
@@ -53,28 +53,28 @@ OTHER_DATE = "2024-01-14"
 # definition its own configuration declares (corpus ADR-0068 decision 5).
 GOLD_ASSETS = [
     pytest.param(
-        contract_facts_gold,
-        CONTRACT_FACTS_DERIVATIVE,
-        contract_facts_gold_partitions,
-        id="contract-facts",
+        contracts_facts_gold,
+        CONTRACTS_FACTS_DERIVATIVE,
+        contracts_facts_gold_partitions,
+        id="contracts-facts",
     ),
     pytest.param(
-        contract_item_facts_gold,
-        CONTRACT_ITEM_FACTS_DERIVATIVE,
-        contract_item_facts_gold_partitions,
-        id="contract-item-facts",
+        contracts_item_facts_gold,
+        CONTRACTS_ITEM_FACTS_DERIVATIVE,
+        contracts_item_facts_gold_partitions,
+        id="contracts-item-facts",
     ),
     pytest.param(
-        contract_item_prices_gold,
-        CONTRACT_ITEM_PRICES_DERIVATIVE,
-        contract_item_prices_gold_partitions,
-        id="contract-item-prices",
+        contracts_item_prices_gold,
+        CONTRACTS_ITEM_PRICES_DERIVATIVE,
+        contracts_item_prices_gold_partitions,
+        id="contracts-item-prices",
     ),
     pytest.param(
-        courier_rates_gold,
-        COURIER_RATES_DERIVATIVE,
-        courier_rates_gold_partitions,
-        id="courier-rates",
+        contracts_courier_rates_gold,
+        CONTRACTS_COURIER_RATES_DERIVATIVE,
+        contracts_courier_rates_gold_partitions,
+        id="contracts-courier-rates",
     ),
 ]
 
@@ -118,10 +118,10 @@ def test_silver_starts_at_the_declared_coverage_floor() -> None:
     # into one day of Gold (corpus ADR-0068), so none reaches back past the
     # floor and the derived preload lands on the floor itself.
     assert [d["name"] for d in config["gold"]] == [
-        "contract-facts",
-        "contract-item-facts",
-        "contract-item-prices",
-        "courier-rates",
+        "contracts-facts",
+        "contracts-item-facts",
+        "contracts-item-prices",
+        "contracts-courier-rates",
     ]
 
     keys = silver_partitions.get_partition_keys()
@@ -146,10 +146,10 @@ def test_the_code_location_registers_every_asset() -> None:
     keys = {spec.key for spec in defs().resolve_all_asset_specs()}
     assert dg.AssetKey("public_contracts_silver") in keys
     for name in (
-        "contract_facts_gold",
-        "contract_item_facts_gold",
-        "contract_item_prices_gold",
-        "courier_rates_gold",
+        "contracts_facts_gold",
+        "contracts_item_facts_gold",
+        "contracts_item_prices_gold",
+        "contracts_courier_rates_gold",
     ):
         assert dg.AssetKey(name) in keys
 
@@ -670,7 +670,7 @@ def test_each_derivative_writes_only_its_own_tree(corpus) -> None:
 
 
 def test_gold_assets_depend_on_the_silver_fold_only(corpus) -> None:
-    """Lineage is the day's Silver. ``courier-rates``' cross-dataset reads are
+    """Lineage is the day's Silver. ``contracts-courier-rates``' cross-dataset reads are
     the builder's own, fingerprinted into ``_INDEX.json`` (ADR-0052), so they
     are deliberately not Dagster edges."""
     silver_key = next(iter(public_contracts_silver.specs)).key

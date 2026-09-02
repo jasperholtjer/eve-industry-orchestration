@@ -807,25 +807,25 @@ def _build_public_contracts_gold_sensor(
     return _sensor
 
 
-contract_facts_gold_sensor = _build_public_contracts_gold_sensor(
-    pc.CONTRACT_FACTS_DERIVATIVE,
-    pc.contract_facts_gold,
-    pc.contract_facts_gold_partitions,
+contracts_facts_gold_sensor = _build_public_contracts_gold_sensor(
+    pc.CONTRACTS_FACTS_DERIVATIVE,
+    pc.contracts_facts_gold,
+    pc.contracts_facts_gold_partitions,
 )
-contract_item_facts_gold_sensor = _build_public_contracts_gold_sensor(
-    pc.CONTRACT_ITEM_FACTS_DERIVATIVE,
-    pc.contract_item_facts_gold,
-    pc.contract_item_facts_gold_partitions,
+contracts_item_facts_gold_sensor = _build_public_contracts_gold_sensor(
+    pc.CONTRACTS_ITEM_FACTS_DERIVATIVE,
+    pc.contracts_item_facts_gold,
+    pc.contracts_item_facts_gold_partitions,
 )
-contract_item_prices_gold_sensor = _build_public_contracts_gold_sensor(
-    pc.CONTRACT_ITEM_PRICES_DERIVATIVE,
-    pc.contract_item_prices_gold,
-    pc.contract_item_prices_gold_partitions,
+contracts_item_prices_gold_sensor = _build_public_contracts_gold_sensor(
+    pc.CONTRACTS_ITEM_PRICES_DERIVATIVE,
+    pc.contracts_item_prices_gold,
+    pc.contracts_item_prices_gold_partitions,
 )
-courier_rates_gold_sensor = _build_public_contracts_gold_sensor(
-    pc.COURIER_RATES_DERIVATIVE,
-    pc.courier_rates_gold,
-    pc.courier_rates_gold_partitions,
+contracts_courier_rates_gold_sensor = _build_public_contracts_gold_sensor(
+    pc.CONTRACTS_COURIER_RATES_DERIVATIVE,
+    pc.contracts_courier_rates_gold,
+    pc.contracts_courier_rates_gold_partitions,
 )
 
 
