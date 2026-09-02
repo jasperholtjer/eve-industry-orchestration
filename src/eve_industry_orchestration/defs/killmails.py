@@ -78,6 +78,10 @@ _GOLD_POOL = "heavy"
     # An interior upstream-gap day (EVE Ref published nothing, ADR-0028) skips:
     # corpus exits 0 with status "skipped" and writes no partition, so the asset
     # must complete without materialising — the partition stays Missing.
+    #
+    # A day whose daily tar has not been published yet reports status
+    # "incomplete" instead — also exit 0, also no partition, but retryable
+    # rather than permanent.
     output_required=False,
 )
 def killmails_silver(
@@ -89,6 +93,22 @@ def killmails_silver(
     call, which overwrites the partition, rewrites ``_DONE``, and updates the
     freshness token. The status object carries that token, so a materialisation
     records the count this partition actually holds.
+
+    Two distinct non-materialising outcomes are left Missing, each with its own
+    ``AssetObservation`` reason, instead of falling through to a verify that
+    would fail on a partition deliberately never written:
+
+    - ``status: skipped`` — an interior day EVE Ref never published and never
+      will (permanent, ADR-0028/0029).
+    - ``status: incomplete`` — the day is not published *yet*. This is reachable
+      for killmails because the ``daily-tar-of-json`` layout resolves a 404 on
+      the day tar through ``classify_absent_date`` against the year
+      ``index.json``, which returns ``IndexVerdict::NotYetPublished`` at the
+      publication frontier (corpus ADR-0028, Decision extended 2026-09-01 with
+      the ``daily-tar-of-json`` arm) → ``IngestOutcome::SkippedIncomplete`` →
+      ``finalize_incomplete``. The availability sensor rotates its ``run_key``
+      per tick (see :mod:`sensor_util`), so the date is re-proposed and
+      materialises once upstream settles, rather than red-looping every tick.
     """
     date = context.partition_key
     status = corpus.run(
@@ -110,6 +130,21 @@ def killmails_silver(
             partition=date,
             metadata={
                 "skip_reason": "upstream_absent",
+                "detail": str(status.get("reason", "")),
+            },
+        )
+        return
+    if status is not None and status.get("status") == "incomplete":
+        context.log.info(
+            "killmails %s: upstream publication incomplete, leaving partition "
+            "missing (retryable)",
+            date,
+        )
+        yield dg.AssetObservation(
+            asset_key=context.asset_key,
+            partition=date,
+            metadata={
+                "skip_reason": "upstream_incomplete",
                 "detail": str(status.get("reason", "")),
             },
         )

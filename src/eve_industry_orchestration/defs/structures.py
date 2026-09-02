@@ -79,6 +79,11 @@ _SILVER_POOL = "everef_download"
     # An interior upstream-gap day (EVE Ref published nothing, ADR-0028) skips:
     # corpus exits 0 with status "skipped" and writes no partition, so the asset
     # must complete without materialising — the partition stays Missing.
+    #
+    # A day at the publication frontier — the date folder lists, but none of its
+    # members carries the declared `member_suffix: .v2.json.bz2` yet — reports
+    # status "incomplete" instead, on exit 0 and again without a partition.
+    # Unlike "skipped" this is not permanent: the day is expected to settle.
     output_required=False,
 )
 def structures_silver(
@@ -86,9 +91,20 @@ def structures_silver(
 ) -> Iterator[dg.MaterializeResult | dg.AssetObservation]:
     """Silver partition: fold one day's ~4 population snapshots, then verify.
 
-    A genuinely-absent upstream day (corpus reports ``status: skipped``) is left
-    Missing: the verify (which would 404 on the absent partition) is skipped and
-    an ``AssetObservation`` records why, instead of a misleading materialisation.
+    Two distinct non-materialising outcomes are left Missing, each with its own
+    ``AssetObservation`` reason, instead of falling through to a verify that
+    would 404 on the partition corpus deliberately did not write:
+
+    - ``status: skipped`` — a genuinely-absent upstream day (permanent,
+      ADR-0028): EVE Ref never published it and never will.
+    - ``status: incomplete`` — a day at the publication frontier (retryable).
+      This dataset declares ``member_suffix: .v2.json.bz2``, so a listed date
+      folder holding no member with that suffix reaches corpus's
+      ``FolderEmptiedByDeclaredSuffix`` → ``DeclaredSuffixVerdict::
+      PublicationFrontier`` path (ADR-0064) rather than a permanent skip. The
+      availability sensor rotates its ``run_key`` per tick (see
+      :mod:`sensor_util`), so the date is re-proposed and materialises once
+      upstream settles, rather than red-looping the run every tick.
     """
     date = context.partition_key
     status = corpus.run(
@@ -110,6 +126,21 @@ def structures_silver(
             partition=date,
             metadata={
                 "skip_reason": "upstream_absent",
+                "detail": str(status.get("reason", "")),
+            },
+        )
+        return
+    if status is not None and status.get("status") == "incomplete":
+        context.log.info(
+            "structures %s: upstream publication incomplete, leaving partition "
+            "missing (retryable)",
+            date,
+        )
+        yield dg.AssetObservation(
+            asset_key=context.asset_key,
+            partition=date,
+            metadata={
+                "skip_reason": "upstream_incomplete",
                 "detail": str(status.get("reason", "")),
             },
         )

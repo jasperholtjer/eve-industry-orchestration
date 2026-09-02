@@ -1,8 +1,8 @@
 ## 1. `structures_silver` — add the reachable `incomplete` branch
 
-- [ ] 1.1 Consult the `dagster-expert` skill before touching this Dagster
+- [x] 1.1 Consult the `dagster-expert` skill before touching this Dagster
       asset definition.
-- [ ] 1.2 In `src/eve_industry_orchestration/defs/structures.py`, add an
+- [x] 1.2 In `src/eve_industry_orchestration/defs/structures.py`, add an
       `incomplete` branch to `structures_silver` mirroring
       `defs/public_contracts.py#public_contracts_silver` (lines 113-127):
       `yield dg.AssetObservation(asset_key=..., partition=date,
@@ -13,18 +13,19 @@
       `member_suffix: .v2.json.bz2`) as the reachable producer. Verify: `uv
       run ruff check src/eve_industry_orchestration/defs/structures.py` and
       `uv run ruff format --check` pass.
-- [ ] 1.3 In `tests/test_structures.py`, add a case that sets
+- [x] 1.3 In `tests/test_structures.py`, add a case that sets
       `FAKE_INCOMPLETE_DATES` to a partition date and asserts the run
       succeeds with the partition left Missing and an `AssetObservation`
       carrying `skip_reason: upstream_incomplete` — mirror however
       `tests/test_public_contracts.py` already asserts the equivalent case
       for `public_contracts_silver`. Verify: `uv run pytest
       tests/test_structures.py -q` passes.
+
 ## 2. `killmails_silver` — add the reachable `incomplete` branch
 
-- [ ] 2.1 Consult the `dagster-expert` skill before touching this Dagster
+- [x] 2.1 Consult the `dagster-expert` skill before touching this Dagster
       asset definition.
-- [ ] 2.2 In `src/eve_industry_orchestration/defs/killmails.py`, add the same
+- [x] 2.2 In `src/eve_industry_orchestration/defs/killmails.py`, add the same
       `incomplete` branch shape to `killmails_silver` (after the existing
       `skipped` branch, before `corpus.run("verify", ...)`, preserving the
       existing `freshness_token` handling that follows verify). Update the
@@ -33,10 +34,11 @@
       path as the reachable producer. Verify: `uv run ruff check
       src/eve_industry_orchestration/defs/killmails.py` and `uv run ruff
       format --check` pass.
-- [ ] 2.3 In `tests/test_killmails.py`, add the equivalent
+- [x] 2.3 In `tests/test_killmails.py`, add the equivalent
       `FAKE_INCOMPLETE_DATES` case asserting Missing + the
       `upstream_incomplete` `AssetObservation`. Verify: `uv run pytest
       tests/test_killmails.py -q` passes.
+
 ## 3. Seven unreachable siblings — docstring only, no branch
 
 - [x] 3.1 Consult the `dagster-expert` skill before touching these Dagster
@@ -61,7 +63,7 @@
 
 ## 4. The run
 
-- [ ] 4.1 Against the **real** `corpus` binary
+- [x] 4.1 Against the **real** `corpus` binary
       (`../eve-industry-corpus/target/release/corpus.exe`, rebuilt 2026-09-02
       from corpus develop), in a scratch Dagster instance — `DAGSTER_HOME` and
       `CORPUS_SINK_PATH` under
@@ -71,7 +73,7 @@
       changed functions still work end to end on the path they take every day;
       pick recent dates that are actually served, and allow killmails time, it
       is the corpus's largest Silver.
-- [ ] 4.2 The `incomplete` branch itself cannot be reached against the real
+- [x] 4.2 The `incomplete` branch itself cannot be reached against the real
       binary on demand — it needs an upstream day that is genuinely mid-
       publication, which is not reproducible. Drive it against the fake binary
       instead: `CORPUS_BINARY_PATH` at `tests/fake_corpus.py` with

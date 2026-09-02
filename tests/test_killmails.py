@@ -80,6 +80,34 @@ def test_silver_skips_absent_upstream_day(
     assert metadata["skip_reason"].value == "upstream_absent"
 
 
+def test_silver_leaves_an_incomplete_upstream_day_missing(
+    corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A day still mid-publication is retryable, not a permanent gap.
+
+    Reachable for killmails via the ``daily-tar-of-json`` arm of
+    ``classify_absent_date`` (corpus ADR-0028, extended 2026-09-01):
+    ``IndexVerdict::NotYetPublished`` → ``finalize_incomplete``. Without the
+    branch the run would fall through to ``corpus verify`` and go red on a
+    partition that was deliberately never written — once per sensor tick.
+    """
+    monkeypatch.setenv("FAKE_INCOMPLETE_DATES", "2024-03-07")
+
+    result = dg.materialize(
+        [km.killmails_silver],
+        partition_key="2024-03-07",
+        resources={"corpus": corpus},
+    )
+
+    assert result.success
+    assert result.get_asset_materialization_events() == []
+    (observation,) = result.get_asset_observation_events()
+    metadata = observation.event_specific_data.asset_observation.metadata
+    assert metadata["skip_reason"].value == "upstream_incomplete"
+    # Told apart from the permanent absence: the remedies differ.
+    assert metadata["skip_reason"].value != "upstream_absent"
+
+
 def test_silver_materialises_present_upstream_day(
     corpus, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -7,6 +7,7 @@ import pytest
 
 from eve_industry_orchestration.defs import sensors as s
 from eve_industry_orchestration.defs import structures as st
+from eve_industry_orchestration.defs.corpus_resource import CorpusResource
 from tests.conftest import _assert_enriched
 
 DATASET = "structures"
@@ -24,6 +25,19 @@ _GOLD_CASES = [
         "structure-population-history",
     ),
 ]
+
+
+def _record_runs(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, ...]]:
+    """Records every ``corpus`` subcommand the asset invokes, in order."""
+    calls: list[tuple[str, ...]] = []
+    original = CorpusResource.run
+
+    def _run(self, context, *args: str):  # type: ignore[no-untyped-def]
+        calls.append(args)
+        return original(self, context, *args)
+
+    monkeypatch.setattr(CorpusResource, "run", _run)
+    return calls
 
 
 def _ingest(corpus, date: str) -> None:
@@ -78,6 +92,34 @@ def test_silver_materialises_present_upstream_day(
     assert metadata["dataset"].value == DATASET
     assert metadata["partition"].value == "2024-05-15"
     _assert_enriched(metadata)
+
+
+# --- Silver ingest on a publication-frontier day (ADR-0064) ---------------
+
+
+def test_silver_observes_incomplete_upstream_day(
+    corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A date folder without a ``.v2.json.bz2`` member yet is retryable, not gone."""
+    monkeypatch.setenv("FAKE_INCOMPLETE_DATES", "2024-05-15")
+    calls = _record_runs(monkeypatch)
+
+    result = dg.materialize(
+        [st.structures_silver],
+        partition_key="2024-05-15",
+        resources={"corpus": corpus},
+    )
+
+    assert result.success
+    # No verify: it would 404 on a partition that was deliberately not written.
+    assert [args[0] for args in calls] == ["ingest"]
+    # No materialisation → the partition stays Missing, not Failed and not empty.
+    assert result.get_asset_materialization_events() == []
+    (observation,) = result.get_asset_observation_events()
+    metadata = observation.event_specific_data.asset_observation.metadata
+    assert metadata["skip_reason"].value == "upstream_incomplete"
+    # The retryable absence stays distinct from the permanent one.
+    assert metadata["skip_reason"].value != "upstream_absent"
 
 
 # --- Silver availability sensor -------------------------------------------
