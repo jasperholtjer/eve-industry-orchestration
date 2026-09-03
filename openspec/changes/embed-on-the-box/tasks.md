@@ -54,19 +54,30 @@
       holder); recompute the worst-case total against the 12 GiB box and show
       the arithmetic inline. The row has settled which figure `heavy`'s new
       per-holder peak is: embed's 4.4 GiB, because embed is now the heaviest
-      thing that can hold the pool. Show `4.4 + 4 + 0.75 = ~9.15` against the
+      thing that can hold the pool. Show `4.4 + 4 + 2×0.37 = ~9.15` against the
       12 GiB box rather than asserting a total. Mark the 4.4 GiB as what it is
       — a Windows-workstation measurement, never yet run on the LXC — and name
       `/usr/bin/time -v` on the first real embed there as what corrects it.
+      Drop `concurrency.pools.default_limit` from 2 to 1 (this, not an
+      override, is what puts `heavy` at 1) and say in the comment why the
+      default is the safe one: a lost instance-DB override then slows EVE Ref
+      downloads instead of restoring two concurrent embeds on a 12 GiB box.
       Raise `concurrency.runs.max_concurrent_runs` from 4 to 6 and rewrite the
       surrounding comment to describe it as the NAS spindle's I/O cap, not a
-      memory backstop. Verification is task 3.3.
-- [ ] 3.2 In `deploy/redeploy.sh`: remove the
-      `dagster instance concurrency set news_embed 1` call; add
-      `dagster instance concurrency set heavy 1` in its place, following the
-      existing `market_orders` call's `run_as_user` wrapper; correct the
-      "Four pools are declared" comment above the calls to describe three
-      pools and the new heavy/market_orders override pair. Verify:
+      memory backstop. The pooled worst case fills 4 of 6 slots, so the table
+      MUST carry an explicit term for the two unpooled runs that can sit on top
+      of ~9.15 GiB — name `public_contracts` and the three `sovereignty_*` Gold
+      builds as the unmeasured occupants (their own module comments say they
+      have no measured peak), and state the sum as `~9.15 GiB + 2 × unmeasured`
+      rather than as a closed number. Verification is task 3.3.
+- [ ] 3.2 In `deploy/redeploy.sh`: both existing
+      `dagster instance concurrency set` calls (`market_orders 1`,
+      `news_embed 1`) go, replaced by one —
+      `dagster instance concurrency set everef_download 2` — in the same
+      `run_as_user` wrapper. `heavy` and `market_orders` need no override once
+      `default_limit` is 1. Rewrite the "Four pools are declared" comment: three
+      pools, the default is the memory-safe limit, and the single override is
+      the one pool whose limit costs no memory. Verify:
       `bash -n deploy/redeploy.sh` (syntax check).
 - [ ] 3.3 Real run: reproduce `redeploy.sh`'s own `validate_instance_config`
       step locally — copy the edited `deploy/dagster.yaml` into a throwaway
@@ -77,8 +88,21 @@
 ## 4. Test and ADR
 
 - [ ] 4.1 In `tests/test_concurrency_pools.py`, drop `"news_embed"` from
-      `EXPECTED_POOLS`. Verify: `uv run pytest
-      tests/test_concurrency_pools.py -q` passes.
+      `EXPECTED_POOLS` and correct the two mentions of the retired pool in the
+      module docstring (line ~6) and the comment above the set (line ~22).
+      Verify: `uv run pytest tests/test_concurrency_pools.py -q` passes.
+- [ ] 4.4 In `tests/test_context_datasets.py`, the two assertions at ~162-165
+      and ~349-352 assert `op.pool == "news_embed"`. Swap the string AND rename
+      the two tests — "holds its own limit one pool" and "shares the news embed
+      pool" describe an arrangement that no longer exists, and a passing test
+      with a lying name is worse than a failing one. What they now assert is
+      that both embed steps hold `heavy`, which is what the exclusion rests on.
+      Verify: `uv run pytest tests/test_context_datasets.py -q` passes.
+- [ ] 4.5 `CONTEXT.md` (~line 60, "Four exist: ...") and `README.md` (~line
+      148, "Both embed steps share the single `news_embed` limit-1 pool") both
+      state the retired arrangement. Correct both to three pools and to what
+      the embed steps now share, with a pointer to `deploy/dagster.yaml` for
+      the figures — never a second copy of the numbers.
 - [ ] 4.2 Write `docs/adr/0002-heavy-pool-membership-for-exclusion-not-peak.md`
       following `docs/adr/0001-...md`'s shape (Status, Context, Decision,
       Consequences): the decision is that `heavy` membership can be bought to
@@ -89,9 +113,21 @@
       park every windowed Gold build behind a multi-hour Silver run) as the
       boundary of the decision, and a *Known limits* paragraph for the two
       unmeasured figures: embed's 4.4 GiB peak on the LXC and whether 6 is the
-      right cap for the NAS spindle. Record the corpus row this does not
-      include (glibc release asset, model-dir provisioning) as an explicit
-      non-consequence. The spec delta at
+      right cap for the NAS spindle. Three things the pre-code review found
+      belong in it and are not optional:
+      (a) reject `concurrency.runs.tag_concurrency_limits` by name as the one
+      near-miss construct — it keys on run tags, which do not cover every
+      launch path — so "the exclusion cannot be expressed any other way" is
+      falsifiable rather than a claim the next reader re-derives;
+      (b) the price: `heavy` at 1 serialises the windowed Gold backfills
+      (market-history, market-orders, killmails Gold) that could previously run
+      two abreast — that is what the exclusion costs and it belongs in
+      Consequences;
+      (c) the exclusion lives in the instance DB, not in version control,
+      because `concurrency.pools` has no per-pool field; `default_limit: 1` is
+      chosen so that losing it fails safe.
+      Record the corpus row this does not include (glibc release asset,
+      model-dir provisioning) as an explicit non-consequence. The spec delta at
       `openspec/changes/embed-on-the-box/specs/concurrency-pools/spec.md` is
       already written and is not this bundle's to edit.
 
