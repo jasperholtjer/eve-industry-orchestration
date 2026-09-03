@@ -7,22 +7,33 @@
 # edit here, and tests/test_concurrency_pools.py fails until it lands.
 #
 # 1. Global cap (`max_concurrent_runs`) — the universal default for EVERY run,
-#    pooled or not. The single-HDD UNAS over NFS is the real limiter: every run
-#    (Silver write + verify-read, Gold read + write) taps the same spindle, so the
-#    global cap stays modest to avoid seek-thrashing. Raise toward 6 only if the
-#    NAS holds. A run with no pool is bounded by this alone.
+#    pooled or not. It is the NAS SPINDLE'S I/O CAP and nothing else: the
+#    single-HDD UNAS over NFS is the real limiter, since every run (Silver write +
+#    verify-read, Gold read + write) taps the same spindle, so the cap exists to
+#    avoid seek-thrashing. It is NOT a memory backstop — the memory ceiling is the
+#    pool limits below, and the two must not be conflated again: this cap was 4
+#    only because the memory-bearing slots also summed to 4, which made it look
+#    load-bearing for RAM when it never was. A run with no pool is bounded by this
+#    alone, and by nothing else.
 #
 # 2. Per-class exceptions via concurrency POOLS (`concurrency.pools`) — an asset
 #    opts in with `pool=` (see market_history.py) and is then bounded by
 #    min(global cap, pool limit). Pools gate at the asset/step, so they throttle
 #    EVERY launch path — sensor, UI backfill, manual — unlike a sensor-set run tag.
-#    `run` granularity queues at the run level (no idle run workers). Exactly FOUR
-#    pools are declared, three of which carry memory:
-#      - `heavy` (limit 2 via `default_limit`): MEMORY, ~3-4 GiB per holder. The
+#    `run` granularity queues at the run level (no idle run workers). Exactly THREE
+#    pools are declared, two of which carry memory:
+#      - `heavy` (limit 1 via `default_limit`): MEMORY, 4.4 GiB per holder. The
 #        shared budget for the wide-window `corpus` Gold builds that actually peak
 #        there — market-history Gold and market-orders Gold (a 365-day window over
-#        wide daily files). Sharing ONE budget caps that work at 2 x ~4 GiB ≈ 8 GiB
-#        however the coordinator mixes builds.
+#        wide daily files) — AND for the two `corpus enrich embed` steps
+#        (news-embeddings, transcripts-embeddings; corpus ADR-0053), which run the
+#        pinned local ONNX model in-process at 4.4 GiB RSS (measured) and are now
+#        the pool's heaviest possible holder. limit 1 is what makes that
+#        membership worth anything: an embed and a windowed Gold build can never
+#        be in flight together, which no separate pool can express, because a pool
+#        bounds a class only against ITSELF. See docs/adr/0002-*.md for why
+#        membership was bought for exclusion rather than for a measured peak, and
+#        what it costs (the windowed Gold backfills now serialise).
 #        system-jumps/system-kills/cost-indices Gold use the same 365d window but
 #        over ~5k-row/day narrow snapshots (measured peak ~90-97 MiB), so they omit
 #        `pool=` and stay on the global cap alone.
@@ -34,7 +45,7 @@
 #        if the peak lands with the narrow builds. killmails SILVER stays out: the
 #        day tar is a few MiB and the parse holds narrow rows, so it takes only
 #        `everef_download`.
-#      - `market_orders` (limit 1, set via CLI in redeploy.sh — see below): CPU
+#      - `market_orders` (limit 1 via `default_limit`): CPU
 #        *and* MEMORY, ~3-4 GiB per holder (UNMEASURED — no `/usr/bin/time -v`
 #        result exists for it). market-orders Silver is the ONLY ingestor that
 #        parses with rayon, so a single run saturates every core on the box; a
@@ -45,57 +56,76 @@
 #        A day is ~75M rows of full k-space orderbook, streamed one row-group per
 #        snapshot over a bounded resident window (corpus >= v0.9.0), so its peak is
 #        Gold-equivalent. limit 1 bounds this dataset only AGAINST ITSELF; it says
-#        nothing about overlap with `heavy` or `news_embed` — that is what the
-#        budget below is for. The resident window is pinned by
+#        nothing about overlap with `heavy` — that is what the budget below is
+#        for. It stays its own pool rather than joining `heavy`: it is bounded for
+#        CPU saturation, and folding it in would park every windowed Gold build
+#        behind a multi-hour Silver run. The resident window is pinned by
 #        CORPUS_PARSE_CONCURRENCY in both systemd units, not by the core count.
 #        See defs/market_orders.py.
-#      - `news_embed` (limit 1, set via CLI in redeploy.sh): MEMORY + CPU, 4.4 GiB
-#        per holder (measured). `corpus enrich embed` (news-embeddings, ADR-0053)
-#        runs the pinned local ONNX model in-process: 4.4 GiB RSS at 3.76 chunks/s,
-#        so a full 11 320-chunk generation is ~50 min. It gets its OWN pool rather
-#        than joining `heavy`, because `heavy` allows 2 concurrent holders — two
-#        embeds at once would peak ~8.8 GiB and leave nothing for the rest of the
-#        box. limit 1 guarantees no two embed runs ever overlap, across every
-#        launch path. An asset can hold only ONE pool, so this does not exclude a
-#        concurrent `heavy` Gold build: embed + one heavy Gold ≈ 7.4-8.4 GiB. The
-#        step is ledgered and idempotent (`embedded_chunks`, keyed chunk x
-#        model_rev), so even an OOM-killed run resumes on the next materialisation
-#        with no data loss.
-#      - `everef_download` (limit 2 via `default_limit`): POLITENESS to
+#      - `everef_download` (limit 2, set via CLI in redeploy.sh — see below):
+#        POLITENESS to
 #        data.everef.net, NOT memory. The light Silver fetches (market-history,
 #        system-jumps, system-kills, killmails, sde, industry-cost-indices, mer,
 #        mer-killdump, structures, sovereignty-map, sovereignty-structures,
 #        sovereignty-campaigns, public-contracts, and the `_LIVE_POOL` assets,
 #        which alias this same name). EVE Ref endorses a small fan-out (its
 #        rclone example uses `--transfers 2`), so 2 concurrent.
-#    `heavy` and `everef_download` want 2, so `default_limit: 2` covers them with
-#    no per-pool override. `market_orders` and `news_embed` need limit 1, which the
-#    yaml cannot express (only `default_limit` lives here) — redeploy.sh sets each
-#    via `dagster instance concurrency set <pool> 1` after publishing this config,
-#    so the overrides are reproducible at deploy time.
+#    `default_limit` is 1, which covers `heavy` and `market_orders` with no
+#    per-pool override; `everef_download` is the only pool above it. The yaml
+#    cannot express a per-pool limit at all (only `default_limit` lives here) —
+#    redeploy.sh sets the one override via `dagster instance concurrency set
+#    everef_download 2` after publishing this config, so it is reproducible at
+#    deploy time. THE DEFAULT IS THE SAFE ONE ON PURPOSE: an instance-DB override
+#    lives outside version control, so if it is ever lost the box falls back to 1
+#    everywhere. That costs EVE Ref download speed — never a second concurrent
+#    embed on a 12 GiB box. The memory ceiling must be what survives; the speed is
+#    what may go missing.
 #
 # THE MEMORY BUDGET. One box, one budget: the pools do not know about each other,
 # so their peaks add. Against the 12 GiB LXC:
 #
 #      pool             slots  peak/holder  total
-#      heavy              2     ~3-4 GiB    ~8 GiB    (members estimated)
-#      market_orders      1     ~3-4 GiB    ~4 GiB    (UNMEASURED)
-#      news_embed         1      4.4 GiB    ~4.4 GiB  (measured)
+#      heavy              1      4.4 GiB    ~4.4 GiB  (the embed steps' measured
+#                                                      peak, which now dominates
+#                                                      the pool's ~3-4 GiB Gold
+#                                                      builds — see below)
+#      market_orders      1     ~4 GiB      ~4 GiB    (UNMEASURED)
 #      everef_download    2     ~0.37 GiB   ~0.75 GiB (indicative, not measured;
 #                                                      public-contracts Silver is
 #                                                      the heaviest holder, all
 #                                                      other holders negligible)
 #                                           --------
-#      worst case                           ~17.15 GiB on a 12 GiB box
+#      pooled worst case  4     4.4 + 4 + 2 x 0.37   = ~9.15 GiB
 #
-# The memory-bearing slots sum to 4, which is exactly `max_concurrent_runs`, so
-# the global cap forbids NO combination of them: that worst case is reachable on
-# paper. It is stated rather than solved, deliberately. All six OOM kills the box
-# has ever recorded predate corpus v0.7.0/v0.9.0 (streaming ingest, bounded parse
-# window) and the `market_orders` pool split, and 68 days have run clean since;
-# `memory.peak` counts since boot, so the 11.9 GiB high-water mark on the box
-# belongs to that same superseded configuration. There is no measurement of what
-# runs today, and buying RAM for a paper number is the wrong order.
+# `heavy`'s per-holder figure is 4.4 GiB and not ~3-4 GiB because the embed steps
+# joined it: an embed is the heaviest thing that can hold the pool, and a pool's
+# budgeted peak is its heaviest possible holder, not its typical one. That 4.4 GiB
+# is a WINDOWS-WORKSTATION measurement (4.4 GiB RSS at 3.76 chunks/s, so a full
+# 11 320-chunk generation is ~50 min) and has NEVER been run on the LXC. What
+# corrects it is `/usr/bin/time -v` on the first real embed there (needs
+# CORPUS_DATASETS_DIR); until that number exists, 4.4 GiB is the working figure
+# and the pool is sized on it.
+#
+# ~9.15 GiB IS NOT THE CEILING — IT IS ONLY THE POOLED TERM. The pooled worst case
+# fills 4 of the 6 run slots, so two UNPOOLED runs can sit on top of it. The
+# candidates are `public_contracts` Gold and the three `sovereignty_*` Gold
+# builds, none of which has a measured peak (their own module comments say so).
+# The honest statement of the worst case is therefore:
+#
+#      ~9.15 GiB + 2 x unmeasured, on a 12 GiB box
+#
+# and not a closed number. Before the pools carried exactly `max_concurrent_runs`
+# slots the arithmetic closed itself by accident; it no longer does, and pretending
+# otherwise would re-hide the same gap the row that raised the cap set out to
+# expose. Measuring those two unpooled builds is what closes it — either into a
+# term with a figure, or into `heavy` membership.
+#
+# The worst case is stated rather than solved, deliberately. All six OOM kills the
+# box has ever recorded predate corpus v0.7.0/v0.9.0 (streaming ingest, bounded
+# parse window) and the `market_orders` pool split, and 68 days have run clean
+# since; `memory.peak` counts since boot, so the 11.9 GiB high-water mark on the
+# box belongs to that same superseded configuration. There is no measurement of
+# what runs today, and buying RAM for a paper number is the wrong order.
 #
 # PUBLIC-CONTRACTS SILVER IS `everef_download`'S HEAVIEST HOLDER, per the table
 # above — not zero, as the pool's "politeness, not memory" framing might
@@ -156,9 +186,9 @@ run_coordinator:
 # `concurrency:` block is present (they are the same setting in two locations).
 concurrency:
   runs:
-    max_concurrent_runs: 4
+    max_concurrent_runs: 6
   pools:
-    default_limit: 2
+    default_limit: 1
     granularity: "run"
 
 # Headless homelab box, no usage stats. Disabled to keep the daemon/webserver
