@@ -254,15 +254,14 @@ GOLD_ASSETS = (
 # embedding-input contract — so the assets sit in the `transcripts` group and ride
 # the existing `transcripts_daily_schedule` (group selection) with no new schedule.
 #
-# The embed step SHARES the `news_embed` pool (limit 1) with news-embeddings rather
-# than taking its own: both run the same pinned local ONNX model in-process (measured
-# ~4.4 GB RSS), so on the 12 GB LXC no two embeds of EITHER dataset may overlap. One
-# shared limit-1 pool guarantees that across every launch path — schedule, UI,
-# manual (deploy/dagster.yaml, redeploy.sh). An asset holds only one pool, so this
-# does not exclude a concurrent `heavy` Gold build (~3 GB floor): worst case
-# embed + heavy ≈ 7.4 GB, which fits.
+# The embed step SHARES `heavy` (limit 1) with news-embeddings, and what it shares
+# it with has widened: not just the other embed, but every windowed Gold build in
+# the pool. Both embeds run the same pinned local ONNX model in-process, and the
+# membership is bought for that exclusion rather than for a measured peak
+# (ADR-0002) — one limit-1 pool holds across every launch path (schedule, UI,
+# manual). Figures: deploy/dagster.yaml.
 EMBEDDINGS_DATASET = "transcripts-embeddings"
-_EMBED_POOL = "news_embed"
+_EMBED_POOL = "heavy"
 
 
 class TranscriptsEmbedConfig(dg.Config):

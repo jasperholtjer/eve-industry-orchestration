@@ -65,8 +65,8 @@ gold_partitions = dg.DailyPartitionsDefinition(start_date=_starts.gold)
 # per snapshot, so its peak is one snapshot (~3-4 GB), comparable to a Gold build.
 #
 # Silver and Gold split across two pools for two different reasons:
-#   - Gold joins the shared `heavy` MEMORY pool (limit 2 via `default_limit`),
-#     sharing one budget with every other Gold build.
+#   - Gold joins the shared `heavy` MEMORY pool (limit 1 via `default_limit`),
+#     sharing one budget with every other Gold build and with the embed steps.
 #   - Silver gets its OWN `market_orders` pool at limit 1 (set in deploy, see
 #     deploy/dagster.yaml). market-orders Silver is the ONLY ingestor that parses
 #     with rayon (ingestor-market-orders parses a window of snapshots via
@@ -76,7 +76,7 @@ gold_partitions = dg.DailyPartitionsDefinition(start_date=_starts.gold)
 #     4 cores) during a backfill. limit 1 keeps one CPU-saturating run in flight;
 #     other (single-threaded) datasets fill any remaining cores via their own
 #     pools. limit 1 bounds this dataset only against itself; it says nothing
-#     about overlap with `heavy` or `news_embed` — every memory-bearing pool
+#     about overlap with `heavy` — every memory-bearing pool
 #     counts against one box budget, stated in deploy/dagster.yaml.
 _SILVER_POOL = "market_orders"
 _GOLD_POOL = "heavy"

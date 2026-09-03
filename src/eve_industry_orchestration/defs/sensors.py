@@ -1314,7 +1314,7 @@ industry_cost_indices_live_schedule = dg.ScheduleDefinition(
 # not sensors, and a deliberate departure from "sensor over cron": the fetch is
 # keyed on the fetch date (one dense Bronze partition per day) and the binary dedups
 # already-archived documents via its seen-ledger, so there is no per-date upstream
-# matrix to diff. Late UTC evening, after CCP's publishing day, staggered 30 min
+# matrix to diff. Late UTC evening, after CCP's publishing day, staggered an hour
 # apart. STOPPED by default. Neither asset joins a pool (it hits neither EVE Ref nor
 # ESI), so both obey only the global concurrency cap; the historical sweeps run via
 # the manually-triggered `news_backfill_job` / `transcripts_backfill_job`, not here.
@@ -1329,7 +1329,7 @@ industry_cost_indices_live_schedule = dg.ScheduleDefinition(
 news_daily_schedule = dg.ScheduleDefinition(
     name="news_daily_schedule",
     target=dg.AssetSelection.groups("news"),
-    cron_schedule="0 22 * * *",
+    cron_schedule="10 22 * * *",
     default_status=dg.DefaultScheduleStatus.STOPPED,
 )
 
@@ -1337,14 +1337,16 @@ news_daily_schedule = dg.ScheduleDefinition(
 # transcripts now carries a full Silver/Gold chain (ADR-0055), so its schedule
 # targets the whole `transcripts` group — fetch -> ingest -> videos/sections/
 # entity-mentions Gold (+ embeddings) — in one run, in dependency order, exactly
-# like `news_daily_schedule`. The embed step shares the `news_embed` limit-1 pool
-# with news-embeddings, so no two embeds overlap even though both schedules fire in
-# the same late-evening window (staggered 30 min apart). Annotations are NOT in this
+# like `news_daily_schedule`. The embed step shares the `heavy` limit-1 pool with
+# news-embeddings and with every windowed Gold build, so the two schedules fire a
+# full hour apart rather than 30 min: one embed generation gets to hold the single
+# `heavy` slot start to finish without the other schedule's run queuing behind it
+# mid-run. Annotations are NOT in this
 # group's scheduled chain: `transcripts-annotations` is a manual operator run via the
 # `annotate-transcripts` skill (contract `t2`), never a Dagster asset.
 transcripts_daily_schedule = dg.ScheduleDefinition(
     name="transcripts_daily_schedule",
     target=dg.AssetSelection.groups("transcripts"),
-    cron_schedule="30 22 * * *",
+    cron_schedule="10 23 * * *",
     default_status=dg.DefaultScheduleStatus.STOPPED,
 )
