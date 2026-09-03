@@ -72,15 +72,12 @@ The homelab deployment (LXC, NFS mount, build order) is documented in
   Gold trees and on `sde_snapshot_gold`, and it is served a flip window later
   than its siblings because its flip counts read their trailing 30 days. Both
   of its gates are the binary's, and the assets pre-validate neither — a
-  permanently absent same-day prerequisite skips the day, and an incomplete
-  flip window only nulls the two counts. Because `corpus gold ready-dates`
-  never re-reports a date whose Gold partition already exists, a day built
-  while `sovereignty-changes` lags keeps `constellation_flips_30d` and
-  `region_flips_30d` NULL permanently — see
-  `docs/questions/2026-09-01-sov-panel-flip-window-gate.md` for the open gap.
-  Run all five of this family's sensors together; enabling four without
-  `sovereignty_changes_gold_sensor` is the concrete way panel days end up
-  stuck NULL.
+  permanently absent same-day prerequisite skips the day, and an unsettled
+  trailing flip window blocks it until every day in `[D-30, D)` is built in
+  `sovereignty-changes` Gold or is a recorded upstream gap (corpus ADR-0066
+  §8). Run all five of this family's sensors together: enabling four without
+  `sovereignty_changes_gold_sensor` stalls the panel rather than degrading it,
+  and a tick that requests nothing says so in its skip reason.
   Every derivative name
   differs from the dataset, so each Gold call passes `--derivative`; Gold verify
   keys on the derivative name (its own `gold/<derivative>/...` tree).

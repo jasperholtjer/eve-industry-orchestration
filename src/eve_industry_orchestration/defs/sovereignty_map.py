@@ -290,9 +290,21 @@ def sovereignty_panel_gold(
     sibling read, which fingerprints those inputs into ``_INDEX.json``. The four
     sibling ``deps=`` make ADR-0066's build order a real edge in the asset graph
     rather than an accident of sensor timing; the non-partitioned SDE dep
-    carries lineage only, as it cannot chain build partitions.
+    carries lineage only, as it cannot chain build partitions. The changes edge
+    is a *window*, not a day: it stands for all of ``[D-30, D)``, which no
+    ``deps=`` entry can express.
 
     A sibling tree that skipped its day can never be assembled, so corpus
-    reports ``skipped`` and the panel day stays Missing (ADR-0065).
+    reports ``skipped`` and the panel day stays Missing (ADR-0065). The trailing
+    flip window is a readiness gate too, not merely an input the build reads
+    (ADR-0066 §8): a date is offered only once every day of it is built in
+    ``sovereignty-changes`` Gold or is a recorded upstream gap.
+
+    **That gate reads run-state, while the coverage gate above it and the
+    builder's own fold read the on-disk ``_DONE`` seal.** So a Gold tree sealed
+    on disk with no run-state rows behind it — exactly what a scratch build
+    against a fresh ``CORPUS_SINK_PATH`` produces — is refused. A scratch
+    materialise of this asset must first build 30 days of ``sovereignty-changes``
+    into the *same* scratch run-state, or the gate reads as a defect.
     """
     yield from _build_gold(context, corpus, PANEL_DERIVATIVE)

@@ -26,6 +26,7 @@ from eve_industry_orchestration.defs import sovereignty_map as sm
 from eve_industry_orchestration.defs import sovereignty_structures as ss
 from eve_industry_orchestration.defs.corpus_resource import CorpusResource
 from eve_industry_orchestration.defs.sensor_util import MAX_PARTITIONS_PER_TICK
+from tests.fake_corpus import seed_flip_window
 
 DATE = "2024-01-15"
 
@@ -124,6 +125,12 @@ def _build_panel_prerequisites(corpus, date: str) -> None:
         _gold_build(corpus, dataset, derivative, date)
 
 
+def _make_panel_ready(corpus, date: str) -> None:
+    """Clears both of the panel's Gold-over-Gold gates for ``date``."""
+    _build_panel_prerequisites(corpus, date)
+    seed_flip_window(corpus.sink_path, date)
+
+
 def _target_keys(sensor: dg.SensorDefinition) -> set[dg.AssetKey]:
     return {
         key
@@ -165,7 +172,7 @@ def test_gold_sensor_requests_the_dates_corpus_reports_ready(
     """
     _ingest(corpus, dataset, DATE)
     if derivative == "sovereignty-panel":
-        _build_panel_prerequisites(corpus, DATE)
+        _make_panel_ready(corpus, DATE)
     context = dg.build_sensor_context(resources={"corpus": corpus})
 
     result = sensor(context)
@@ -226,33 +233,103 @@ def test_gold_sensor_targets_only_its_own_asset(
     assert _target_keys(sensor) == {asset.key}
 
 
-def test_panel_readiness_waits_for_its_three_same_day_sibling_gold_trees(
+def _panel_tick(corpus) -> dg.SensorResult:
+    return s.sovereignty_panel_gold_sensor(
+        dg.build_sensor_context(resources={"corpus": corpus})
+    )
+
+
+def _panel_requests(corpus) -> list[str]:
+    return [rr.partition_key for rr in _panel_tick(corpus).run_requests]
+
+
+def test_panel_readiness_waits_for_its_three_siblings_and_a_settled_flip_window(
     corpus,
 ) -> None:
-    """The panel's one distinguishing readiness behaviour, in both directions.
+    """The panel's two distinguishing gates, in every direction that matters.
 
     Ingested Silver alone does not make a panel date ready: corpus gates it on
-    the same day's ownership, ADM and contests Gold. Building `sovereignty-
-    changes` does not help — the binary notably does *not* gate on the
-    flip-window tree, which is the gap parked in
-    `docs/questions/2026-09-01-sov-panel-flip-window-gate.md`. Building the
-    three flips the date to ready, with no change on the orchestration side.
+    the same day's ownership, ADM and contests Gold, and *also* on the trailing
+    30-day `sovereignty-changes` window (corpus ADR-0066 §8). Building the three
+    siblings is therefore not enough while that window is unsettled — a panel
+    day is never sealed with NULL flip counts because its changes tree lagged.
     """
     _ingest(corpus, "sovereignty-map", DATE)
-
-    def _tick() -> list[str]:
-        result = s.sovereignty_panel_gold_sensor(
-            dg.build_sensor_context(resources={"corpus": corpus})
-        )
-        return [rr.partition_key for rr in result.run_requests]
-
-    assert _tick() == []
+    assert _panel_requests(corpus) == []
 
     _gold_build(corpus, "sovereignty-map", "sovereignty-changes", DATE)
-    assert _tick() == []
+    assert _panel_requests(corpus) == []
 
     _build_panel_prerequisites(corpus, DATE)
-    assert _tick() == [DATE]
+    assert _panel_requests(corpus) == []
+
+    seed_flip_window(corpus.sink_path, DATE)
+    assert _panel_requests(corpus) == [DATE]
+
+
+def test_a_flip_window_of_recorded_gaps_settles_the_panel_gate(corpus) -> None:
+    """The disjunct that keeps a permanent upstream outage from stalling forever.
+
+    A day in the window is settled when it is built in `sovereignty-changes`
+    Gold *or* is a recorded gap on `sovereignty-map` Silver (ADR-0028). Without
+    the second half, EVE Ref's two multi-day outages would block every panel
+    date whose window touches them, for good.
+    """
+    _ingest(corpus, "sovereignty-map", DATE)
+    _build_panel_prerequisites(corpus, DATE)
+    assert _panel_requests(corpus) == []
+
+    seed_flip_window(corpus.sink_path, DATE, as_gaps=True)
+    assert _panel_requests(corpus) == [DATE]
+
+
+def test_a_panel_tick_that_requests_nothing_reports_what_blocked_it(corpus) -> None:
+    """The gate made a wrong-data failure a no-data one; this is what says so.
+
+    The binary decides readiness and already publishes `blocked[]`; the sensor
+    only records what it said, so a lagging changes tree is visible on the tick
+    instead of silent.
+    """
+    _ingest(corpus, "sovereignty-map", DATE)
+    _build_panel_prerequisites(corpus, DATE)
+
+    result = _panel_tick(corpus)
+
+    assert result.run_requests == []
+    assert result.skip_reason is not None
+    assert f"1 blocked, earliest {DATE} on window" in result.skip_reason.skip_message
+
+
+def test_a_tick_with_nothing_blocked_carries_no_skip_reason(corpus) -> None:
+    """Nothing ingested is not a block: no candidate date was held back."""
+    result = _panel_tick(corpus)
+
+    assert result.run_requests == []
+    assert result.skip_reason is None
+
+
+def test_a_ready_date_outside_this_tick_is_not_reported_as_blocked(
+    corpus, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The skip is keyed on the report, not on whether a run was requested.
+
+    A ready date the in-flight guard or the partition matrix holds back leaves
+    the tick empty while nothing is actually blocked; reporting the unrelated
+    blocked entry would send an operator after a tree that is fine.
+    """
+
+    def _ready(self: CorpusResource, dataset: str, *, derivative: str | None = None):
+        return {
+            "ready": ["2019-01-01"],  # before the panel's served start
+            "blocked": [{"date": DATE, "block": "window"}],
+        }
+
+    monkeypatch.setattr(_READY_DATES, _ready)
+
+    result = _panel_tick(corpus)
+
+    assert result.run_requests == []
+    assert result.skip_reason is None
 
 
 def test_the_five_sensors_are_distinct_and_named_per_derivative() -> None:

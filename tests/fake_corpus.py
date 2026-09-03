@@ -34,6 +34,7 @@ than skipping the day.
 
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import json
 import os
@@ -176,9 +177,7 @@ _SERVED_START: dict[str, str | None] = {
 # Same-day Gold prerequisites the real binary's `gold ready-dates` gates on
 # (corpus ADR-0066 decision 8): a Gold-over-Gold derivative reports a date ready
 # only once every prerequisite tree holds that same day's Gold partition. Only
-# `sovereignty-panel` has any, and `sovereignty-changes` is deliberately absent
-# from its set — the binary does not gate on the flip-window tree, which is the
-# gap parked in docs/questions/2026-09-01-sov-panel-flip-window-gate.md.
+# `sovereignty-panel` has any.
 _SAME_DAY_GOLD_PREREQUISITES: dict[str, tuple[str, ...]] = {
     "sovereignty-panel": (
         "sovereignty-ownership",
@@ -186,6 +185,53 @@ _SAME_DAY_GOLD_PREREQUISITES: dict[str, tuple[str, ...]] = {
         "sovereignty-contests",
     ),
 }
+
+# The trailing *window* Gold prerequisite the binary gates on beside those
+# (corpus ADR-0066 §8, released in 0.20.0): a panel date `D` is ready only once
+# every day in `[D - horizon, D)` is either built in that tree or a recorded
+# upstream gap. A separate mechanism rather than a fourth same-day entry — the
+# two behave differently, and conflating them is what ADR-0066 §8 warns against:
+# a permanently-absent same-day prerequisite *skips* the day (ADR-0065), while a
+# permanent gap inside the window *settles* it. The horizon is
+# `panel.flip_window_days` in the dataset YAML; the fake is not a config reader.
+_WINDOW_GOLD_PREREQUISITES: dict[str, tuple[str, int]] = {
+    "sovereignty-panel": ("sovereignty-changes", 30),
+}
+
+
+def _window_days(date: str, horizon: int) -> list[str]:
+    """The ``[date - horizon, date)`` calendar days, oldest first."""
+    end = dt.date.fromisoformat(date)
+    return [(end - dt.timedelta(days=n)).isoformat() for n in range(horizon, 0, -1)]
+
+
+def seed_flip_window(sink: str, date: str, *, as_gaps: bool = False) -> None:
+    """Settles ``date``'s trailing flip window in run-state, for a test to call.
+
+    Imported by the sensor tests rather than driven through the CLI: settling a
+    30-day window the honest way is 30 ingests plus 30 Gold builds, each its own
+    interpreter start. Seeding keeps the shape of that state in the one file
+    that owns it.
+
+    Args:
+        sink: The throwaway sink whose state file to seed.
+        date: The panel date whose window to settle.
+        as_gaps: Settle the window by recording every day an upstream gap
+            (ADR-0028) instead of by building its ``sovereignty-changes`` Gold.
+            Both disjuncts settle the gate; only this one survives an outage
+            upstream will never fill.
+
+    Seeds only what the gate itself reads — no ``gold_at`` drift clock, no
+    Silver day, no partition on disk — so a drift or verify test must build its
+    days the honest way rather than lean on this.
+    """
+    tree, horizon = _WINDOW_GOLD_PREREQUISITES["sovereignty-panel"]
+    state = _load_state(sink)
+    target = state["skipped"] if as_gaps else state["gold"].setdefault(tree, [])
+    for day in _window_days(date, horizon):
+        if day not in target:
+            target.append(day)
+    _save_state(sink, state)
 
 
 def _resolve_derivative(dataset: str, derivative: str | None) -> str | None:
@@ -1143,21 +1189,60 @@ def _do_gold_ready_dates(args: list[str], sink: str) -> int:
         return 2
 
     state = _load_state(sink)
-    # Real binary gates on the look-back window; the fake models only the
-    # state-level "Silver present, Gold not yet built" diff, which is enough to
-    # exercise the sensor (window coverage is unit-tested on the Rust side).
+    # The base diff is state-level: Silver present, this derivative's Gold not
+    # yet built. The real binary also gates on the Silver look-back window; that
+    # coverage ratio is unit-tested on the Rust side and is not modelled here.
     built = set(state["gold"].get(derivative, []))
-    ready = sorted(d for d in state["silver"] if d not in built)
-    # A Gold-over-Gold derivative additionally waits on its same-day sibling Gold
-    # partitions; a date whose prerequisites are not all built is not ready.
-    for prerequisite in _SAME_DAY_GOLD_PREREQUISITES.get(derivative, ()):
-        sibling = set(state["gold"].get(prerequisite, []))
-        ready = [d for d in ready if d in sibling]
+    skipped = set(state["skipped"])
+    same_day = {
+        prerequisite: set(state["gold"].get(prerequisite, []))
+        for prerequisite in _SAME_DAY_GOLD_PREREQUISITES.get(derivative, ())
+    }
+    window = _WINDOW_GOLD_PREREQUISITES.get(derivative)
+    window_built = set(state["gold"].get(window[0], [])) if window else set()
+
+    # Every candidate lands in `ready` or in `blocked`; none is dropped. The
+    # fake models the two Gold-over-Gold gates and not the Silver coverage one,
+    # so it never emits `block: "coverage"`.
+    ready: list[str] = []
+    blocked: list[dict[str, object]] = []
+    for date in sorted(d for d in state["silver"] if d not in built):
+        waiting = [tree for tree, days in same_day.items() if date not in days]
+        if waiting:
+            # `permanent` is a recorded upstream gap on the prerequisite's own
+            # Silver day; the fake's Silver state is one global list, so a
+            # skipped day is never a candidate here and this is always False.
+            blocked.append(
+                {
+                    "date": date,
+                    "block": "prerequisite",
+                    "waiting_on": waiting,
+                    "permanent": False,
+                }
+            )
+            continue
+        if window is not None and any(
+            d not in window_built and d not in skipped
+            for d in _window_days(date, window[1])
+        ):
+            # Never permanent: either the build or the gap can still arrive.
+            blocked.append(
+                {
+                    "date": date,
+                    "block": "window",
+                    "waiting_on": [window[0]],
+                    "permanent": False,
+                }
+            )
+            continue
+        ready.append(date)
+
     payload = {
         "dataset": dataset,
         "derivative": derivative,
         "served_start": _SERVED_START.get(derivative),
         "ready": ready,
+        "blocked": blocked,
     }
     print(json.dumps(payload))
     return 0
@@ -1277,11 +1362,13 @@ def _do_gold_build(args: list[str], sink: str) -> int:
         "rows": 1,
         "parquet_sha256": "fake",
     }
-    # The panel's trailing 30-day flip window is the *other* gate (corpus
-    # ADR-0066 decision 8): a short window nulls the two flip counts and warns,
-    # but still writes the partition — it is never a skip. The window itself is
-    # not something the fake can derive, so it is injected per
-    # dataset:derivative:date like the other binary-side outcomes.
+    # The builder's own per-column NULL rule, which the window *gate* in
+    # `ready-dates` did not replace (corpus ADR-0066 §8): a short window nulls
+    # the two flip counts and warns, but still writes the partition — it is
+    # never a skip. Since the gate landed, reaching a short window means the
+    # counts are genuinely unknowable, not that the day was proposed early. The
+    # window itself is not something the fake can derive here, so it is injected
+    # per dataset:derivative:date like the other binary-side outcomes.
     if derivative == "sovereignty-panel":
         short = f"{dataset}:{derivative}:{date}" in _env_keys(
             "FAKE_SHORT_FLIP_WINDOW_DATES"
