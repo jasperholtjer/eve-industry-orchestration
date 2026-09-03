@@ -131,6 +131,9 @@ context: |
   of scarce slots. Measure with `/usr/bin/time -v` before adding a build, and put
   the number in the change. Every memory-bearing pool counts against one box
   budget, because the pools do not know about each other and their peaks add.
+  `docs/adr/0002-heavy-pool-membership-for-exclusion-not-peak.md` records the one
+  admissible exception: membership bought to guarantee mutual exclusion between
+  two classes, which Dagster can say no other way, and only at limit 1.
 
   **The arithmetic itself lives in `deploy/dagster.yaml` and nowhere else** —
   which pools exist, their limits, each holder's peak, the worst case against the
@@ -185,7 +188,9 @@ rules:
     - Say what the asset shells out to and what it records. If the proposal puts
       compute, parsing or validation in Python, stop - that belongs in
       eve-industry-corpus.
-    - If an asset joins the heavy pool, give the measured peak RSS that earns it.
+    - If an asset joins the heavy pool, give the measured peak RSS that earns it,
+      or argue the exclusion under ADR-0002 and say what the pool's per-holder
+      peak becomes.
   tasks:
     - Every task is verifiable by a command or by reading one named file.
     - A task that adds or changes a Dagster definition says that it consults the
