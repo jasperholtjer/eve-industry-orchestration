@@ -60,11 +60,16 @@ CORPUS_TARGET="${CORPUS_TARGET:-x86_64-unknown-linux-gnu}"
 CORPUS_BIN="${CORPUS_BINARY_PATH:-/usr/local/bin/corpus}"
 DATASETS_DIR="${CORPUS_DATASETS_DIR:-/usr/local/share/corpus/datasets}"
 
-# ONNX model dir for `corpus enrich embed` (corpus ADR-0053). ~540 MB from
-# HuggingFace, provisioned ONCE by hand — a redeploy never downloads it, it only
-# reports on it below. The path must match the systemd units'
-# CORPUS_EMBEDDING_MODEL_DIR.
+# ONNX model dir for `corpus enrich embed` (corpus ADR-0053). Same shape as the
+# corpus release below: absent — fetch it, present — skip. The ~540 MB lands once
+# and every later deploy costs two stat calls. The path must match the systemd
+# units' CORPUS_EMBEDDING_MODEL_DIR. The revision IS the pin: a different export
+# is a different embedding generation, and vectors from two generations do not
+# compare.
 MODEL_DIR="${CORPUS_EMBEDDING_MODEL_DIR:-/usr/local/share/corpus/models/bge-m3}"
+MODEL_REPO="${CORPUS_EMBEDDING_MODEL_REPO:-onnx-community/bge-m3-ONNX}"
+MODEL_REVISION="${CORPUS_EMBEDDING_MODEL_REVISION:-25b9af8e87a38eb120cfe87125383677b9cd309e}"
+MODEL_FILES=(onnx/model_quantized.onnx tokenizer.json)
 
 # Context-dataset secrets (corpus ADR-0047). The systemd units load these from an
 # optional root-only EnvironmentFile (see dagster-{daemon,webserver}.service). The
@@ -227,26 +232,47 @@ check_context_secrets() {
   echo "    all context-dataset secrets present"
 }
 
-# Advisory check of the embedding model dir (corpus ADR-0053). NEVER aborts the
-# deploy: only `corpus enrich embed` reads it, so a box without it runs every
-# other dataset fine. Provisioning is a one-off on the box — deliberately not a
-# step in a script that runs on every deploy, 540 MB is not per-deploy work:
+# Ensure the embedding model dir (corpus ADR-0053), fetching only what is missing.
+# curl straight from the pinned revision, so the box needs no HuggingFace CLI and
+# no auth — the repo is public. Downloads into a temp dir and moves each file into
+# place only after the whole set arrived, because the presence check IS the
+# idempotence key: a truncated file left behind would be "present" forever after.
 #
-#   sudo -u corpus hf download onnx-community/bge-m3-ONNX \
-#     --revision 25b9af8e87a38eb120cfe87125383677b9cd309e \
-#     onnx/model_quantized.onnx tokenizer.json \
-#     --local-dir /usr/local/share/corpus/models/bge-m3
-#   sudo chmod -R a+rX /usr/local/share/corpus/models
-#
-# The revision is the pin: a different export is a different embedding generation.
-check_embedding_model() {
+# Advisory, and that is why it is the LAST thing before the restart: it NEVER
+# aborts the deploy. Only `corpus enrich embed` reads this dir, so a box that
+# cannot reach HuggingFace still deploys and runs every other dataset — it loses
+# the news/transcripts embeddings until the next redeploy retries.
+provision_embedding_model() {
   echo "==> Checking embedding model (${MODEL_DIR})"
-  if [[ -f "${MODEL_DIR}/onnx/model_quantized.onnx" && -f "${MODEL_DIR}/tokenizer.json" ]]; then
+  local missing=() f tmp rc=0
+  for f in "${MODEL_FILES[@]}"; do
+    [[ -f "${MODEL_DIR}/${f}" ]] || missing+=("${f}")
+  done
+  if [[ "${#missing[@]}" -eq 0 ]]; then
     echo "    present"
     return 0
   fi
-  echo "    note: absent — news/transcripts embeddings fail until provisioned;" >&2
-  echo "          every other dataset is unaffected (corpus ADR-0053)" >&2
+
+  echo "    fetching ${missing[*]} from ${MODEL_REPO}@${MODEL_REVISION:0:7} (once; the full set is ~540 MB)"
+  tmp="$(mktemp -d)"
+  for f in "${missing[@]}"; do
+    install -d "${tmp}/$(dirname "${f}")"
+    curl --fail --location --progress-bar \
+      -o "${tmp}/${f}" \
+      "https://huggingface.co/${MODEL_REPO}/resolve/${MODEL_REVISION}/${f}" || rc=$?
+  done
+  if [[ "${rc}" -ne 0 ]]; then
+    rm -rf "${tmp}"
+    echo "    note: download failed (curl ${rc}) — news/transcripts embeddings fail" >&2
+    echo "          until a later redeploy gets it; no other dataset is affected" >&2
+    return 0
+  fi
+
+  for f in "${missing[@]}"; do
+    install -D -m 0644 "${tmp}/${f}" "${MODEL_DIR}/${f}"
+  done
+  rm -rf "${tmp}"
+  echo "    installed -> ${MODEL_DIR}"
 }
 
 # Wrapped in a function so bash parses the whole body before executing: the
@@ -307,7 +333,7 @@ main() {
   # Advisory: report on the secrets file the units just referenced, before the
   # restart makes it live. Never blocks the deploy.
   check_context_secrets
-  check_embedding_model
+  provision_embedding_model
 
   echo "==> Restarting services"
   # Clear any prior failed state so an earlier crash-loop's start-limit does not
