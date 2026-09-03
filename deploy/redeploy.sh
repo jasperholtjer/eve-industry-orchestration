@@ -53,9 +53,18 @@ SERVICES=(dagster-daemon dagster-webserver)
 # pass to Dagster, so the running binary and the deployed one can never drift.
 CORPUS_VERSION="${CORPUS_VERSION:-}"
 CORPUS_REPO="${CORPUS_REPO:-jasperholtjer/eve-industry-corpus}"
-CORPUS_TARGET="${CORPUS_TARGET:-x86_64-unknown-linux-musl}"
+# gnu, not musl: only the default-features build carries `embed-engine`, and it
+# links a prebuilt onnxruntime that exists for glibc only. A binary built on the
+# release runner's glibc 2.39 runs on this LXC's Debian 13.
+CORPUS_TARGET="${CORPUS_TARGET:-x86_64-unknown-linux-gnu}"
 CORPUS_BIN="${CORPUS_BINARY_PATH:-/usr/local/bin/corpus}"
 DATASETS_DIR="${CORPUS_DATASETS_DIR:-/usr/local/share/corpus/datasets}"
+
+# ONNX model dir for `corpus enrich embed` (corpus ADR-0053). ~540 MB from
+# HuggingFace, provisioned ONCE by hand — a redeploy never downloads it, it only
+# reports on it below. The path must match the systemd units'
+# CORPUS_EMBEDDING_MODEL_DIR.
+MODEL_DIR="${CORPUS_EMBEDDING_MODEL_DIR:-/usr/local/share/corpus/models/bge-m3}"
 
 # Context-dataset secrets (corpus ADR-0047). The systemd units load these from an
 # optional root-only EnvironmentFile (see dagster-{daemon,webserver}.service). The
@@ -127,8 +136,10 @@ pull_corpus() {
     --pattern "SHA256SUMS" \
     --dir "${tmp}" --clobber
 
+  # --ignore-missing: SHA256SUMS covers every asset of the release and only two of
+  # them are downloaded here, so a plain --check fails on the ones not fetched.
   echo "    verifying checksums"
-  (cd "${tmp}" && sha256sum --check SHA256SUMS)
+  (cd "${tmp}" && sha256sum --ignore-missing --check SHA256SUMS)
 
   echo "    installing binary -> ${CORPUS_BIN}"
   install -m 0755 "${tmp}/${bin_asset}" "${CORPUS_BIN}"
@@ -216,6 +227,28 @@ check_context_secrets() {
   echo "    all context-dataset secrets present"
 }
 
+# Advisory check of the embedding model dir (corpus ADR-0053). NEVER aborts the
+# deploy: only `corpus enrich embed` reads it, so a box without it runs every
+# other dataset fine. Provisioning is a one-off on the box — deliberately not a
+# step in a script that runs on every deploy, 540 MB is not per-deploy work:
+#
+#   sudo -u corpus hf download onnx-community/bge-m3-ONNX \
+#     --revision 25b9af8e87a38eb120cfe87125383677b9cd309e \
+#     onnx/model_quantized.onnx tokenizer.json \
+#     --local-dir /usr/local/share/corpus/models/bge-m3
+#   sudo chmod -R a+rX /usr/local/share/corpus/models
+#
+# The revision is the pin: a different export is a different embedding generation.
+check_embedding_model() {
+  echo "==> Checking embedding model (${MODEL_DIR})"
+  if [[ -f "${MODEL_DIR}/onnx/model_quantized.onnx" && -f "${MODEL_DIR}/tokenizer.json" ]]; then
+    echo "    present"
+    return 0
+  fi
+  echo "    note: absent — news/transcripts embeddings fail until provisioned;" >&2
+  echo "          every other dataset is unaffected (corpus ADR-0053)" >&2
+}
+
 # Wrapped in a function so bash parses the whole body before executing: the
 # git pull below may update this very file, and a half-read script would break.
 main() {
@@ -274,6 +307,7 @@ main() {
   # Advisory: report on the secrets file the units just referenced, before the
   # restart makes it live. Never blocks the deploy.
   check_context_secrets
+  check_embedding_model
 
   echo "==> Restarting services"
   # Clear any prior failed state so an earlier crash-loop's start-limit does not
