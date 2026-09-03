@@ -25,6 +25,7 @@ from eve_industry_orchestration.defs import sovereignty_map as sm
 from eve_industry_orchestration.defs import sovereignty_structures as ss
 from eve_industry_orchestration.defs.corpus_resource import CorpusResource
 from tests.conftest import _assert_enriched
+from tests.fake_corpus import seed_flip_window
 
 DATE = "2024-01-15"
 # Any day other than DATE. Naming it as the only upstream-present day makes DATE
@@ -193,13 +194,15 @@ def test_fake_binary_reports_ready_dates_per_derivative(
 
     A day drops out of ``ready`` once that derivative's Gold is built, which is
     the state-level diff the readiness sensors will run on. The panel is also
-    gated on its three same-day sibling trees, so this case builds them first —
-    that gate is exercised in both directions in the sensor tests.
+    gated on its three same-day sibling trees and on its trailing 30-day
+    ``sovereignty-changes`` window, so this case clears both first — they are
+    exercised in every direction in the sensor tests.
     """
     _ingest(corpus, dataset, DATE)
     if derivative == "sovereignty-panel":
         for prerequisite_dataset, prerequisite in PANEL_PREREQUISITES:
             _gold_build(corpus, prerequisite_dataset, prerequisite, DATE)
+        seed_flip_window(corpus.sink_path, DATE)
 
     report = corpus.gold_ready_dates(dataset, derivative=derivative)
     assert report["derivative"] == derivative
@@ -558,7 +561,10 @@ def test_an_incomplete_flip_window_is_not_a_skip(corpus, monkeypatch) -> None:
     ``FAKE_SHORT_FLIP_WINDOW_DATES`` is the switch: the build reports a
     *written* partition whose ``constellation_flips_30d`` / ``region_flips_30d``
     are NULL, the way the real binary warns and publishes the counts as null
-    when the trailing 30 days are not all there. That is the ordinary path —
+    when the trailing 30 days are not all there. Since the window readiness gate
+    landed (corpus ADR-0066 §8) reaching that path means the counts are
+    genuinely unknowable, not that the day was proposed early. That is the
+    ordinary path —
     the partition materialises and Gold verify runs — and it produces none of
     what the skipped branch above produces: no observation, no missing
     partition, no failure.

@@ -184,10 +184,13 @@ items:
     notes: >
       Two gates, and conflating them yields a wrong number rather than a
       missing one: a permanently-absent same-day prerequisite skips the panel
-      day (ADR-0065), while an incomplete `sov-events` window only NULLs the
-      two flip counts. Both are the binary's to enforce — the assets shell out
-      and record, they never pre-validate. The panel's SDE input makes this the
-      first cross-dataset Gold dependency in the code location.
+      day (ADR-0065), while an unsettled trailing `sov-events` window blocks it
+      until every day in the window is built or recorded as a gap (corpus
+      ADR-0066 §8, released 0.20.0 — the row shipped before that gate landed,
+      when a short window only NULLed the two flip counts). Both are the
+      binary's to enforce — the assets shell out and record, they never
+      pre-validate. The panel's SDE input makes this the first cross-dataset
+      Gold dependency in the code location.
 
   - id: public-contracts-live-wiring
     title: Wire public-contracts-live into the code location

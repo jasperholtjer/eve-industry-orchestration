@@ -15,6 +15,8 @@ only expresses lineage, it does not trigger downstream materialisations, so Gold
 is driven by polling ``corpus gold ready-dates`` rather than by the Silver run.
 """
 
+from typing import Any
+
 import dagster as dg
 
 from eve_industry_orchestration.defs import industry_cost_indices as ici
@@ -628,6 +630,26 @@ def sovereignty_campaigns_availability_sensor(
     )
 
 
+def _blocked_skip_reason(blocked: list[dict[str, Any]]) -> dg.SkipReason | None:
+    """Reports why the binary held every candidate date back, or ``None``.
+
+    ADR-0066 §8's window gate turned a lagging ``sovereignty-changes`` tree from
+    a panel day sealed with NULL flip counts into a panel day that is simply
+    never proposed — better data, but an operator would see a sensor requesting
+    nothing and nothing anywhere saying why. ``gold ready-dates`` already
+    answers that in ``blocked[]``; this records what it said. No readiness
+    decision moves: the binary still decides, and the sensor still reads only
+    ``ready``.
+    """
+    if not blocked:
+        return None
+    first = min(blocked, key=lambda entry: str(entry.get("date", "")))
+    return dg.SkipReason(
+        f"no date ready; {len(blocked)} blocked, earliest "
+        f"{first.get('date')} on {first.get('block')}"
+    )
+
+
 def _build_sovereignty_gold_sensor(
     dataset: str,
     derivative: str,
@@ -656,7 +678,8 @@ def _build_sovereignty_gold_sensor(
     ``sovereignty-map`` Silver. A panel day is therefore never sealed with NULL
     flip counts because its changes tree lagged — it waits instead. Running four
     of these five sensors stalls the panel rather than degrading it; run all
-    five.
+    five, and a tick that requests nothing says which gate held the earliest
+    candidate back.
 
     Each derivative validates against **its own** partition matrix: the panel
     serves one flip window later than the tenure pair, so a date that is ready
@@ -678,13 +701,26 @@ def _build_sovereignty_gold_sensor(
         context: dg.SensorEvaluationContext, corpus: CorpusResource
     ) -> dg.SensorResult:
         report = corpus.gold_ready_dates(dataset, derivative=derivative)
-        return request_partitions(
+        result = request_partitions(
             context,
             reported=report.get("ready", []),
             valid=set(partitions.get_partition_keys()),
             run_key_prefix=f"{derivative}-gold",
             asset_key=asset.key,
             label="gold-readiness",
+        )
+        # Gated on the report, not on `run_requests`: a tick whose ready dates
+        # were all held back by the in-flight guard has no date blocked, and
+        # saying so would send the operator after a tree that is fine.
+        if report.get("ready"):
+            return result
+        reason = _blocked_skip_reason(report.get("blocked", []))
+        if reason is None:
+            return result
+        # `skip_reason` is only valid on an empty request list, which is why it
+        # is set here and not inside the shared `request_partitions` tail.
+        return dg.SensorResult(
+            run_requests=[], skip_reason=reason, cursor=result.cursor
         )
 
     return _sensor
