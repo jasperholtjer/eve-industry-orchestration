@@ -233,10 +233,13 @@ check_context_secrets() {
 }
 
 # Ensure the embedding model dir (corpus ADR-0053), fetching only what is missing.
-# curl straight from the pinned revision, so the box needs no HuggingFace CLI and
-# no auth — the repo is public. Downloads into a temp dir and moves each file into
-# place only after the whole set arrived, because the presence check IS the
-# idempotence key: a truncated file left behind would be "present" forever after.
+# Straight from the pinned revision, so the box needs no HuggingFace CLI and no
+# auth — the repo is public. The fetch runs on the repo venv's Python, the one
+# `validate_instance_config` already depends on: the LXC ships with neither curl
+# nor wget, and a deploy script is the wrong place to apt-install one. Downloads
+# into a temp dir and moves each file into place only after the whole set arrived,
+# because the presence check IS the idempotence key: a truncated file left behind
+# would be "present" forever after.
 #
 # Advisory, and that is why it is the LAST thing before the restart: it NEVER
 # aborts the deploy. Only `corpus enrich embed` reads this dir, so a box that
@@ -255,16 +258,39 @@ provision_embedding_model() {
 
   echo "    fetching ${missing[*]} from ${MODEL_REPO}@${MODEL_REVISION:0:7} (once; the full set is ~540 MB)"
   tmp="$(mktemp -d)"
-  for f in "${missing[@]}"; do
-    install -d "${tmp}/$(dirname "${f}")"
-    curl --fail --location --progress-bar \
-      -o "${tmp}/${f}" \
-      "https://huggingface.co/${MODEL_REPO}/resolve/${MODEL_REVISION}/${f}" || rc=$?
-  done
+  set +e
+  "${REPO_DIR}/.venv/bin/python" - \
+    "${tmp}" "${MODEL_REPO}" "${MODEL_REVISION}" "${missing[@]}" <<'PY'
+import pathlib, sys, urllib.request
+
+tmp, repo, revision, *names = sys.argv[1:]
+for name in names:
+    dest = pathlib.Path(tmp, name)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    url = f"https://huggingface.co/{repo}/resolve/{revision}/{name}"
+    try:
+        with urllib.request.urlopen(url) as src, dest.open("wb") as out:
+            total = int(src.headers.get("Content-Length", 0))
+            done = 0
+            while chunk := src.read(1 << 20):
+                out.write(chunk)
+                done += len(chunk)
+                pct = f"{done * 100 // total}%" if total else f"{done >> 20} MiB"
+                print(f"\r    {name}: {pct}", end="", flush=True)
+        # A short body is a truncated transfer, not a valid file: fail the set.
+        if total and done != total:
+            raise OSError(f"got {done} of {total} bytes")
+    except Exception as exc:
+        print(f"\r    {name}: {type(exc).__name__}: {exc}", file=sys.stderr)
+        sys.exit(1)
+    print(f"\r    {name}: done ({done >> 20} MiB)")
+PY
+  rc=$?
+  set -e
   if [[ "${rc}" -ne 0 ]]; then
     rm -rf "${tmp}"
-    echo "    note: download failed (curl ${rc}) — news/transcripts embeddings fail" >&2
-    echo "          until a later redeploy gets it; no other dataset is affected" >&2
+    echo "    note: download failed — news/transcripts embeddings fail until a" >&2
+    echo "          later redeploy gets it; no other dataset is affected" >&2
     return 0
   fi
 
