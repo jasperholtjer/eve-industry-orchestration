@@ -3,7 +3,7 @@
 Pools are created implicitly by an asset's ``pool=``: a module that names a new
 one does not error, it just starts sharing the box with everything else while
 ``deploy/dagster.yaml`` keeps budgeting for the pools it knew about. That is how
-``news_embed`` arrived unaccounted. This test discovers the pool names from the
+the retired ``news_embed`` pool arrived unaccounted. This test discovers the pool names from the
 loaded definitions rather than from a hand-written list of imported assets --- a
 hand-written list cannot catch a pool declared in a module nobody remembered to
 add, which is the exact drift being guarded.
@@ -18,11 +18,12 @@ from __future__ import annotations
 from eve_industry_orchestration.definitions import defs
 
 # Every pool name any op in the code location may declare. `everef_download`
-# (EVE Ref fetch politeness), `heavy` and `market_orders` (memory) and
-# `news_embed` (embedding memory). The `_LIVE_POOL` constants in the live
-# modules alias `everef_download` rather than adding a pool of their own, and an
-# asset with no `pool=` contributes nothing --- it obeys only the global cap.
-EXPECTED_POOLS = frozenset({"everef_download", "heavy", "market_orders", "news_embed"})
+# (EVE Ref fetch politeness), `heavy` and `market_orders` (memory). The
+# `_LIVE_POOL` constants in the live modules alias `everef_download` rather than
+# adding a pool of their own, and an asset with no `pool=` contributes nothing
+# --- it obeys only the global cap. The embed steps hold `heavy` (ADR-0002),
+# not a pool of their own.
+EXPECTED_POOLS = frozenset({"everef_download", "heavy", "market_orders"})
 
 
 def declared_pools() -> dict[str, list[str]]:
@@ -45,7 +46,7 @@ def declared_pools() -> dict[str, list[str]]:
 
 
 def test_code_location_declares_exactly_the_budgeted_pools() -> None:
-    """A fourth memory-bearing pool cannot arrive unaccounted for."""
+    """A new memory-bearing pool cannot arrive unaccounted for."""
     found = declared_pools()
     unbudgeted = sorted(set(found) - EXPECTED_POOLS)
     gone = sorted(EXPECTED_POOLS - set(found))

@@ -57,8 +57,8 @@ per-tick token so a still-missing date is re-proposed rather than deduped.
 
 **Pool**
 A Dagster concurrency pool named in `deploy/dagster.yaml` and joined by an asset
-with `pool=`. Four exist: `heavy`, `market_orders`, `news_embed`,
-`everef_download`. A pool gates every launch path — sensor, UI backfill, manual
+with `pool=`. Three exist: `heavy`, `market_orders`, `everef_download`. A pool
+gates every launch path — sensor, UI backfill, manual
 — so a pooled run is bounded by `min(global cap, pool limit)`. Distinct from the
 **global run cap** (`concurrency.runs.max_concurrent_runs`), which is the I/O
 default every run taps, pooled or not.
@@ -67,7 +67,9 @@ default every run taps, pooled or not.
 **Holder**
 An asset that occupies one slot of a pool while it runs, and the unit the memory
 budget is stated in: *peak per holder* times *slots*. Membership of a
-memory-bearing pool is by measured peak, never by shape.
+memory-bearing pool is by measured peak, never by shape — with one recorded
+exception, `heavy` bought for mutual exclusion (ADR-0002). The limits and the
+figures are in `deploy/dagster.yaml` and nowhere else.
 *Avoid*: member, occupant, consumer (that word is a downstream repository).
 
 **Box budget**

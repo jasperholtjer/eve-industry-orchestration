@@ -145,7 +145,9 @@ The homelab deployment (LXC, NFS mount, build order) is documented in
   coverage gate), so `news_daily_schedule` / `transcripts_daily_schedule` (group-targeted)
   run the whole chain in one daily run and a past fetch date is re-processed via the
   `{News,Transcripts}DateConfig` run-config instead of a partition matrix. Both embed
-  steps share the single `news_embed` limit-1 pool, so no two embeds ever overlap. The
+  steps hold the `heavy` limit-1 pool, so no two embeds overlap and no embed runs beside a
+windowed Gold build (ADR-0002; the limits and the memory figures are in
+`deploy/dagster.yaml`). The
   `news_listed_vs_archived` / `transcripts_listed_vs_archived` asset checks surface the
   listed-vs-archived delta as metadata, never as a failure. `transcripts-annotations` is
   **never wired** — its generation is a manual operator run via the `annotate-transcripts`
