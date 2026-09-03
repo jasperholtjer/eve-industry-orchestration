@@ -1315,9 +1315,11 @@ industry_cost_indices_live_schedule = dg.ScheduleDefinition(
 # keyed on the fetch date (one dense Bronze partition per day) and the binary dedups
 # already-archived documents via its seen-ledger, so there is no per-date upstream
 # matrix to diff. Late UTC evening, after CCP's publishing day, staggered an hour
-# apart. STOPPED by default. Neither asset joins a pool (it hits neither EVE Ref nor
-# ESI), so both obey only the global concurrency cap; the historical sweeps run via
-# the manually-triggered `news_backfill_job` / `transcripts_backfill_job`, not here.
+# apart. STOPPED by default. Neither fetch asset joins a pool (it hits neither
+# EVE Ref nor ESI), so the fetch step obeys only the global concurrency cap; the
+# embed step further down each group's chain joins `heavy` instead. The
+# historical sweeps run via the manually-triggered `news_backfill_job` /
+# `transcripts_backfill_job`, not here.
 # news is the one context dataset with a Silver/Gold chain (ADR-0050/0052), so its
 # schedule targets the whole `news` group — fetch → ingest → the four Gold trees —
 # in one run, in dependency order. Every tier is keyed on the same fetch date and
@@ -1339,9 +1341,12 @@ news_daily_schedule = dg.ScheduleDefinition(
 # entity-mentions Gold (+ embeddings) — in one run, in dependency order, exactly
 # like `news_daily_schedule`. The embed step shares the `heavy` limit-1 pool with
 # news-embeddings and with every windowed Gold build, so the two schedules fire a
-# full hour apart rather than 30 min: one embed generation gets to hold the single
-# `heavy` slot start to finish without the other schedule's run queuing behind it
-# mid-run. Annotations are NOT in this
+# full hour apart rather than 30 min. With `granularity: run`, the whole group
+# run — fetch, ingest, the Gold builds and the embed step — holds `heavy` for
+# its duration, not just the embed step, so the hour is not guaranteed to clear
+# it; the stagger only makes it likely. If it doesn't, the other schedule's run
+# queues rather than failing, which is an acceptable cost, not a cadence bug.
+# Annotations are NOT in this
 # group's scheduled chain: `transcripts-annotations` is a manual operator run via the
 # `annotate-transcripts` skill (contract `t2`), never a Dagster asset.
 transcripts_daily_schedule = dg.ScheduleDefinition(

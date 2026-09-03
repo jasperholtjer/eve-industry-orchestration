@@ -2,10 +2,12 @@
 
 ## Status
 
-Accepted (2026-09-03). Decided by the `embed-on-the-box` row, which answered
-[`docs/questions/answered/2026-09-02-embed-engine-missing-from-the-deployed-binary.md`](../questions/answered/2026-09-02-embed-engine-missing-from-the-deployed-binary.md)
-— embedding runs on the box, and the pool is merged rather than kept. No prior
-ADR governs pool membership; this is the first.
+Accepted (2026-09-03). Decided by the `embed-on-the-box` row, which resolved the
+2026-09-02 question on the embed engine missing from the deployed binary —
+embedding runs on the box, and the pool is merged rather than kept. That
+question file is deleted once its answer lands here: this record replaces it,
+and git holds what it said. No prior ADR governs pool membership; this is the
+first.
 
 ## Context
 
