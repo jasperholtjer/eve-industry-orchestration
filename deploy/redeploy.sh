@@ -37,7 +37,9 @@
 # Set both on the Proxmox host (not in this container), e.g.:
 #   pct set 211 --cores 8 --memory 12288 --swap 2048
 # Raising RAM does NOT speed up the CPU-bound backfill — add cores for that.
-# Raising the heavy pool without matching RAM thrashes swap and risks an OOM-killed daemon.
+# Raising a memory-bearing pool's limit without matching RAM thrashes swap and
+# risks an OOM-killed daemon. `max_concurrent_runs` is the NAS spindle's I/O cap,
+# not a memory backstop, so raising IT is not the same lever.
 set -euo pipefail
 
 SERVICE_USER="${SERVICE_USER:-corpus}"
@@ -241,21 +243,22 @@ main() {
   install -o "${SERVICE_USER}" -g 988 -m 0644 \
     "${REPO_DIR}/deploy/dagster.yaml" "${DAGSTER_HOME}/dagster.yaml"
 
-  # Four pools are declared; `heavy` and `everef_download` take `default_limit:
-  # 2` from dagster.yaml, while `market_orders` and `news_embed` sit BELOW it at
-  # 1. A sub-default per-pool limit cannot live in dagster.yaml (it only carries
-  # `default_limit`); it persists in the instance DB, so it is set here to keep
-  # the overrides reproducible at deploy time rather than a one-off manual CLI
-  # call. Runs as `corpus` so it writes the corpus-owned instance DB under
-  # DAGSTER_HOME. Idempotent: re-setting the same limit is a no-op. A pool that
-  # gains or loses a sub-default limit needs a matching change here; the memory
-  # budget and the reason each pool has the limit it has are in
-  # deploy/dagster.yaml, which owns that arithmetic.
+  # Three pools are declared; `heavy` and `market_orders` take `default_limit: 1`
+  # from dagster.yaml, and `everef_download` is the only one above it. A per-pool
+  # limit cannot live in dagster.yaml at all (it only carries `default_limit`); it
+  # persists in the instance DB, so it is set here to keep the override
+  # reproducible at deploy time rather than a one-off manual CLI call. The default
+  # is deliberately the MEMORY-SAFE limit, and the single override is the one pool
+  # whose limit costs no memory: if this call is ever lost, the box falls back to
+  # slower EVE Ref downloads, never to two concurrent 4.4 GiB embeds. Runs as
+  # `corpus` so it writes the corpus-owned instance DB under DAGSTER_HOME.
+  # Idempotent: re-setting the same limit is a no-op. A pool that gains or loses a
+  # non-default limit needs a matching change here; the memory budget and the
+  # reason each pool has the limit it has are in deploy/dagster.yaml, which owns
+  # that arithmetic.
   echo "==> Setting per-pool concurrency limits"
   run_as_user "cd '${REPO_DIR}' && DAGSTER_HOME='${DAGSTER_HOME}' \
-    uv run dagster instance concurrency set market_orders 1"
-  run_as_user "cd '${REPO_DIR}' && DAGSTER_HOME='${DAGSTER_HOME}' \
-    uv run dagster instance concurrency set news_embed 1"
+    uv run dagster instance concurrency set everef_download 2"
 
   # Install the systemd units from the repo (root-owned /etc/systemd/system) so
   # unit changes — env like RAYON_NUM_THREADS, ExecStart — ship with a redeploy

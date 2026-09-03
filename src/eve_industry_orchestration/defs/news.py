@@ -254,14 +254,12 @@ GOLD_ASSETS = (
 # manual operator run.
 EMBEDDINGS_DATASET = "news-embeddings"
 
-# The embed step is the memory-heaviest thing on the box, so it gets its OWN pool
-# at limit 1 rather than joining `heavy`: `heavy` allows 2 concurrent holders, and
-# two embeds overlapping would double-peak with nothing left for the rest of the
-# box. Limit 1 guarantees no two embed runs ever overlap, across every launch path
-# — schedule, UI, manual. A pool is per-asset and cannot span pools, so this does
-# NOT exclude a concurrent `heavy` Gold build. See the `news_embed` bullet and the
-# memory budget table in deploy/dagster.yaml for the measured figures.
-_EMBED_POOL = "news_embed"
+# The embed step joins `heavy`, now at limit 1. Membership is bought for exclusion,
+# not for a measured peak (ADR-0002): one pool at limit 1 is the only thing Dagster
+# can say that keeps an embed from running beside a windowed Gold build, across
+# every launch path — schedule, UI, manual. Its own pool could only bound embeds
+# against each other, never against `heavy`. Figures: deploy/dagster.yaml.
+_EMBED_POOL = "heavy"
 
 
 class NewsEmbedConfig(dg.Config):

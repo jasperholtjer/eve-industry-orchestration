@@ -89,8 +89,10 @@ def test_context_assets_join_no_pool() -> None:
 
 
 def test_schedules_are_daily_and_stopped() -> None:
-    assert news_daily_schedule.cron_schedule == "0 22 * * *"
-    assert transcripts_daily_schedule.cron_schedule == "30 22 * * *"
+    # An hour apart: one embed generation holds the single `heavy` slot start to
+    # finish before the other schedule fires.
+    assert news_daily_schedule.cron_schedule == "10 22 * * *"
+    assert transcripts_daily_schedule.cron_schedule == "10 23 * * *"
     assert news_daily_schedule.default_status is dg.DefaultScheduleStatus.STOPPED
     assert transcripts_daily_schedule.default_status is dg.DefaultScheduleStatus.STOPPED
 
@@ -159,10 +161,10 @@ def test_news_embeddings_chain_materialises(corpus) -> None:
         assert result.metadata["partition"] == _DATE
 
 
-def test_news_embeddings_bronze_holds_its_own_limit_one_pool() -> None:
-    # 4.4 GB RSS per embed run: its own pool (limit 1 in redeploy.sh) is what stops
-    # two embeds from ever overlapping. The `heavy` pool's limit of 2 would not.
-    assert news_embeddings_bronze.op.pool == "news_embed"
+def test_news_embeddings_bronze_holds_the_heavy_pool() -> None:
+    # `heavy` at limit 1 is what excludes an embed from running beside a windowed
+    # Gold build (ADR-0002); a pool of its own could not say that.
+    assert news_embeddings_bronze.op.pool == "heavy"
     # The deterministic halves are cheap — no pool, global cap only.
     assert news_embeddings_silver.op.pool is None
     assert news_embeddings_gold.op.pool is None
@@ -346,10 +348,10 @@ def test_transcripts_embeddings_chain_materialises(corpus) -> None:
         assert result.metadata["partition"] == _DATE
 
 
-def test_transcripts_embeddings_bronze_shares_the_news_embed_pool() -> None:
-    # Both datasets' embeds run the same ~4.4 GB ONNX model, so they share ONE
-    # limit-1 pool — no two embeds (news or transcripts) ever overlap on the box.
-    assert transcripts_embeddings_bronze.op.pool == "news_embed"
+def test_transcripts_embeddings_bronze_holds_the_heavy_pool() -> None:
+    # Both embed steps hold `heavy` at limit 1, so neither overlaps the other nor
+    # any windowed Gold build — that is what the exclusion rests on (ADR-0002).
+    assert transcripts_embeddings_bronze.op.pool == "heavy"
     # The deterministic halves are cheap — no pool, global cap only.
     assert transcripts_embeddings_silver.op.pool is None
     assert transcripts_embeddings_gold.op.pool is None

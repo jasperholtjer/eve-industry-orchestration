@@ -62,6 +62,9 @@ The full rationale lives in [ROADMAP.md](ROADMAP.md); the load-bearing rules:
     scarce slots. Measure with `/usr/bin/time -v` (needs `CORPUS_DATASETS_DIR`)
     before adding a build. Every memory-bearing pool counts against **one** box
     budget: the pools do not know about each other, so their peaks add.
+    [`docs/adr/0002-heavy-pool-membership-for-exclusion-not-peak.md`](docs/adr/0002-heavy-pool-membership-for-exclusion-not-peak.md)
+    records the one admissible exception: membership bought to guarantee mutual
+    exclusion between two classes, and only at limit 1.
   - **The arithmetic lives in [`deploy/dagster.yaml`](deploy/dagster.yaml)** and
     nowhere else — which pools exist, their limits, each holder's peak, the worst
     case against the box, and where the box itself is provisioned. Read it before

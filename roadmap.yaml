@@ -228,9 +228,10 @@ items:
 
       The schedule is `15,45 * * * *`, not `*/30`: with all four live schedules
       enabled the minute-:00 tick would launch three EVE Ref fetches against an
-      `everef_download` limit of 2 and four runs against `max_concurrent_runs:
-      4`, so the live family could hold the whole global cap on every hour
-      boundary. The cadence is what the row needs and the offset is free on a
+      `everef_download` limit of 2 and four runs against the global cap, which
+      was 4 when this row landed, so the live family could hold the whole cap on
+      every hour boundary. `embed-on-the-box` raised it to 6, which loosens the
+      argument without changing the cadence. The cadence is what the row needs and the offset is free on a
       last-write-wins tree.
 
       Materialising this on the LXC waits on a corpus release: the deploy
@@ -478,25 +479,42 @@ items:
       other than a measured peak.
     areas: [orchestration]
     priority: 1
-    status: todo
+    status: done
     notes: >
-      Answers `docs/questions/answered/`'s
-      `2026-09-02-embed-engine-missing-from-the-deployed-binary.md`.
-      Not blocked on corpus: the pool merge, the cap and the schedules are true
-      whether or not the binary can embed. The embed step actually RUNNING is
-      blocked on a corpus row that publishes an `x86_64-unknown-linux-gnu`
-      release asset with default features (`ort` links a prebuilt onnxruntime
-      there, so no C++ build enters the release, and a binary built on
-      `ubuntu-latest`'s glibc 2.39 runs on the LXC's Debian 13), plus the
-      ~540 MB model dir at `CORPUS_EMBEDDING_MODEL_DIR`. Name that row and
-      hand it over; do not add it here.
+      Done 2026-09-03. Answered and deleted
+      `docs/questions/answered/2026-09-02-embed-engine-missing-from-the-deployed-binary.md`;
+      the answer is `docs/adr/0002-heavy-pool-membership-for-exclusion-not-peak.md`.
+
+      Two things the row learned that the next pool row needs. First,
+      `concurrency.pools` carries only `default_limit` — there is no per-pool
+      field — so a sub-default limit is an instance-DB override from
+      `redeploy.sh` and lives outside version control. `default_limit` is
+      therefore 1, the memory-safe limit, and `everef_download` takes the single
+      override up to 2: a lost override then costs download speed, never the
+      memory ceiling. Second, the pooled worst case no longer fills every run
+      slot, so the budget in `deploy/dagster.yaml` no longer closes — it states
+      `~9.15 GiB + 2 × unmeasured`. Measuring `public_contracts` Gold and the
+      three `sovereignty_*` Gold builds is what closes it, and that is the next
+      row in this area.
+
+      The embed step still cannot RUN on the box: the deployed binary is a musl
+      `--no-default-features` build with no `embed-engine`. That is the corpus
+      row `corpus:release-gnu-embed-binary` — publish an
+      `x86_64-unknown-linux-gnu` release asset with default features, plus the
+      ~540 MB model dir at `CORPUS_EMBEDDING_MODEL_DIR` — handed over, not built
+      here (`ort` links a prebuilt onnxruntime for gnu, so no C++ build enters
+      the release, and a binary built on `ubuntu-latest`'s glibc 2.39 runs on the
+      LXC's Debian 13). The pool merge, the cap and the schedules are correct
+      regardless.
 
       `market_orders` deliberately stays its own limit-1 pool: it is bounded for
       CPU saturation, and folding it into `heavy` would park every windowed Gold
-      build behind a multi-hour Silver run.
+      build behind a multi-hour Silver run. ADR-0002 records that as the boundary
+      of the exclusion decision.
 
-      The 4.4 GiB `news_embed` peak in the budget is a Windows-workstation
+      Two figures the row shipped unmeasured, both named in the ADR's Known
+      limits. `heavy` is now sized on the embed's 4.4 GiB, a Windows-workstation
       figure — the LXC has never been able to run embed. Measure it with
-      `/usr/bin/time -v` on the first real run on the box and correct the table;
-      that is the row's own follow-up, not a question. Same for the 6: raise the
-      cap, then watch the NAS before going further.
+      `/usr/bin/time -v` on the first real run on the box and correct the table.
+      Same for the 6: raise the cap, then watch the NAS before going further.
+      Neither is a question; both are follow-ups.
