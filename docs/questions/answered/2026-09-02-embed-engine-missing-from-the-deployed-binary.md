@@ -1,5 +1,5 @@
 ---
-row: none
+row: embed-on-the-box
 ---
 
 # Should the LXC be able to run `corpus enrich embed`, or is embedding an operator step?
@@ -57,4 +57,49 @@ but bounded: one target, one runner base, and the LXC is the only consumer. C
 trades that coupling for two binaries that can drift, which is worse.
 
 ## Answer
+
+**A — embedding runs on the box — but the pool is merged rather than kept.**
+
+Corpus ships a second release asset, `x86_64-unknown-linux-gnu` with default
+features, and `redeploy.sh` points `CORPUS_TARGET` at it. That is a corpus row.
+The build is smaller than the option describes: `ort 2.0.0-rc.12` links a
+prebuilt onnxruntime for the gnu target, so no C++ build enters the release, and
+the glibc direction is the harmless one — `ubuntu-latest` (2.39) produces a
+binary Debian 13 (2.41) runs. The musl asset stays for everything else.
+
+The capacity concern behind the question does not survive the numbers. The NUC
+(ADR-0020, Core Ultra 5 225H, 14 cores) is the box `INTRA_THREADS = 8` in
+`crates/corpus-cli/src/enrich.rs:67` was already written for. The daily increment
+is ~109 chunks — half a minute of inference. A full generation is ~11.3k chunks
+for news and ~1.2k (→ ~4.1k after the video backfill) for transcripts, so a model
+bump is one or two hours, once, ledgered and resumable. None of that needs a
+second machine.
+
+**The exclusion is why `news_embed` goes away.** Dagster cannot say "pool X never
+beside pool Y": an asset carries exactly one pool, and with `granularity: run` a
+run claims one slot in *every* pool its ops name and blocks when any of them is
+full (`_core/op_concurrency_limits_counter.py:184`). "Never beside a heavy Gold
+build" is therefore only sayable by *being* that pool. Both embed assets join
+`heavy`, and `heavy` drops from 2 to 1. Four pools become three, and the worst
+case `deploy/dagster.yaml` admits to falls from ~17.15 GiB to ~9.2 GiB — the
+first configuration that fits the 12 GiB LXC on paper. `market_orders` stays
+separate: its limit-1 is about saturating every core, and folding it in would
+park every windowed Gold build behind a multi-hour Silver run.
+
+That is what makes the global cap honest again. `max_concurrent_runs` stops
+being the accidental memory backstop the current arithmetic leans on and becomes
+what it is documented as — the NAS spindle's I/O cap — so it rises 4 → 6, the
+number that file already names as the next step. The light work is what gains:
+four live schedules currently fire together on the hour and fill the cap of 4 by
+themselves.
+
+Schedules move to `10 22 * * *` and `10 23 * * *` UTC. EVE Ref's publish hour is
+not fixed (baseline 04:30 UTC, observed as late as 16:56), so late evening UTC is
+the only window with no sensor-driven Gold work in it; the ten-minute offset
+clears the `:00/:15/:30/:45` live ticks, and an hour apart instead of thirty
+minutes covers a full generation holding the pool.
+
+One measurement is owed, and it is not a question: the 4.4 GiB is a Windows
+workstation figure. Take `/usr/bin/time -v` on the LXC on the first real run and
+correct the budget table with it.
 

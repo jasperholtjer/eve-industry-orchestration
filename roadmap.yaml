@@ -455,3 +455,48 @@ items:
       `onig_sys` before succeeding on a third attempt. Cargo keeps what compiled,
       so retrying is the fix. The LXC needs a corpus release containing this
       dataset before it can materialise the asset.
+
+  - id: embed-on-the-box
+    title: Make embed exclusive with heavy, let the light work run wider
+    goal: >
+      `corpus enrich embed` is meant to run on the LXC, and the memory budget
+      that lets it is the same edit that closes the overrun
+      `deploy/dagster.yaml` already admits to. Retire the `news_embed` pool:
+      `news_embeddings_bronze` and `transcripts_embeddings_bronze` join `heavy`,
+      and `heavy` drops from 2 to 1 — Dagster cannot express exclusion between
+      two pools (an asset carries one pool; with `granularity: run` a run claims
+      a slot in every pool its ops name and blocks when any is full), so "one
+      embed, never beside a windowed Gold build" is only sayable by being that
+      pool. Worst case falls from ~17.15 GiB to ~9.2 GiB on the 12 GiB LXC.
+      `max_concurrent_runs` then stops being the accidental memory backstop and
+      becomes the NAS spindle's I/O cap it is documented as: 4 -> 6, which the
+      light unpooled work is what gains. `news_daily_schedule` and
+      `transcripts_daily_schedule` move to `10 22 * * *` / `10 23 * * *` UTC.
+      Rewrite the budget arithmetic, `redeploy.sh`'s `concurrency set` calls and
+      `tests/test_concurrency_pools.py`'s pinned set to match, and record the
+      exclusion as an ADR — it is the first pool membership bought for a reason
+      other than a measured peak.
+    areas: [orchestration]
+    priority: 1
+    status: todo
+    notes: >
+      Answers `docs/questions/answered/`'s
+      `2026-09-02-embed-engine-missing-from-the-deployed-binary.md`.
+      Not blocked on corpus: the pool merge, the cap and the schedules are true
+      whether or not the binary can embed. The embed step actually RUNNING is
+      blocked on a corpus row that publishes an `x86_64-unknown-linux-gnu`
+      release asset with default features (`ort` links a prebuilt onnxruntime
+      there, so no C++ build enters the release, and a binary built on
+      `ubuntu-latest`'s glibc 2.39 runs on the LXC's Debian 13), plus the
+      ~540 MB model dir at `CORPUS_EMBEDDING_MODEL_DIR`. Name that row and
+      hand it over; do not add it here.
+
+      `market_orders` deliberately stays its own limit-1 pool: it is bounded for
+      CPU saturation, and folding it into `heavy` would park every windowed Gold
+      build behind a multi-hour Silver run.
+
+      The 4.4 GiB `news_embed` peak in the budget is a Windows-workstation
+      figure — the LXC has never been able to run embed. Measure it with
+      `/usr/bin/time -v` on the first real run on the box and correct the table;
+      that is the row's own follow-up, not a question. Same for the 6: raise the
+      cap, then watch the NAS before going further.
