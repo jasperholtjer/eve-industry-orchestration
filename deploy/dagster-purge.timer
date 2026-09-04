@@ -1,0 +1,14 @@
+[Unit]
+Description=Weekly purge of Dagster runs past the retention window
+
+[Timer]
+# Sunday before dawn: the EVE Ref sensor and the hourly schedules keep running,
+# but a purge only touches run ids outside the window, so it can never race a
+# run in flight. Persistent replays a purge missed while the box was down —
+# without it a fortnight of downtime silently skips a fortnight of cleanup.
+OnCalendar=Sun *-*-* 04:00:00
+Persistent=true
+RandomizedDelaySec=15m
+
+[Install]
+WantedBy=timers.target

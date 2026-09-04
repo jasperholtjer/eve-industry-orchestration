@@ -191,6 +191,41 @@ concurrency:
     default_limit: 1
     granularity: "run"
 
+# STORAGE RETENTION. Instance storage is SQLite under DAGSTER_HOME on the LXC's
+# 20 GiB root disk, and nothing Dagster does shrinks it. Three trees grow:
+#
+#   - `schedules/`      one row per schedule/sensor tick     -> this block
+#   - `history/runs/`   one SQLite event log per run          -> deploy/purge_runs.py
+#   - `storage/<id>/`   compute logs per step                 -> deploy/purge_runs.py
+#
+# `retention:` below is the only one Dagster owns; run retention has no setting
+# in OSS at all, which is why the other two are a weekly systemd timer instead of
+# a line here. Both are set to the same 30 days, and a change to one is a change
+# to the other (the window is repeated in deploy/dagster-purge.service, which is
+# the unit that carries it into the environment).
+#
+# Skipped sensor ticks get 7 days rather than 30: the EVE Ref sensor polls every
+# 30s and skips on nearly every tick, so they are the highest-volume and
+# lowest-value rows in the instance — a skip older than a week has never once
+# been the thing that explained an incident.
+#
+# The disk filling is not hypothetical. On 2026-09-04 it hit 100% at 65k retained
+# runs / 12 GiB of event logs, and every UI query died with
+# `sqlite3.OperationalError: disk I/O error` because SQLite could not write its
+# WAL. Loosening these windows without growing the disk re-arms that.
+retention:
+  schedule:
+    purge_after_days: 30
+  sensor:
+    purge_after_days:
+      skipped: 7
+      failure: 30
+      success: 30
+      # Spelled out because a per-status map leaves every status it omits on -1,
+      # keep forever. A STARTED tick 30 days old is a tick whose daemon died
+      # mid-evaluation, not one still running, so it has nothing to protect.
+      started: 30
+
 # Headless homelab box, no usage stats. Disabled to keep the daemon/webserver
 # logs free of the telemetry notice on every start.
 telemetry:
