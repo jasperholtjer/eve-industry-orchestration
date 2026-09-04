@@ -354,7 +354,19 @@ main() {
     /etc/systemd/system/dagster-daemon.service
   install -m 0644 "${REPO_DIR}/deploy/dagster-webserver.service" \
     /etc/systemd/system/dagster-webserver.service
+  install -m 0644 "${REPO_DIR}/deploy/dagster-purge.service" \
+    /etc/systemd/system/dagster-purge.service
+  install -m 0644 "${REPO_DIR}/deploy/dagster-purge.timer" \
+    /etc/systemd/system/dagster-purge.timer
   systemctl daemon-reload
+
+  # Run retention. Not in SERVICES: it is a oneshot behind a timer, so it must be
+  # enabled (and started, which starts the TIMER, not the purge) rather than
+  # restarted with the long-running units. Enabling an already-enabled timer is a
+  # no-op, so this is safe on every redeploy. The window itself lives in
+  # dagster-purge.service alongside the `retention:` block in dagster.yaml.
+  echo "==> Enabling the run-retention timer"
+  systemctl enable --now dagster-purge.timer
 
   # Advisory: report on the secrets file the units just referenced, before the
   # restart makes it live. Never blocks the deploy.

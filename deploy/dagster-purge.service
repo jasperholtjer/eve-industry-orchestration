@@ -1,0 +1,17 @@
+[Unit]
+Description=Purge Dagster runs older than the retention window
+# The instance storage lives on the LXC's root disk, not on the NAS, so this
+# needs no mount unit — unlike the daemon it never touches /mnt/eve.
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=corpus
+Group=988
+WorkingDirectory=/opt/eve-industry-orchestration
+Environment=DAGSTER_HOME=/var/lib/dagster
+# The run retention window. Ticks are purged on the same 30 days by the
+# `retention:` block in deploy/dagster.yaml; keep the two in step, since a run
+# whose ticks are gone is historically useless anyway.
+Environment=PURGE_AFTER_DAYS=30
+ExecStart=/opt/eve-industry-orchestration/.venv/bin/python /opt/eve-industry-orchestration/deploy/purge_runs.py
